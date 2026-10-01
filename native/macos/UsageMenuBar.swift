@@ -182,10 +182,10 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         emit(["type": "ready", "schemaVersion": 1, "nativeCard": card.superview != nil || menu.items[0].view === card, "nativeChart": card.chart.superview === card, "nativeSelectors": card.tools.superview === card && card.days.superview === card, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }])
     }
     private func item(_ title: String, action: String, key: String) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(perform(_:)), keyEquivalent: key)
+        let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: key)
         item.target = self; item.representedObject = action; menu.addItem(item); return item
     }
-    @objc private func perform(_ sender: NSMenuItem) {
+    @objc private func performMenuAction(_ sender: NSMenuItem) {
         guard let action = sender.representedObject as? String else { return }
         if ["overview", "usage", "settings"].contains(action) { emit(["type": "navigate", "page": action]) }
         else { emit(["type": action]) }
