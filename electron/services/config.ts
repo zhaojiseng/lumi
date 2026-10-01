@@ -155,6 +155,8 @@ export class ConfigService {
     if (this.busy) throw new Error('正在写入配置，请稍后重试。');
     const p = this.pending.get(id);
     if (!p || p.preview.expiresAt < Date.now()) throw new Error('预览已过期，请重新预览配置。');
+    const token=this.store.preferences.managedTokens.find(t=>t.siteId===p.siteId && t.id===p.token.tokenId);
+    if(token && (token.group!==p.request.group || token.name!==p.token.tokenName))throw new Error('专用令牌的渠道已变更，请重新预览配置。');
     if (this.store.activeSite().id !== p.siteId || this.store.activeSite().url !== p.siteUrl || this.store.credentials(p.siteId).userId !== p.userId || this.store.credentials(p.siteId).sessionId !== p.sessionId || authIdentity(this.store.credentials(p.siteId)) !== p.authIdentity) throw new Error('站点或登录账户已切换，请重新预览。');
     this.busy = true;
     try {

@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, 
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import {createHash} from 'node:crypto';
 import { z } from 'zod';
 import { SettingsStore } from './services/store';
 import { NewApiClient } from './services/new-api';
@@ -15,9 +16,10 @@ import {ToolRuntimeService} from './services/tool-runtime';
 import {macUpdater} from './services/mac-updater';
 import {appLogs,captureConsole} from './services/app-logs';
 import {windowLayout,macMenu} from './window-layout';
+import {MenuBarService,menuBarTemplate} from './services/menu-bar';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
-import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput } from '../shared/types';
+import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput,Page } from '../shared/types';
 const root = path.resolve(__dirname, '..');
 captureConsole();
 appLogs.write('info','启动',`Lumi ${app.getVersion()} · ${process.platform}/${process.arch} · Electron ${process.versions.electron}`);
@@ -25,6 +27,15 @@ let quitting=false;app.on('before-quit',()=>{quitting=true;appLogs.write('info',
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
 if (process.env.LUMI_TEST_DATA) app.setPath('userData', path.resolve(process.env.LUMI_TEST_DATA));
 let win: BrowserWindow;let tray: Tray | undefined;
+function trayImage(){
+  if(process.platform!=='darwin')return nativeImage.createFromPath(path.join(root,'public/icon.png')).resize({width:20,height:20});
+  const width=36,bitmap=Buffer.alloc(width*width*4);
+  for(let y=0;y<width;y++)for(let x=0;x<width;x++){
+    const vertical=Math.hypot(x-11,y-Math.max(8,Math.min(25,y)))<=2.5,horizontal=Math.hypot(x-Math.max(11,Math.min(27,x)),y-25)<=2.5,dot=Math.hypot(x-26,y-10)<=4;
+    if(vertical || horizontal || dot)bitmap[(y*width+x)*4+3]=255;
+  }
+  const image=nativeImage.createFromBitmap(bitmap,{width,height:width,scaleFactor:2});image.setTemplateImage(true);return image;
+}
 const timeSchema=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),startTime:timeSchema.optional(),endTime:timeSchema.optional()}).strict();
 const daySchema = z.number().int().min(1).max(90);
@@ -83,6 +94,12 @@ async function start() {
   const updateEnabled=app.isPackaged && (macUpdate || process.platform==='win32' && process.arch==='x64') && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
   const updates=new UpdateService({version:app.getVersion(),enabled:updateEnabled,target:macUpdate ? 'mac-arm64' : 'windows',engine:updateEnabled ? macUpdate ? macUpdater(path.join(data,'updates')) : await nativeUpdater() : undefined});
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
+  const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
+  const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
+  let activeStatusMenu:Electron.Menu|undefined;
+  const menuUsage=new MenuBarService({identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');},load:force=>api.menuBarUsage(force),changed:()=>{if(activeStatusMenu){const next=menuBarTemplate(menuUsage.snapshot(),menuActions);activeStatusMenu.items.forEach((item,index)=>{if(next[index].label!==undefined)item.label=next[index].label!;item.enabled=next[index].enabled!==false;});}}});
+  const menuActions={navigate,refresh:()=>{void menuUsage.refresh(true);},quit:()=>app.quit()};
+  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void menuUsage.refresh(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');void updates.check();}})));
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
@@ -102,6 +119,7 @@ async function start() {
   handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await api.dashboard(input.query,input.force);
+    if(process.platform==='darwin')void menuUsage.refresh();
     if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
       lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
     }
@@ -141,10 +159,14 @@ async function start() {
   const unsubscribeLogs=appLogs.subscribe(entry=>{if(!win.isDestroyed())win.webContents.send('lumi:appLog',entry);});
   const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();});
+  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();tray?.destroy();});
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
-    tray = new Tray(icon.resize({ width: 20, height: 20 })); tray.setToolTip('Lumi · AI 工作台');
-    tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click: () => { win.show(); win.focus(); } }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click', () => { win.show(); win.focus(); });
+    tray = new Tray(trayImage()); tray.setToolTip('Lumi · 余额与今日用量');
+    if(process.platform==='darwin'){
+      tray.setIgnoreDoubleClickEvents(true);
+      const openMenu=()=>{if(activeStatusMenu)return;activeStatusMenu=Menu.buildFromTemplate(menuBarTemplate(menuUsage.snapshot(),menuActions));activeStatusMenu.once('menu-will-close',()=>{activeStatusMenu=undefined;});void menuUsage.refresh();tray?.popUpContextMenu(activeStatusMenu);};
+      tray.on('click',openMenu);tray.on('right-click',openMenu);
+    }else{tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click:showWindow }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click',showWindow);}
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
   appLogs.write('info','启动','工作台页面加载完成。');
@@ -157,10 +179,14 @@ async function start() {
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
         const logs=await window.lumi.appLogs();
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform};
+        const header=document.querySelector('.titlebar'),sidebar=document.querySelector('.sidebar'),rect=header?.getBoundingClientRect();
+        const titlebarGeometry=!!rect && rect.x===0 && rect.y===0 && Math.abs(rect.width-innerWidth)<1 && header.parentElement.classList.contains('desktop-shell') && sidebar.getBoundingClientRect().top>=rect.bottom && getComputedStyle(header).getPropertyValue('-webkit-app-region')==='drag' && getComputedStyle(document.querySelector('.titlebar-actions')).getPropertyValue('-webkit-app-region')==='no-drag';
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
-      result.nativeMacControls=process.platform!=='darwin' || win.getWindowButtonPosition()?.x===24 && Menu.getApplicationMenu()!==null;
+      const buttons=process.platform==='darwin' ? win.getWindowButtonPosition() : null;
+      result.nativeMacControls=process.platform!=='darwin' || buttons?.x===24 && buttons?.y===22 && result.titlebarGeometry && Menu.getApplicationMenu()!==null;
+      result.nativeStatusMenu=process.platform!=='darwin' || trayImage().isTemplateImage() && Menu.buildFromTemplate(menuBarTemplate({phase:'idle'},menuActions)).items.some(item=>item.label==='用量分析');
       const updaterProbe=process.platform==='darwin' ? macUpdater(path.join(data,'updates')) : await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));

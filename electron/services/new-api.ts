@@ -10,8 +10,9 @@ import {ReadCache} from './read-cache';
 import {appLogs} from './app-logs';
 import {tokenPoints} from '../../shared/trends';
 import {summarizeQuality} from '../../shared/usage-quality';
+import {trackedToolTokenNames} from '../../shared/utils';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
-import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality } from '../../shared/types';
+import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality,MenuBarUsage } from '../../shared/types';
 export interface ResolvedToolToken { key: string; tokenName: string; tokenId: number; group: string; created: boolean; siteId: string; siteUrl: string; models?:ModelInfo[]; }
 class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 interface Scope { site: SiteProfile; secret: SiteSecret; preferences: Preferences; }
@@ -262,6 +263,22 @@ export class NewApiClient {
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
+  async menuBarUsage(force=false):Promise<MenuBarUsage>{
+    if(!this.snapshot)return this.scope().menuBarUsage(force);
+    const scope=this.current();if(force)this.cache.invalidate(scope.site.id+'\0');
+    const window=timeRange(1),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],fetchedAt:Date.now(),warnings:[]};
+    if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...empty,status:await statusTask,user:null};
+    const results=await Promise.allSettled([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.usageData(window),this.request('/api/log/self/stat',{query:{...window,type:2}}).then(j=>j.data as UsageStat),this.tokens()]);
+    if(results[0].status==='rejected')throw results[0].reason;
+    if(results[1].status==='rejected')throw results[1].reason;
+    const points=results[2].status==='fulfilled' ? results[2].value.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp) : null;
+    const known=results[4].status==='fulfilled' ? results[4].value : [];
+    const names=trackedToolTokenNames(scope.preferences,scope.site.id,known);
+    const toolResults=await Promise.allSettled(names.map(async b=>({tool:b.tool,quota:((await this.request('/api/log/self/stat',{query:{...window,type:2,token_name:b.name}})).data as UsageStat).quota})));
+    const tools=(['codex','claude'] as const).map(tool=>{const rows=toolResults.filter((_,i)=>names[i].tool===tool);return {tool,quota:!rows.length || rows.some(r=>r.status==='rejected') ? null : rows.reduce((sum,r)=>sum+(r as PromiseFulfilledResult<{quota:number}>).value.quota,0)};});
+    this.checkScope(scope);await this.validSecret(scope);
+    return {...empty,status:results[0].value,user:results[1].value,today:{quota:results[3].status==='fulfilled' ? results[3].value.quota : points?.reduce((s,p)=>s+p.quota,0) ?? null,tokens:points?.reduce((s,p)=>s+(p.token_used || 0),0) ?? null,requests:points?.reduce((s,p)=>s+(p.count || 0),0) ?? null},tools,fetchedAt:Date.now(),warnings:[...results.slice(2).filter(r=>r.status==='rejected').map(()=> '部分今日统计不可用'),...toolResults.filter(r=>r.status==='rejected').map(()=> '工具统计不可用')]};
+  }
   async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
     if (!this.snapshot) return this.scope().dashboard(query,force);
     if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
@@ -288,10 +305,9 @@ export class NewApiClient {
     const value = <T>(i: number, fallback: T): T => results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
     const knownTokens = value<ApiToken[]>(5, []);
     const prefs = this.snapshot?.preferences || this.store.preferences;
-    const tracked = [...prefs.managedTokens.filter(t => t.siteId === prefs.activeSiteId),...prefs.bindings.filter(b => b.siteId === prefs.activeSiteId && b.tokenName).map(b => ({tool:b.tool,name:b.tokenName}))];
-    const bindings = tracked.filter((b,i) => tracked.findIndex(x => x.tool === b.tool && x.name === b.name) === i && knownTokens.filter(t => t.name === b.name).length === 1 && !tracked.some(x => x.tool !== b.tool && x.name === b.name));
+    const toolNames=trackedToolTokenNames(prefs,prefs.activeSiteId,knownTokens),bindings=detailed ? toolNames.filter((b,i)=>toolNames.findIndex(x=>x.tool===b.tool && x.id===b.id)===i) : toolNames;
     const detailRows=value<UsageLog[] | null>(10,null),detailStat=detailRows ? logStat(detailRows,timestamps) : null;
-    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:detailed ? detailRows ? logStat(detailRows.filter(row=>row.token_id===knownTokens.find(t=>t.name===b.name)?.id),timestamps) : null : (await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
+    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:detailed ? detailRows ? logStat(detailRows.filter(row=>row.token_id===b.id),timestamps) : null : (await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
     const toolStats = (['codex','claude'] as Tool[]).map(tool => { const rows = toolResults.filter((r,i) => bindings[i].tool === tool && r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value); const failed = toolResults.some((r,i) => bindings[i].tool === tool && (r.status === 'rejected' || r.value.stat===null)); return {tool,tokenName:rows.map(r => r.tokenName).join(', '),stat:!rows.length || failed ? null : rows.reduce((a,r) => ({quota:a.quota+r.stat.quota,rpm:a.rpm+r.stat.rpm,tpm:a.tpm+r.stat.tpm}),{quota:0,rpm:0,tpm:0})}; });
     const warnings = results.slice(0,7).flatMap((r, i) => r.status === 'rejected' ? [`${names[i]}：${r.reason.message}`] : []);
     toolResults.forEach((r, i) => { if (r.status === 'rejected') warnings.push(`${bindings[i].tool} 独立消费：${r.reason.message}`); });
@@ -352,7 +368,7 @@ export class NewApiClient {
   }
   async ensureToolToken(req: ConfigRequest): Promise<ResolvedToolToken> {
     if (!this.snapshot) return this.scope().ensureToolToken(req);
-    const scope = this.current(); const lock = scope.site.id + ':' + req.tool + ':' + req.group;
+    const scope = this.current(); const lock = scope.site.id + ':' + req.tool;
     const existing = this.provisions.get(lock);
     const job = (existing ? existing.catch(() => undefined) : Promise.resolve()).then(() => this.provision(req)); this.provisions.set(lock,job);
     try { return await job; } finally { if (this.provisions.get(lock) === job) this.provisions.delete(lock); }
@@ -363,25 +379,35 @@ export class NewApiClient {
     if (!model) throw new Error('请选择站点提供的模型。');
     if (!availableGroups(model,catalog).includes(req.group)) throw new Error('所选渠道无法提供这个模型，请重新选择。');
     const tokens = await this.tokens(); const now = Date.now()/1000;
-    const prefix = scope.preferences.tokenPrefix || 'Lumi-';
+    await this.validSecret(scope);const prefs=this.store.preferences;
+    const prefix = prefs.tokenPrefix || 'Lumi-';
     const label = req.tool === 'codex' ? 'Codex' : 'Claude';
-    const groupSlug = req.group.replace(/[^a-zA-Z0-9_-]/g,'').slice(0,18) || createHash('sha256').update(req.group).digest('hex').slice(0,8);
-    const name = (prefix + label + '-' + groupSlug).slice(0,50);
-    const dedicated = scope.preferences.managedTokens.filter(t => t.siteId === scope.site.id && t.tool === req.tool && t.group === req.group);
-    const binding = scope.preferences.bindings.find(b => b.tool === req.tool && b.siteId === scope.site.id);
-    const valid = (t: ApiToken) => t.status === 1 && t.group === req.group && (t.expired_time <= 0 || t.expired_time > now) && (t.unlimited_quota || t.remain_quota > 0) && (!t.model_limits_enabled || (t.model_limits || '').split(',').map(s => s.trim()).includes(req.model)) && tokens.filter(x => x.name === t.name).length === 1 && !scope.preferences.managedTokens.some(x => x.siteId === scope.site.id && x.tool !== req.tool && x.id === t.id) && !scope.preferences.bindings.some(x => x.siteId === scope.site.id && x.tool !== req.tool && x.tokenName === t.name);
-    let token = tokens.find(t => valid(t) && (dedicated.some(x => x.id === t.id) || (binding?.tokenId === t.id && t.name.startsWith(prefix)) || t.name === name));
+    const name = (prefix + label).slice(0,50);
+    const dedicated = prefs.managedTokens.filter(t => t.siteId === scope.site.id && t.tool === req.tool);
+    const binding = prefs.bindings.find(b => b.tool === req.tool && b.siteId === scope.site.id);
+    const valid = (t: ApiToken) => t.status === 1 && (t.expired_time <= 0 || t.expired_time > now) && (t.unlimited_quota || t.remain_quota > 0) && (!t.model_limits_enabled || (t.model_limits || '').split(',').map(s => s.trim()).includes(req.model)) && tokens.filter(x => x.name === t.name).length === 1 && !prefs.managedTokens.some(x => x.siteId === scope.site.id && x.tool !== req.tool && x.id === t.id) && !prefs.bindings.some(x => x.siteId === scope.site.id && x.tool !== req.tool && x.tokenName === t.name);
+    let token = tokens.find(t=>valid(t) && t.name===name) || tokens.find(t=>valid(t) && t.id===binding?.tokenId && dedicated.some(x=>x.id===t.id)) || tokens.find(t=>valid(t) && dedicated.some(x=>x.id===t.id));
     let created = false;
     if (!token) {
-      const unique = tokens.some(t => t.name === name) ? name.slice(0,43) + '-' + randomUUID().slice(0,6) : name;
-      await this.request('/api/token/',{method:'POST',body:{name:unique,remain_quota:0,unlimited_quota:true,expired_time:-1,group:req.group,model_limits_enabled:false,model_limits:'',allow_ips:'',cross_group_retry:false}});
-      token = (await this.tokens()).find(t => t.name === unique && !tokens.some(x => x.id === t.id)); created = true;
+      if(tokens.some(t=>t.name===name))throw new Error('专用令牌 '+name+' 已存在但不可用，请在 API 令牌页面检查状态、有效期、额度或模型限制。');
+      await this.request('/api/token/',{method:'POST',body:{name,remain_quota:0,unlimited_quota:true,expired_time:-1,group:req.group,model_limits_enabled:false,model_limits:'',allow_ips:'',cross_group_retry:false}});
+      token = (await this.tokens()).find(t => t.name === name && !tokens.some(x => x.id === t.id)); created = true;
       if (!token) throw new Error('专用令牌已创建，但未能读取。请刷新后重新预览。');
+    }
+    const key = await this.tokenKey(token.id);
+    if(!created && (token.group!==req.group || token.name!==name)){
+      if(tokens.some(t=>t.id!==token!.id && t.name===name))throw new Error('专用令牌名称冲突，请在 API 令牌页面处理后重试。');
+      if(token.model_limits_enabled && (token.model_limits || '').split(',').map(s=>s.trim()).filter(Boolean).some(name=>!catalog.models.some(m=>m.model_name===name && availableGroups(m,catalog).includes(req.group))))throw new Error('已有模型限制与所选渠道不兼容，请先在 API 令牌页面调整限制。');
+      const oldName=token.name;
+      await this.request('/api/token/',{method:'PUT',body:{id:token.id,name,group:req.group,remain_quota:token.remain_quota,unlimited_quota:token.unlimited_quota,expired_time:token.expired_time,model_limits_enabled:!!token.model_limits_enabled,model_limits:token.model_limits || '',allow_ips:token.allow_ips || '',cross_group_retry:!!token.cross_group_retry}});
+      token=(await this.tokens()).find(t=>t.id===token!.id);
+      if(!token || token.group!==req.group || token.name!==name)throw new Error('专用令牌渠道更新未生效，请刷新后重试。');
+      if(oldName!==name && !dedicated.some(t=>t.id===token!.id))await this.store.registerToken({siteId:scope.site.id,tool:req.tool,id:token.id,name:oldName,group:req.group},scope.site.url);
     }
     this.checkScope(scope);
     if (this.store.credentials(scope.site.id).userId !== scope.secret.userId) throw new Error('登录账户已改变，请重新预览。');
     await this.store.registerToken({siteId:scope.site.id,tool:req.tool,id:token.id,name:token.name,group:req.group},scope.site.url);
-    const key = await this.tokenKey(token.id); this.checkScope(scope);
+    this.checkScope(scope);
     return { key,tokenName:token.name,tokenId:token.id,group:req.group,created,siteId:scope.site.id,siteUrl:scope.site.url,...(req.tool==='codex' ? {models:catalog.models.filter(m=>availableGroups(m,catalog).includes(req.group) && (!token!.model_limits_enabled || (token!.model_limits || '').split(',').map(s=>s.trim()).includes(m.model_name)))} : {}) };
   }
   async toggleToken(id: number, enabled: boolean): Promise<void> { if (!this.snapshot) return this.scope().toggleToken(id, enabled); await this.request('/api/token/', { method: 'PUT', query: { status_only: true }, body: { id, status: enabled ? 1 : 2 } }); }

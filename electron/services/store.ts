@@ -141,7 +141,10 @@ export class SettingsStore {
   }
   async registerToken(token: Preferences['managedTokens'][number], url: string) {
     this.assertSite(token.siteId, url);
-    this.preferences.managedTokens = [...this.preferences.managedTokens.filter(t => !(t.siteId === token.siteId && t.id === token.id)), token];
+    const old=this.preferences.managedTokens.find(t=>t.siteId===token.siteId && t.id===token.id);
+    const previousNames=[...new Set([...(old?.previousNames || []),...(old && old.name!==token.name ? [old.name] : [])])].filter(name=>name!==token.name);
+    this.preferences.managedTokens = [...this.preferences.managedTokens.filter(t => !(t.siteId === token.siteId && t.id === token.id)), {...token,...(previousNames.length ? {previousNames} : {})}];
+    this.preferences.bindings=this.preferences.bindings.map(b=>b.siteId===token.siteId && b.tokenId===token.id ? {...b,tokenName:token.name,group:token.group} : b);
     await this.persist();
   }
   async syncTokenSettings(siteId:string,url:string,id:number,name:string,group:string) {

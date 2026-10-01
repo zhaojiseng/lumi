@@ -9,6 +9,8 @@ const bridge: LumiBridge = {
   bootstrap: () => call('bootstrap'), saveSite: p => call('saveSite', p), removeSite: id => call('removeSite', id),
   inspectConfigs:()=>call('inspectConfigs'),
   appLogs:()=>call('appLogs'),
+  onRefresh:listener=>{const receive=()=>listener();ipcRenderer.on('lumi:refresh',receive);return()=>{ipcRenderer.removeListener('lumi:refresh',receive);};},
+  onNavigate:listener=>{const receive=(_event:Electron.IpcRendererEvent,page:Parameters<typeof listener>[0])=>listener(page);ipcRenderer.on('lumi:navigate',receive);return()=>{ipcRenderer.removeListener('lumi:navigate',receive);};},
   onAppLog:listener=>{const receive=(_event:Electron.IpcRendererEvent,entry:Parameters<typeof listener>[0])=>listener(entry);ipcRenderer.on('lumi:appLog',receive);return()=>{ipcRenderer.removeListener('lumi:appLog',receive);};},
   toolRuntimes:force=>call('toolRuntimes',force),installTool:tool=>call('installTool',tool),
   onToolRuntime:listener=>{const receive=(_event:Electron.IpcRendererEvent,state:Parameters<typeof listener>[0])=>listener(state);ipcRenderer.on('lumi:toolRuntime',receive);return()=>{ipcRenderer.removeListener('lumi:toolRuntime',receive);};},

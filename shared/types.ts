@@ -66,6 +66,11 @@ export type AppLogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface AppLogEntry { id:number; timestamp:number; level:AppLogLevel; source:string; message:string; }
 export interface AppLogSnapshot { startedAt:number; entries:AppLogEntry[]; dropped:number; }
 export interface UsageStat { quota: number; rpm: number; tpm: number; }
+export interface MenuBarUsage {
+  siteId:string;siteName:string;status:SiteStatus;user:UserInfo|null;
+  today:{quota:number|null;tokens:number|null;requests:number|null};
+  tools:{tool:Tool;quota:number|null}[];fetchedAt:number;warnings:string[];
+}
 export interface ModelInfo {
   model_name: string; description?: string; vendor_id?: number; vendor?: string;
   quota_type: number; model_ratio: number; model_price: number; completion_ratio: number;
@@ -135,6 +140,8 @@ export interface LumiBridge {
   onToolRuntime(listener: (state: ToolRuntimeState) => void): () => void;
   appLogs(): Promise<AppLogSnapshot>;
   onAppLog(listener: (entry: AppLogEntry) => void): () => void;
+  onNavigate(listener: (page:Page) => void): () => void;
+  onRefresh(listener:()=>void):()=>void;
   saveSite(input: SiteInput): Promise<Preferences>;
   removeSite(id: string): Promise<Preferences>;
   updatePreferences(patch: PreferencePatch): Promise<Preferences>;
@@ -181,7 +188,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   ],
 };
 
-export interface ManagedToken { siteId: string; tool: Tool; id: number; name: string; group: string; }
+export interface ManagedToken { siteId: string; tool: Tool; id: number; name: string; group: string; previousNames?:string[]; }
 export interface LoginInfo { enabled: boolean; turnstile: boolean; encryption: boolean; siteName: string; }
 export interface LoginInput { username: string; password: string; turnstileToken?: string; }
 export type LoginResult = { state: "success"; preferences: Preferences } | { state: "verification"; challengeId: string; methods: string[]; expiresAt: number };

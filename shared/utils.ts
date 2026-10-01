@@ -1,6 +1,6 @@
 import {logMetrics,upstreamChannel} from './logs';
 import {resolveRange} from './range';
-import type { SiteStatus, UsageLog, QuotaPoint, ToolBinding, Tool, ManagedToken, DateRange } from './types';
+import type { SiteStatus, UsageLog, QuotaPoint, ToolBinding, Tool, ManagedToken, DateRange,Preferences,ApiToken } from './types';
 export function currency(status: SiteStatus) {
   const type = status.quota_display_type || 'USD';
   const symbol = type === 'CUSTOM' ? status.custom_currency_symbol || '¤' : type === 'CNY' ? '¥' : type === 'TOKEN' ? '' : '$';
@@ -14,8 +14,12 @@ export function formatMoney(quota: number, status: SiteStatus, digits = 2) {
 export function compact(n: number) { return n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : n.toLocaleString(); }
 export function localDate(ts: number) { return new Date(ts * 1000).toLocaleDateString('sv-SE'); }
 export function toolForLog(log: UsageLog, bindings: ToolBinding[], managed: ManagedToken[] = []): Tool | 'other' {
-  const matches = [...bindings.filter(b => b.tokenName && b.tokenName === log.token_name), ...managed.filter(t => t.name === log.token_name)];
+  const matches = [...bindings.filter(b => b.tokenName && b.tokenName === log.token_name), ...managed.filter(t => t.name === log.token_name || t.previousNames?.includes(log.token_name))];
   const tools = new Set(matches.map(m => m.tool)); return tools.size === 1 ? matches[0].tool : 'other';
+}
+export function trackedToolTokenNames(prefs:Preferences,siteId:string,tokens:ApiToken[]){
+  const tracked=[...prefs.managedTokens.filter(t=>t.siteId===siteId).flatMap(t=>[t.name,...(t.previousNames || [])].map(name=>({tool:t.tool,name,id:t.id}))),...prefs.bindings.filter(b=>b.siteId===siteId && b.tokenName).map(b=>({tool:b.tool,name:b.tokenName,id:b.tokenId ?? tokens.find(t=>t.name===b.tokenName)?.id}))];
+  return tracked.filter((b,i)=>tracked.findIndex(x=>x.tool===b.tool && x.name===b.name)===i && b.id!==undefined && tokens.some(t=>t.id===b.id) && tokens.filter(t=>t.name===b.name).every(t=>t.id===b.id) && !tracked.some(x=>x.tool!==b.tool && (x.name===b.name || x.id===b.id)));
 }
 export function dailySeries(points: QuotaPoint[], days: number, status: SiteStatus, range?: DateRange, now = new Date()) {
   const resolved=resolveRange(range || days,now);const start=new Date(resolved.start_timestamp * 1000);days=resolved.days;
