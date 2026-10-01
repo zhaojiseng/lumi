@@ -1,15 +1,30 @@
-name: Package Windows
+name: Build and Release
 
 on:
+  push:
+    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: build-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+
   package:
+    name: Build Windows x64
+    needs: check
     runs-on: windows-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -20,11 +35,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Prepare version, source archive and release notes
+        id: release
+        run: npm run prepare:release
       - run: npm run setup:electron
-      - run: npm run check:secrets
-      - run: npm run check:history
-      - run: npm test
-      - run: npm audit
       - run: npm run dist
       - run: npm run verify:release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -32,6 +46,44 @@ jobs:
           name: Lumi-Windows-x64
           path: |
             release/Lumi-*.exe
+            release/Lumi-*-source.zip
             release/SHA256SUMS.txt
+            release/RELEASE_NOTES.md
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Lumi-Windows-x64
+          path: release
+      - name: Verify assets and publish
+        shell: bash
+        working-directory: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.package.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          sha256sum --strict --check SHA256SUMS.txt
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --json tagName,isDraft > "$RUNNER_TEMP/releases.json"
+          draft=$(jq -r --arg tag "$RELEASE_TAG" '.[] | select(.tagName == $tag) | .isDraft' "$RUNNER_TEMP/releases.json")
+          if [ "$draft" = "false" ]; then
+            echo "This release is already public. Published assets are not replaced."
+            exit 1
+          fi
+          if [ -z "$draft" ]; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Lumi $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
+          fi
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "Lumi-$RELEASE_VERSION-x64.exe" "Lumi-$RELEASE_VERSION-source.zip" SHA256SUMS.txt
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Lumi $RELEASE_VERSION" --notes-file RELEASE_NOTES.md --draft=false --latest
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

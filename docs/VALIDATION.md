@@ -39,6 +39,10 @@ Windows 包包含 Lumi MIT 许可、48 个非开发依赖的完整 LICENSE / NOT
 
 源码 ZIP 与便携包的校验值另见 release/SHA256SUMS.txt。发行文件不加入 Git。
 
-## 尚未执行
+## GitHub 自动构建与发布准备
 
-尚未上传 GitHub，因此 Actions 未远程运行。Linux / macOS 构建、原生 Electron GUI、代码签名、真实站点登录与收费模型调用未执行。本轮测试仅使用隔离配置、虚拟凭据和本机模拟服务，未读取或修改真实工具配置、账号、密钥或会话。
+公开仓库为 [zhaojiseng/lumi](https://github.com/zhaojiseng/lumi)。首次推送的 [CI](https://github.com/zhaojiseng/lumi/actions/runs/36804043942) 已在 Windows / Linux 上通过安装、112 项测试、类型检查、生产构建和依赖审计。
+
+新增 main 自动构建和版本标签自动 Release；本机新增发布边界测试后 114 / 114 通过，类型检查通过。测试覆盖标签与版本不一致、锁文件 / 渲染器版本偏移、标签不在公开 main、只导出指定提交和当前版本变更说明。两平台检查完成后才打包，全部附件上传前保持 Release 为草稿。首次自动打包和发布结果以对应 Actions 与 Release 为准。
+
+macOS 构建、Linux 安装包、原生 Electron GUI、代码签名、真实站点登录与收费模型调用未执行。本轮测试仅使用隔离配置、虚拟凭据和本机模拟服务，未读取或修改真实工具配置、账号、密钥或会话。

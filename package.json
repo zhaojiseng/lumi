@@ -23,6 +23,7 @@
     "dist": "npm run build && node scripts/package.mjs",
     "dist:dir": "npm run build && node scripts/package.mjs --dir",
     "verify:release": "node scripts/verify-release.mjs",
+    "prepare:release": "node scripts/prepare-release.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "setup:electron": "node scripts/setup-electron.mjs"
   },

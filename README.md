@@ -2,6 +2,8 @@
 
 Lumi 是基于 Electron、React 和 TypeScript 的 New API 桌面客户端，集中查看账户、模型定价与用量，并配置 Codex 和 Claude Code CLI。采用扁平化浅色 / 深色界面，模型及工具品牌图标来自 Lobe Icons。
 
+[下载最新版本](https://github.com/zhaojiseng/lumi/releases/latest) · [构建与发布](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml)
+
 ## 功能
 
 - 账户密码登录、双重验证与站点登录窗口；支持多个自定义 New API 站点。
@@ -49,7 +51,7 @@ npm run verify:release
 
 Windows 输出 `release/Lumi-<version>-x64.exe`；`npm run dist:dir` 生成目录版。发行包目前未签名，也没有自动更新或支付功能。Electron 安装包需下载相应系统的运行时。
 
-GitHub Actions 提供 Windows / Linux 检查和手动 Windows 打包工作流。工作流准备完成后，需要公开仓库启用 Actions 才会实际执行；本机验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
+GitHub Actions 在推送 main 后自动执行 Windows / Linux 检查并生成 Windows x64 构建包；推送与版本号一致的 v 标签后，检查和打包通过才会发布 Release，附带便携 EXE、源码 ZIP 和 SHA-256 校验文件。也可手动运行工作流；详见 [发布流程](docs/RELEASING.md)，验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
 ## 数据与本机文件
 
