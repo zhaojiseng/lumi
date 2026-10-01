@@ -1,0 +1,50 @@
+import {useEffect,useState} from 'react';
+import {ArrowRight,Check,FileCode2,ShieldCheck,History,Info,Eye,RotateCcw,KeyRound} from 'lucide-react';
+import {useApp} from '../context';
+import {useSavedSelection} from '../selections';
+import {bridge} from '../bridge';
+import {Button,PageIntro,Pill,ToolIcon,Select,Modal} from '../components/ui';
+import {ChannelSelect} from '../components/ChannelSelect';
+import {availableGroups,defaultModelGroup,sortModels} from '../../shared/catalog';
+import {RouteDetails} from '../components/Pricing';
+import type {Tool,ConfigRequest,ConfigPreview,BackupInfo} from '../../shared/types';
+
+function ToolForm({tool,onPreview}:{tool:Tool;onPreview(req:ConfigRequest):Promise<void>}) {
+  const {bootstrap,preferences,dashboard:d,openLogin}=useApp();
+  const b=preferences.bindings.find(x=>x.tool===tool && x.siteId===preferences.activeSiteId),state=bootstrap.configs.find(x=>x.tool===tool);
+  const [model,setModel]=useSavedSelection(tool+'.model',b?.model || state?.model || ''),[group,setGroup]=useSavedSelection(tool+'.group',b?.group || '');
+  const [contextWindow,setContextWindow]=useSavedSelection<number>(tool+'.context',(b?.contextWindow ?? state?.contextWindow)===1000000 ? 1000000 : 272000,n=>[272000,1000000].includes(n));
+  const [busy,setBusy]=useState(false);
+  const site=preferences.sites.find(s=>s.id===preferences.activeSiteId)!,catalog=d?.catalog,models=sortModels(catalog?.models || [],preferences.favoriteModels),selected=models.find(m=>m.model_name===model),groups=selected && catalog ? availableGroups(selected,catalog) : [];
+  useEffect(()=>{if(!catalog || !models.length)return;if(model && !selected){setModel('');setGroup('');return;}if(selected && !groups.includes(group))setGroup(defaultModelGroup(selected,catalog));},[model,catalog,group]);
+  async function submit(e:React.FormEvent){e.preventDefault();setBusy(true);try{await onPreview({tool,model,group,...(tool==='codex' ? {contextWindow} : {})});}finally{setBusy(false);}}
+  const prefix=preferences.tokenPrefix || 'Lumi-',expected=(prefix+(tool==='codex' ? 'Codex' : 'Claude')+'-'+(group || '渠道')).slice(0,50);
+  return <section className="surface tool-config-card">
+    <div className="tool-config-heading"><ToolIcon tool={tool} size={49}/><div><h2>{tool==='codex' ? 'Codex' : 'Claude Code'}</h2><p>{tool==='codex' ? 'OpenAI 的代码智能体' : 'Claude Code CLI'}</p></div><Pill tone={state?.baseUrl ? 'green' : 'muted'}>{state?.baseUrl ? '已配置' : '待配置'}</Pill></div>
+    <div className="current-config"><span><span className={'connection-dot '+(state?.exists ? '' : 'inactive')}/>{state?.exists ? '当前配置' : '尚未发现配置文件'}</span><strong>{state?.model || '—'}</strong><code>{state?.path || (tool==='codex' ? '~/.codex/config.toml' : '~/.claude/settings.json')}</code>{state?.error && <p className="error-text">{state.error}</p>}</div>
+    {!d?.user ? <div className="empty-state"><KeyRound size={23}/><h3>登录后选择可用模型与渠道</h3><p>Lumi 会自动获取模型列表和专用密钥。</p><Button variant="primary" onClick={openLogin}>登录账号<ArrowRight size={14}/></Button></div> : <form onSubmit={submit} className="tool-model-select">
+      <div className="form-step"><span>1</span>选择目标模型</div><Select tone={tool==='codex' ? 'blue' : 'peach'} label={tool+' 目标模型'} value={model} onChange={setModel}><option value="">选择站点模型</option>{models.map(m=><option value={m.model_name} key={m.model_name}>{m.model_name}</option>)}</Select>
+      <p className="field-help">{tool==='codex' ? '写入真实模型名称，通过 New API Responses 调用；模型能力与默认提示词由 Codex 自己管理。应用时同步旧对话，关闭并重新打开 Codex 后生效。' : '写入真实模型名称，通过 New API Anthropic Messages 调用；本站所有模型均可选，仅配置 Claude Code CLI，自动使用专用密钥。'}</p>
+      <div className="form-step"><span>2</span>选择可用渠道</div>{catalog && <ChannelSelect disabled={!selected} label={tool+' 模型渠道'} value={group} onChange={setGroup} catalog={catalog} model={selected} groups={groups}/>}
+      {selected && catalog && group && <RouteDetails model={selected} catalog={catalog} status={d.status} group={group} defaultOnly/>}
+      {tool==='codex' && <div className="context-setting"><span>上下文窗口</span><Select label="Codex 上下文窗口" tone="blue" value={contextWindow} onChange={v=>setContextWindow(Number(v))}><option value="272000">272K · 默认</option><option value="1000000">1M</option></Select><span className="field-help">自动压缩阈值由 Codex 原生处理，请按模型实际支持的窗口选择。</span></div>}
+      <div className="auto-key-info"><KeyRound size={21}/><div><strong>自动使用专用密钥</strong><p>预览时检查已有令牌，复用可用密钥；没有时创建当前渠道的专用令牌。额度随账户余额。</p><code>{b?.group===group ? b.tokenName : expected}</code></div></div>
+      <div className="endpoint-display"><span>接口地址</span><code>{site.url}{tool==='codex' ? '/v1' : ''}</code></div><Button type="submit" variant="primary" busy={busy} className="full-width" disabled={!selected || !group || !bootstrap.desktop}><Eye size={16}/>自动配钥并预览<ArrowRight size={15}/></Button>
+    </form>}
+  </section>;
+}
+export default function Tools() {
+  const { preferences, dashboard: d, bootstrap, reloadBootstrap, refresh, toast } = useApp();
+  const [preview, setPreview] = useState<ConfigPreview | null>(null); const [busy, setBusy] = useState(false); const [fileIndex, setFileIndex] = useState(0); const [view, setView] = useState<'before' | 'after'>('after');
+
+  const [backups, setBackups] = useState<BackupInfo[]>([]); const [history, setHistory] = useState(false); const [restore, setRestore] = useState<BackupInfo | null>(null);
+  async function previewConfig(req: ConfigRequest) { try { const result = await bridge.previewConfig(req); setPreview(result); setFileIndex(0); setView('after'); } catch (e: any) { toast(e.message, 'error'); } }
+  async function apply() { if (!preview) return; setBusy(true); try { await bridge.applyConfig(preview.id); setPreview(null); await reloadBootstrap(); await refresh(); toast(preview.tool === 'codex' ? '配置已应用，原文件已加密备份。配置与相关旧对话已同步。请重新打开 Codex。' : 'Claude Code CLI 配置已应用，原文件已加密备份。请重新启动 Claude Code。', 'success'); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); } }
+  async function openHistory() { try { setBackups(await bridge.backups()); setHistory(true); } catch (e: any) { toast(e.message, 'error'); } }
+  async function doRestore() { if (!restore) return; setBusy(true); try { await bridge.restoreBackup(restore.id); setRestore(null); setHistory(false); await reloadBootstrap(); toast('已恢复配置。请重新启动对应工具。', 'success'); } catch (e: any) { toast(e.message, 'error'); } finally { setBusy(false); } }
+  return <div className="page"><PageIntro title="让工具，顺手起来" description="先选模型，再选渠道。专用密钥自动准备，用量自动归属。" action={<div className="modal-actions"><Button onClick={openHistory}><History size={16}/>配置备份</Button></div>}/><div className="tools-config-grid">{(['codex', 'claude'] as const).map(tool => <ToolForm key={`${tool}-${preferences.activeSiteId}`} tool={tool} onPreview={previewConfig}/>)}</div><div className="surface safety-panel"><ShieldCheck size={27}/><div><h3>每一次切换，都可回溯</h3><p>应用前预览、系统加密备份、文件变更检查与失败回滚。保留已有权限、MCP 与其他配置，恢复操作同样留下备份。</p></div><Pill tone="green">本机操作</Pill></div><div className="info-note"><Info size={15}/><span>设置中的环境变量只写入工具配置文件。系统或项目级环境变量可能覆盖这些设置；应用后请重启 Codex / Claude Code。与 CC Switch 同时切换配置时，请重新检查预览。</span></div>
+    {preview && <Modal title="确认配置变更" subtitle={preview.tool === 'codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={() => { if (!busy) setPreview(null); }}><div className="preview-token"><KeyRound size={16}/><span>{preview.token?.created ? '已创建' : '已复用'}专用令牌 <strong>{preview.token?.name}</strong> · {preview.token?.group}</span></div><div className="preview-changes">{preview.changes.map((s, i) => <div key={i}><Check size={14}/><span>{s}</span></div>)}</div><div className="preview-file-tabs">{preview.files.map((f, i) => <button key={f.path} className={fileIndex === i ? 'active' : ''} onClick={() => setFileIndex(i)}><FileCode2 size={14}/>{f.path.split(/[\\/]/).at(-1)}</button>)}<div className="segmented"><button className={view === 'before' ? 'active' : ''} onClick={() => setView('before')}>修改前</button><button className={view === 'after' ? 'active' : ''} onClick={() => setView('after')}>修改后</button></div></div><p className="preview-path">{preview.files[fileIndex].path}</p><pre className="code-preview">{preview.files[fileIndex][view]}</pre><div className="modal-actions"><span className="muted small-text">原配置会在写入前自动备份</span><Button onClick={() => setPreview(null)} disabled={busy}>取消</Button><Button variant="primary" busy={busy} onClick={apply} disabled={!bootstrap.desktop}><Check size={16}/>备份并应用</Button></div></Modal>}
+    {history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={() => setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b => <div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{b.tool === 'codex' ? 'Codex' : 'Claude Code'}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button onClick={() => { setHistory(false); setRestore(b); }}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}
+    {restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={() => { if (!busy) setRestore(null); }}><div className="info-note"><Info size={16}/><span>恢复会修改 {restore.tool === 'codex' ? 'Codex' : 'Claude Code'} 的本机配置，并先备份当前文件。若文件被其他程序修改，本次恢复将停止。</span></div><div className="modal-actions"><Button onClick={() => setRestore(null)}>取消</Button><Button busy={busy} variant="primary" onClick={doRestore}><RotateCcw size={15}/>备份并恢复</Button></div></Modal>}
+  </div>;
+}

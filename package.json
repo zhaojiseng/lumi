@@ -1,0 +1,87 @@
+{
+  "name": "lumi-ai-workbench",
+  "productName": "Lumi",
+  "version": "0.4.17",
+  "description": "A flat desktop workbench for New API, Codex and Claude Code",
+  "author": "CYG",
+  "license": "MIT",
+  "private": true,
+  "engines": {"node": ">=24.0.0", "npm": ">=11.0.0"},
+  "packageManager": "npm@11.16.0",
+  "type": "module",
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build && node scripts/build-electron.mjs && node scripts/generate-notices.mjs",
+    "typecheck": "tsc --noEmit",
+    "pretest": "node scripts/prepare-tests.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "check:secrets": "node scripts/check-staged-secrets.mjs --all",
+    "check:history": "node scripts/check-staged-secrets.mjs --history=HEAD",
+    "test:desktop": "node scripts/smoke-desktop.mjs",
+    "dist": "npm run build && node scripts/package.mjs",
+    "dist:dir": "npm run build && node scripts/package.mjs --dir",
+    "verify:release": "node scripts/verify-release.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "setup:electron": "node scripts/setup-electron.mjs"
+  },
+  "dependencies": {
+    "@lobehub/icons-static-svg": "1.95.1",
+    "lucide-react": "^1.49.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "recharts": "^3.10.1",
+    "smol-toml": "^1.9.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  },
+  "build": {
+    "appId": "ai.cyg.lumi",
+    "productName": "Lumi",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "public/icon.png"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "Lumi-${version}-${arch}.${ext}",
+      "icon": "public/icon.ico",
+      "signExecutable": false
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "public/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development",
+      "icon": "public/icon.png"
+    }
+  }
+}

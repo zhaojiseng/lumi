@@ -1,0 +1,68 @@
+# Dependencies, builds and local research/test data
+node_modules/
+/dist/
+/dist-electron/
+/release/
+/.cache/
+/.research/
+/.test-data/
+/.test-home/
+test-results/
+coverage/
+*.log
+*.tmp
+*.bak
+
+# Environment and credentials (including encrypted credential stores)
+.env*
+auth.json
+credentials.json
+secrets.json
+settings.json
+vault*.json
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+.codex/
+.claude/
+.cc-switch/
+.lumi/
+.ssh/
+.aws/
+.azure/
+
+# User data, sessions, backups and browser login state
+user-data/
+userdata/
+backups/
+sessions/
+archived_sessions/
+Cookies
+Login Data
+Local State
+Local Storage/
+Session Storage/
+IndexedDB/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.jsonl
+
+# Screenshots and exported account/usage data stay local
+/docs/preview-*
+/screenshots/
+/exports/
+request-logs*.csv
+usage-*.csv
+
+# Editor and OS-local files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

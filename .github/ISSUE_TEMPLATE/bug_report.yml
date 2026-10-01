@@ -1,0 +1,45 @@
+name: 错误报告
+description: 报告可复现的界面、接口或配置问题。
+body:
+  - type: markdown
+    attributes:
+      value: 请使用虚拟数据。安全漏洞按 SECURITY.md 私下报告，不上传真实凭据、原始配置或会话。
+  - type: input
+    id: version
+    attributes:
+      label: Lumi 版本与运行方式
+      placeholder: 例如 0.4.17 / Windows 便携版或源码运行
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 系统与服务版本
+      description: 操作系统、New API / Codex / Claude Code 版本；无需提供站点地址或账号。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 使用虚拟模型、令牌或本机模拟服务描述。
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: 预期与实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 已脱敏的诊断信息
+      description: 仅提供必要信息，删除密钥、Cookie、JWT、个人路径、会话内容和账单。
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私检查
+      options:
+        - label: 我已检查报告和附件，不包含真实凭据或私人数据。
+          required: true

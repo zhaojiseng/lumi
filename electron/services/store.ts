@@ -1,0 +1,152 @@
+import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
+import {applyPreferencePatch, normalizeSelections} from '../../shared/selections';
+import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { DEFAULT_PREFERENCES, type Preferences, type PreferencePatch, type SiteInput, type SiteProfile, type Tool, type ToolBinding } from '../../shared/types';
+export interface Cipher { encrypt(text: string): string; decrypt(text: string): string; available(): boolean; }
+export interface SessionCookie { name: string; value: string; path: string; expires?: number; }
+export interface SiteSecret { accessToken?: string; apiKey?: string; codexKey?: string; claudeKey?: string; cookies?: SessionCookie[]; accessExpiresAt?: number; sessionAuth?: boolean; username?: string; userId?: number; sessionId?: string; }
+export async function atomicWrite(file: string, content: string) {
+  await mkdir(path.dirname(file), { recursive: true });
+  const temp = `${file}.${randomUUID()}.tmp`;
+  await writeFile(temp, content, { mode: 0o600 });
+  await rename(temp, file);
+}
+export function normalizeUrl(raw: string) {
+  let url: URL;
+  try { url = new URL(raw.trim()); } catch { throw new Error('请输入完整站点地址，例如 https://api.example.com'); }
+  if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('站点地址只接受 HTTP / HTTPS，不能包含账户、查询参数或锚点。');
+  url.pathname = url.pathname.replace(/\/(?:v1|api)\/?$/, '').replace(/\/+$/, '');
+  return url.toString().replace(/\/$/, '');
+}
+export class SettingsStore {
+  preferences: Preferences = structuredClone(DEFAULT_PREFERENCES);
+  private secrets: Record<string, SiteSecret> = {};
+  private encrypted = '';
+  private vaultError = '';
+  private pendingWrite: Promise<void> = Promise.resolve();
+  constructor(private directory: string, readonly cipher: Cipher) {}
+  async load() {
+    let data: any;
+    try { data = JSON.parse(await readFile(path.join(this.directory, 'settings.json'), 'utf8')); }
+    catch (e: any) { if (e.code === 'ENOENT') return; throw new Error('设置文件无法读取。请检查应用数据目录。'); }
+    this.preferences = { ...structuredClone(DEFAULT_PREFERENCES), ...data.preferences };
+    // Migrate old settings: obsolete preview and reasoning preferences never survive.
+    delete (this.preferences as any).demoMode;
+    this.preferences.bindings = this.preferences.bindings.map(({ reasoning, ...b }: any) => ({ ...b, group: b.group || "" }));
+    this.preferences.managedTokens ||= [];
+    this.preferences.logColumns = migrateLogColumns(this.preferences.logColumns);
+    this.preferences.viewSelections = normalizeSelections(this.preferences.viewSelections);
+    this.encrypted = data.vault || '';
+    if (this.encrypted) {
+      try { this.secrets = JSON.parse(this.cipher.decrypt(this.encrypted)); }
+      catch { this.vaultError = '系统无法解密已保存的凭据。请在原系统账户运行应用，或重新输入凭据。'; }
+    }
+    this.syncFlags();
+  }
+  private syncFlags() {
+    this.preferences.sites = this.preferences.sites.map(s => ({ ...s, accessTokenConfigured: !!this.secrets[s.id]?.accessToken, apiKeyConfigured: !!this.secrets[s.id]?.apiKey, username: this.secrets[s.id]?.username, sessionAuth: !!this.secrets[s.id]?.sessionAuth }));
+  }
+  private async persist() {
+    if (this.vaultError) throw new Error(this.vaultError);
+    this.syncFlags();
+    const hasSecrets = Object.values(this.secrets).some(s => Object.values(s).some(Boolean));
+    if (hasSecrets && !this.cipher.available()) throw new Error('系统加密存储不可用，无法保存密钥。');
+    this.encrypted = hasSecrets ? this.cipher.encrypt(JSON.stringify(this.secrets)) : '';
+    const content = JSON.stringify({ version: 2, preferences: this.preferences, vault: this.encrypted }, null, 2);
+    const write = this.pendingWrite.then(() => atomicWrite(path.join(this.directory, 'settings.json'), content));
+    this.pendingWrite = write.catch(() => {});
+    await write;
+  }
+  activeSite(): SiteProfile {
+    const site = this.preferences.sites.find(s => s.id === this.preferences.activeSiteId);
+    if (!site) throw new Error('请先添加站点。'); return site;
+  }
+  credentials(id = this.preferences.activeSiteId): SiteSecret {
+    if (this.vaultError) throw new Error(this.vaultError);
+    return structuredClone(this.secrets[id] || {});
+  }
+  async saveSite(input: SiteInput) {
+    const url = normalizeUrl(input.url);
+    const id = input.id || randomUUID();
+    const previous = this.preferences.sites.find(s => s.id === id);
+    if (input.id && !previous) throw new Error('站点不存在。');
+    const site: SiteProfile = { id, name: input.name.trim(), url, userId: input.userId ?? (previous?.url === url ? previous.userId : undefined), allowHttp: input.allowHttp, accessTokenConfigured: false, apiKeyConfigured: false };
+    // A changed origin must never inherit credentials for a different server.
+    const secret = previous?.url === url ? { ...this.credentials(id) } : {};
+    if (input.clearAccessToken) { for (const field of ['accessToken','cookies','accessExpiresAt','sessionAuth','username','userId','sessionId'] as const) delete secret[field]; }
+    if (input.clearApiKey) delete secret.apiKey;
+    if (input.accessToken?.trim()) { for (const field of ['cookies','accessExpiresAt','sessionAuth','username','sessionId'] as const) delete secret[field]; secret.accessToken = input.accessToken.trim().replace(/^Bearer\s+/i, ''); }
+    if (input.apiKey?.trim()) secret.apiKey = input.apiKey.trim().replace(/^Bearer\s+/i, '');
+    if (url.startsWith('http:') && Object.values(secret).some(Boolean) && !site.allowHttp) throw new Error('此站点使用 HTTP。勾选允许 HTTP 后才能保存和发送凭据。');
+    const prevPreferences = structuredClone(this.preferences); const prevSecrets = structuredClone(this.secrets);
+    try {
+      this.secrets[id] = secret;
+      this.preferences.sites = previous ? this.preferences.sites.map(s => s.id === id ? site : s) : [...this.preferences.sites, site];
+      this.preferences.activeSiteId = id;
+      if (previous && previous.url !== url) { this.preferences.bindings = this.preferences.bindings.filter(b => b.siteId !== id); this.preferences.managedTokens = this.preferences.managedTokens.filter(t => t.siteId !== id); delete this.preferences.viewSelections[id]; }
+      await this.persist();
+    } catch (e) { this.preferences = prevPreferences; this.secrets = prevSecrets; throw e; }
+    return structuredClone(this.preferences);
+  }
+  async removeSite(id: string) {
+    if (this.preferences.sites.length <= 1) throw new Error('请至少保留一个站点。');
+    this.preferences.sites = this.preferences.sites.filter(s => s.id !== id); delete this.secrets[id]; this.preferences.managedTokens = this.preferences.managedTokens.filter(t => t.siteId !== id); this.preferences.bindings = this.preferences.bindings.filter(b => b.siteId !== id);
+    delete this.preferences.viewSelections[id];
+    if (this.preferences.activeSiteId === id) this.preferences.activeSiteId = this.preferences.sites[0].id;
+    await this.persist(); return structuredClone(this.preferences);
+  }
+  async update(patch: PreferencePatch) {
+    if (patch.activeSiteId && !this.preferences.sites.some(s => s.id === patch.activeSiteId)) throw new Error('站点不存在。');
+    if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
+    if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
+    this.preferences = applyPreferencePatch(this.preferences, patch);
+    this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);
+  }
+  async setToolKey(tool: Tool, key: string, binding?: Partial<ToolBinding>, id = this.preferences.activeSiteId) {
+    if (!this.preferences.sites.some(s => s.id === id)) throw new Error('站点已移除。');
+    this.secrets[id] = { ...this.credentials(id), [tool === 'codex' ? 'codexKey' : 'claudeKey']: key };
+    if (binding) { const old = this.preferences.bindings.find(b => b.tool === tool && b.siteId === id); const next = { tool, model: '', group: '', tokenName: '', ...old, ...binding, siteId: id }; this.preferences.bindings = [...this.preferences.bindings.filter(b => !(b.tool === tool && b.siteId === id)), next]; }
+    await this.persist();
+  }
+  toolKey(tool: Tool) { const s = this.credentials(); return s[tool === 'codex' ? 'codexKey' : 'claudeKey'] || s.apiKey || ''; }
+  async saveBinding(binding: ToolBinding) { this.preferences.bindings = [...this.preferences.bindings.filter(b => !(b.tool === binding.tool && b.siteId === binding.siteId)), binding]; await this.persist(); }
+  assertSite(id: string, url: string) { const s = this.preferences.sites.find(s => s.id === id); if (!s || s.url !== url) throw new Error('站点已变更，请重新操作。'); return s; }
+  async saveSession(id: string, url: string, secret: SiteSecret, expectedToken?: string) {
+    const site = this.assertSite(id, url);
+    if (expectedToken !== undefined && this.credentials(id).accessToken !== expectedToken) throw new Error('登录状态已变更，请重新操作。');
+    if (!this.cipher.available()) throw new Error('系统加密存储不可用，无法保存登录凭证。');
+    if (url.startsWith('http:') && !site.allowHttp) throw new Error('请在站点设置中允许 HTTP 后登录。');
+    const old = this.credentials(id); const previous = structuredClone(this.preferences);
+    try {
+      // Never reuse another account's tool credentials or bookkeeping.
+      const sameUser = old.userId !== undefined && old.userId === secret.userId;
+      this.secrets[id] = { ...(sameUser ? old : {}), ...secret };
+      if (!sameUser) { this.preferences.managedTokens = this.preferences.managedTokens.filter(t => t.siteId !== id); this.preferences.bindings = this.preferences.bindings.filter(b => b.siteId !== id); }
+      this.preferences.sites = this.preferences.sites.map(s => s.id === id ? { ...s, userId: secret.userId } : s);
+      await this.persist();
+    } catch (e) { this.secrets[id] = old; this.preferences = previous; throw e; }
+    return structuredClone(this.preferences);
+  }
+  async clearSession(id: string, expectedUrl?: string, expectedToken?: string) {
+    if (expectedUrl) this.assertSite(id, expectedUrl);
+    if (expectedToken !== undefined && this.credentials(id).accessToken !== expectedToken) return structuredClone(this.preferences);
+    this.secrets[id] = {};
+    this.preferences.sites = this.preferences.sites.map(s => s.id === id ? { ...s, userId: undefined, username: undefined } : s);
+    this.preferences.bindings = this.preferences.bindings.filter(b => b.siteId !== id);
+    this.preferences.managedTokens = this.preferences.managedTokens.filter(t => t.siteId !== id);
+    await this.persist(); return structuredClone(this.preferences);
+  }
+  async registerToken(token: Preferences['managedTokens'][number], url: string) {
+    this.assertSite(token.siteId, url);
+    this.preferences.managedTokens = [...this.preferences.managedTokens.filter(t => !(t.siteId === token.siteId && t.id === token.id)), token];
+    await this.persist();
+  }
+  async syncTokenSettings(siteId:string,url:string,id:number,name:string,group:string) {
+    this.assertSite(siteId,url);
+    this.preferences.managedTokens=this.preferences.managedTokens.map(t=>t.siteId===siteId && t.id===id ? {...t,group} : t);
+    this.preferences.bindings=this.preferences.bindings.map(b=>b.siteId===siteId && (b.tokenId===id || b.tokenName===name) ? {...b,group} : b);
+    await this.persist();
+  }
+}
