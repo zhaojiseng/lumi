@@ -28,7 +28,7 @@ const nav = [
   { id: 'tokens', label: 'API 令牌', icon: KeyRound, hint: '管理访问与额度' },
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手' },
 ] as const;
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.28', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.29', configs: [], secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -40,6 +40,7 @@ export default function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [page, setPage] = useState<Page>('overview');
   useEffect(()=>bridge.onNavigate(page=>{if(nav.some(item=>item.id===page))setPage(page);}),[]);
+  useEffect(()=>bridge.onWidgetVisibility?.(widgetEnabled=>setPreferences(p=>({...p,widgetEnabled}))),[]);
   const overviewQuery = selectionValue<RangeQuery>(preferences, 'statistics.range', selectionValue<RangeQuery>(preferences,'overview.range',7), q => {try {resolveRange(q);return true;}catch{return false;}});
   const days=resolveRange(overviewQuery).days;
   const chosenModels=selectionValue<string[]>(preferences,'statistics.models',[],v=>Array.isArray(v));

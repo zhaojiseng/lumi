@@ -16,6 +16,7 @@ export const MENU_BAR_SECTION_IDS = ['balance','totals','tokenDetail','efficienc
 export type MenuBarSectionId = typeof MENU_BAR_SECTION_IDS[number];
 export type MenuBarRange = 'follow' | '24h' | 1 | 7 | 30;
 export interface Preferences {
+  widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null;
   sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
   refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
@@ -25,7 +26,7 @@ export interface Preferences {
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
+export type PreferencePatch = Partial<Pick<Preferences, 'widgetEnabled' | 'widgetPosition' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -139,6 +140,10 @@ export interface ConfigPreview {
   id: string; tool: Tool; files: { path: string; before: string; after: string }[];
   changes: string[]; expiresAt: number; token?: { id: number; name: string; group: string; created: boolean };
 }
+export interface ConfigProgress {
+  tool:Tool; operation:'preview'|'apply'|'restore';
+  phase:'validating'|'key'|'history'|'backup'|'writing'|'done'; completed?:number; total?:number;
+}
 export interface BackupInfo { id: string; tool: Tool; createdAt: number; paths: string[]; }
 export interface Bootstrap {
   preferences: Preferences; desktop: boolean; version: string;
@@ -162,6 +167,7 @@ export interface LumiBridge {
   onAppLog(listener: (entry: AppLogEntry) => void): () => void;
   onNavigate(listener: (page:Page) => void): () => void;
   onRefresh(listener:()=>void):()=>void;
+  onWidgetVisibility(listener:(enabled:boolean)=>void):()=>void;
   saveSite(input: SiteInput): Promise<Preferences>;
   removeSite(id: string): Promise<Preferences>;
   updatePreferences(patch: PreferencePatch): Promise<Preferences>;
@@ -186,6 +192,7 @@ export interface LumiBridge {
   logs(query: LogQuery): Promise<LogPage>;
   localUsage(query: DashboardQuery): Promise<LocalUsage>;
   previewConfig(input: ConfigRequest): Promise<ConfigPreview>;
+  onConfigProgress(listener:(progress:ConfigProgress)=>void):()=>void;
   applyConfig(id: string): Promise<ToolConfigState[]>;
   backups(): Promise<BackupInfo[]>;
   restoreBackup(id: string): Promise<ToolConfigState[]>;
@@ -201,6 +208,7 @@ export interface LumiBridge {
 export const DEFAULT_SITE_ID = 'cyg-default';
 export const DEFAULT_SITE_URL = 'https://api.example.com';
 export const DEFAULT_PREFERENCES: Preferences = {
+  widgetEnabled:false,widgetPosition:null,
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
   activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
   logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, bindings: [

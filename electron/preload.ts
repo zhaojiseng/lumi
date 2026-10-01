@@ -6,6 +6,7 @@ async function call(channel: string, payload?: unknown) {
   return response.data;
 }
 const bridge: LumiBridge = {
+  onWidgetVisibility:listener=>{const receive=(_event:Electron.IpcRendererEvent,enabled:boolean)=>listener(enabled);ipcRenderer.on('lumi:widgetVisibility',receive);return()=>ipcRenderer.removeListener('lumi:widgetVisibility',receive);},
   bootstrap: () => call('bootstrap'), saveSite: p => call('saveSite', p), removeSite: id => call('removeSite', id),
   inspectConfigs:()=>call('inspectConfigs'),
   appLogs:()=>call('appLogs'),
@@ -23,6 +24,7 @@ const bridge: LumiBridge = {
   onUpdate:listener=>{const receive=(_event:Electron.IpcRendererEvent,state:Parameters<typeof listener>[0])=>listener(state);ipcRenderer.on('lumi:updateState',receive);return ()=>{ipcRenderer.removeListener('lumi:updateState',receive);};},
   onReviewUpdate:listener=>{const receive=()=>listener();ipcRenderer.on('lumi:reviewUpdate',receive);return()=>{ipcRenderer.removeListener('lumi:reviewUpdate',receive);};},
   previewConfig: q => call('previewConfig', q), applyConfig: id => call('applyConfig', id), backups: () => call('backups'), restoreBackup: id => call('restoreBackup', id),
+  onConfigProgress:listener=>{const receive=(_event:Electron.IpcRendererEvent,progress:Parameters<typeof listener>[0])=>listener(progress);ipcRenderer.on('lumi:configProgress',receive);return()=>ipcRenderer.removeListener('lumi:configProgress',receive);},
   createToken: p => call('createToken', p), toggleToken: (id, enabled) => call('toggleToken', { id, enabled }), updateToken:p=>call('updateToken',p), exportLogs: q => call('exportLogs', q),
   getTokenKey: id => call('getTokenKey', id), copyTokenKey: id => call('copyTokenKey', id),
   openExternal: url => call('openExternal', url), windowControl: action => call('window', action),

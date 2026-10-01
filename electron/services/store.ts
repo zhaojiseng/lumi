@@ -46,6 +46,8 @@ export class SettingsStore {
     this.preferences.menuBarChartRange=normalizeMenuBarRange(this.preferences.menuBarChartRange);
     this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
     this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
+    this.preferences.widgetEnabled=this.preferences.widgetEnabled===true;
+    if(!this.preferences.widgetPosition || !Number.isSafeInteger(this.preferences.widgetPosition.x) || !Number.isSafeInteger(this.preferences.widgetPosition.y))this.preferences.widgetPosition=null;
     for(const field of ['dismissedUpdateVersion','skippedUpdateVersion'] as const)if (typeof this.preferences[field] !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences[field]) || this.preferences[field].length>30) this.preferences[field] = '';
     this.encrypted = data.vault || '';
     if (this.encrypted) {

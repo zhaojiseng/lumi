@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.27 及本地未提交变更。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.29。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -16,6 +16,8 @@
 | shared/selections.ts | 按站点保存并合并页面选择 |
 | shared/catalog-changes.ts / catalog-change-details.ts | 本地目录规则指纹、公共计价基线、可读价格对比与已读状态 |
 | shared/menu-bar-periods.ts | 菜单栏 / 托盘本期用量与消费趋势的独立范围、相同查询复用 |
+| shared/widget.ts | 完整自然分钟、按模型额度与四类 Token 汇总、格式化浮窗 DTO 和动作校验 |
+| electron/services/widget.ts / widget-panel.ts / widget-preload.ts | 按账户合并分钟请求、置顶隔离窗口、位置保存及三个受限动作 |
 | electron/services/store.ts | 原子串行写入、safeStorage 密钥库、设置迁移和账户隔离 |
 | electron/services/new-api.ts | 登录 / 验证 / 续期、数据接口、专用令牌复用与创建 |
 | electron/services/read-cache.ts | 有期限的内存只读缓存、并发合并、副本隔离及写操作失效 |
@@ -23,7 +25,7 @@
 | electron/services/app-cache.ts | 磁盘缓存计数、历史安装包清理和待安装包保护 |
 | electron/services/browser-login.ts / login-capture.ts | 隔离站点窗口与认证捕获；重新验证账户后保存 |
 | electron/services/config.ts | 脱敏预览、加密备份、应用 / 恢复、冲突检查与回滚 |
-| electron/services/codex-direct.ts / codex-sessions.ts | Codex 历史及索引同步、运行状态检查 |
+| electron/services/codex-direct.ts / codex-session-files.ts / codex-sessions.ts | Codex 会话配置的流式差异同步、索引冲突和运行状态检查 |
 | electron/services/local-usage.ts | 本机 JSONL 用量元数据提取 |
 | electron/services/tool-runtime.ts | CLI 路径和版本检测、固定厂商安装命令及安装状态 |
 | electron/services/app-logs.ts | 启动以来的脱敏内存日志、只读快照和实时事件 |
@@ -33,6 +35,8 @@
 | src/components / pages | 账户、请求、模型、工具、令牌与设置界面 |
 
 品牌图标统一在 BrandIcon.tsx，使用本地官方 SVG。主题通过 theme.css 覆盖基础样式，最后加载 updates-trends.css 和 filters-tools-motion.css 提供更新栏、分组曲线、筛选、紧凑工具布局及切换动画，使用不透明表面与语义颜色。
+
+浮窗采用独立 widget.html 与 sandbox preload，只接收格式化统计，不提供主应用、托盘或任意网络接口。主进程验证来源窗口、主框架和精确 URL，动作仅允许关闭、刷新、打开工作台。关闭或隐藏后停止分钟调度，退出时销毁窗口；账户切换立即清空旧统计并丢弃旧回复。上一完整分钟查询复用 New API 只读缓存，无额度消耗时最多回溯 20 页找到最近付费分钟，再读取该分钟全部明细。余额沿用站点币种设置，微小分钟消费提升精度；缺失缓存字段保留未知值，不重复加入输入 Tokens。数据动画只在统计变化时触发，状态更新和相同数据不重播。
 
 ## 配置事务
 
@@ -56,7 +60,11 @@ Windows 内容区保留滚动，但不显示滚动条；高度插值期间内容
 
 Codex 修改真实模型 ID、provider、地址、认证与上下文设置，尊重活动 profile 和 CODEX_HOME。不会定义或复制提示词，也不生成模型目录。旧版 Lumi 模型目录引用可迁移，原目录内容保持不变。
 
-同步涉及本程序管理的相关会话最新设置与可用索引字段，保留历史回合和用户指令。运行中的 Codex 持有旧设置，因此应用前要求退出，完成后重开。预览、备份与恢复同时覆盖相关文件和索引行。
+同步涉及本程序管理的相关会话最新设置与可用索引字段，保留历史回合和用户指令。运行中的 Codex 持有旧设置，因此应用前要求退出，完成后重开。应用、备份与恢复覆盖相关文件和索引行。
+
+Codex 预览只读取小型配置 / 认证文件和 SQLite 配置冲突快照，完成专用配钥后立即返回脱敏预览；不会扫描请求历史。应用时在检查工具退出后读取相关会话，逐块处理 JSONL，仅解析元数据和最近的 thread_settings_applied 记录，其他渠道及大请求正文快速跳过。使用字节偏移保存少量记录差异，复制时以 SHA-256 和文件身份检查每个未修改字节，再通过同目录临时文件原子替换；保持 CRLF、UTF-8 和历史正文原始字节。Windows 短暂读句柄占用导致替换失败时，最多追加 40 / 80 / 160 ms 等待，每次重试复检原文件身份；持久占用或外部修改停止替换。配置 / 认证文件限制 8 MB、待解析单条会话配置记录限制 2 MB；超限给出可读错误并停止写入。
+
+新版备份清单只包含小配置和索引，相关会话差异分别加密写入 .part 文件；不把全部请求历史与两份全文合并成大字符串。备份列表只读取清单，恢复按完整文件 hash 校验再反向应用差异；旧版 v1 备份继续兼容。写入、会话和索引失败尝试完整回滚，阶段进度通过只向主窗口发送的受限 IPC 呈现。前端防止重复操作和旧站点响应写回，应用成功立即更新本机配置状态，在后台同步偏好，不等待账户全量统计刷新。
 
 Claude Code 合并 CLI settings.json 中的 API 配置，保留无关设置；Claude Desktop 不属于当前集成范围。所有模型的选择依据本站可达渠道，不按目录缺少协议标签禁用。
 
@@ -87,6 +95,8 @@ ChatGPT 桌面版本通过系统安装元数据读取，Windows 兼容已知 Ope
 macOS 工具页后台读取登录 Shell 的 PATH，保留原路径优先并补充 Homebrew 与常见版本管理器，Node 所在目录加入执行环境；npm / CLI / 安装器复用同一环境。Shell 检测限时 5 秒，并发任务共享，手动检测会刷新；启动首页不等待 Shell。
 
 macOS 使用隐藏标题栏和原生交通灯按钮，侧栏顶部保留按钮空间，主页面不重复显示 Windows 控件。菜单保留编辑、窗口、显示和退出操作，关闭主窗口时隐藏并通过 Dock 激活重新显示。侧栏导航独立滚动，底部设置 / 更新 / 站点固定。
+
+Windows 侧栏跨越顶栏行并从窗口顶部开始，标题栏保留右侧原生窗口操作与拖动区；完整顶部预留只用于 macOS。统计筛选和本地目录监控由页面统一提供 14 px 间距，取消各提示栏额外底部 margin。MotionSwap 过滤子动画完成事件，并在动画取消或关闭时释放保留高度。
 
 运行日志从主进程加载时写入内存，记录启动、主进程控制台、界面控制台、IPC 操作耗时、请求状态、工具检测和更新阶段。日志不记录请求体、响应体或认证头，并在写入时脱敏常见密码 / 密钥 / Cookie 字段及 URL 查询；最多 10,000 条，每条 4,000 字符。只读快照与实时订阅均通过受限 preload 提供，界面每 150 ms 合并显示，每页最多 300 条；暂停仅冻结显示，重新进入可读取本次启动的全部保留记录，不写文件。
 

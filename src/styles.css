@@ -526,7 +526,7 @@ h1,h2,h3,h4 {
   animation: appear .3s ease;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--page-gap, 20px);
 }
 
 .page-intro {

@@ -1,4 +1,6 @@
-.statistics-filter{padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:18px;border-radius:12px}
+/* Page flow owns section spacing; filter bars must not add a second gap. */
+.page:has(>.statistics-filter),.page.models-market{--page-gap:14px}
+.statistics-filter{padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:0;border-radius:12px}
 .statistics-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
 .statistics-title{display:flex;align-items:center;gap:6px;font-weight:600;margin-right:4px;white-space:nowrap}
 .statistics-filter .range-presets{padding:3px}.statistics-filter .range-picker-trigger{font-size:12px;min-height:34px;padding:7px 10px}.statistics-filter .range-custom-label{display:none}

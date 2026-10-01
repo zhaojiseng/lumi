@@ -6,10 +6,16 @@ export function MotionSwap({identity,children,className=''}:{identity:string;chi
   if(shown===identity)saved.current=children;
   useLayoutEffect(()=>{
     if(shown===identity){if(phase==='leaving'){setPhase('');setHeight(undefined);}return;}
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches){saved.current=latest.current;setShown(identity);setPhase('');return;}
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){saved.current=latest.current;setShown(identity);setPhase('');setHeight(undefined);return;}
     setHeight(root.current?.getBoundingClientRect().height);setPhase('leaving');
     const timer=setTimeout(()=>{saved.current=latest.current;setShown(identity);setPhase('entering');},110);
     return ()=>clearTimeout(timer);
   },[identity,shown]);
-  return <div ref={root} className={'motion-frame '+className} style={height ? {minHeight:height} : undefined}><div className={'motion-panel '+phase} onAnimationEnd={()=>{if(phase==='entering'){setPhase('');setHeight(undefined);}}}>{shown===identity ? children : saved.current}</div></div>;
+  useLayoutEffect(()=>{
+    if(phase!=='entering')return;
+    // Disabled or cancelled animations do not emit animationend; release the height anyway.
+    const timer=setTimeout(()=>{setPhase('');setHeight(undefined);},250);
+    return ()=>clearTimeout(timer);
+  },[phase,shown]);
+  return <div ref={root} className={'motion-frame '+className} style={height ? {minHeight:height} : undefined}><div className={'motion-panel '+phase} onAnimationEnd={event=>{if(event.target===event.currentTarget && phase==='entering'){setPhase('');setHeight(undefined);}}}>{shown===identity ? children : saved.current}</div></div>;
 }

@@ -13,6 +13,7 @@ import {summarizeQuality} from '../../shared/usage-quality';
 import {trackedToolTokenNames} from '../../shared/utils';
 import {logMetrics} from '../../shared/logs';
 import {DEFAULT_MENU_BAR_SELECTION} from '../../shared/menu-bar';
+import {previousMinute,widgetMinute,type WidgetUsage,type WidgetMinute} from '../../shared/widget';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
 import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality,MenuBarUsage,MenuBarSelection,MenuBarDetails } from '../../shared/types';
 export interface ResolvedToolToken { key: string; tokenName: string; tokenId: number; group: string; created: boolean; siteId: string; siteUrl: string; models?:ModelInfo[]; }
@@ -264,6 +265,31 @@ export class NewApiClient {
     const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify([isRollingRange(query) ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(query).range,statisticsFilters(query)]);
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
+  }
+  async widgetUsage(now=Date.now()):Promise<WidgetUsage>{
+    if(!this.snapshot)return this.scope().widgetUsage(now);
+    const scope=this.current(),window=previousMinute(now),statusTask=this.status();
+    const base={siteId:scope.site.id,siteName:scope.site.name,balance:null,loggedIn:false,minute:null,historical:false,fetchedAt:now,warnings:[]} satisfies Omit<WidgetUsage,'status'>;
+    if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...base,status:await statusTask};
+    const [status,user,current]=await Promise.all([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.completeLogs(1,2,window)]);
+    let minute:WidgetMinute|null=widgetMinute(current.rows,window.start_timestamp),historical=false;const warnings:string[]=[];
+    if(minute.quota===0){
+      let latest:number|undefined,complete=false;
+      // New API returns newest consumption records first. Search is bounded rather than loading an account's entire history.
+      for(let page=1;page<=20;page++){
+        const j=await this.request('/api/log/self',{query:{start_timestamp:0,end_timestamp:window.end_timestamp,p:page,page_size:100,type:2}}),data=j.data;
+        const items:UsageLog[]=Array.isArray(data) ? data : data?.items;
+        if(!Array.isArray(items))throw new Error('站点未返回可用的消费日志。');
+        const paid=items.filter(r=>r.type===2 && Number.isFinite(r.quota) && r.quota>0 && Number.isSafeInteger(r.created_at) && r.created_at>=0 && r.created_at<=window.end_timestamp);
+        if(paid.length){latest=Math.max(...paid.map(r=>r.created_at));break;}
+        const total=Array.isArray(data) ? j.total : data.total;
+        if(items.length<100 || Number.isSafeInteger(total) && page*100>=total){complete=true;break;}
+      }
+      if(latest!==undefined){const start=Math.floor(latest/60)*60,found=await this.completeLogs(1,2,{start_timestamp:start,end_timestamp:start+59});minute=widgetMinute(found.rows,start);historical=true;if(minute.quota<=0)throw new Error('最近消费分钟的数据已变化，请稍后刷新。');}
+      else {if(!complete)warnings.push('最近 2,000 条记录内未找到额度消耗，历史查询已暂停');minute=null;}
+    }
+    this.checkScope(scope);await this.validSecret(scope);
+    return {...base,status,balance:typeof user.quota==='number' && Number.isFinite(user.quota) ? user.quota : null,loggedIn:true,minute,historical,fetchedAt:Date.now(),warnings};
   }
   async menuBarUsage(force=false,selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarUsage>{
     if(!this.snapshot)return this.scope().menuBarUsage(force,selection);

@@ -4,7 +4,7 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  margin-bottom: 14px;
+  margin-bottom: 0;
   border-radius: 12px;
 }
 .models-market .catalog-monitor.has-changes { border-color: var(--orange); }
