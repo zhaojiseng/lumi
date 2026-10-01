@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {readFile,readdir,writeFile} from 'node:fs/promises';
+import {readFile,readdir,writeFile,mkdir,mkdtemp,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -49,7 +49,20 @@ if(mac){
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleShortVersionString','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.version);
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleIdentifier','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.build.appId);
   for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helper and Electron must all be ARM64');
-  assert.deepEqual(await readFile(path.join(resources,'native/lumi-menu-bar')),await readFile('dist-native/lumi-menu-bar'),'Native usage card must match the current build');
+  // electron-builder re-signs embedded executables. Compare temporary unsigned copies,
+  // while verifying the real app and embedded helper signatures separately below.
+  await mkdir('.test-data',{recursive:true});
+  const nativeCheck=await mkdtemp(path.resolve('.test-data/native-verify-'));
+  try{
+    const normalized=[];
+    for(const [index,file] of [path.join(resources,'native/lumi-menu-bar'),'dist-native/lumi-menu-bar'].entries()){
+      const copy=path.join(nativeCheck,'helper-'+index);await writeFile(copy,await readFile(file),{mode:0o755});
+      exec('/usr/bin/codesign','--remove-signature',copy);
+      normalized.push(createHash('sha256').update(await readFile(copy)).digest('hex'));
+    }
+    assert.equal(normalized[0],normalized[1],'Native usage card code must match the current build after normalizing signatures');
+  }finally{await rm(nativeCheck,{recursive:true,force:true});}
+  exec('/usr/bin/codesign','--verify','--strict',path.join(resources,'native/lumi-menu-bar'));
   exec('/usr/bin/codesign','--verify','--deep','--strict',path.dirname(appDirectory));
   exec('/usr/bin/hdiutil','verify',path.join(releaseDir,packages[0]));
 }else{
