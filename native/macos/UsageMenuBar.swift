@@ -1,14 +1,20 @@
 import AppKit
 import Foundation
 import Darwin
+import QuartzCore
 
-// Original implementation inspired by CodexBar's NSMenu + custom-view usage cards.
+// Menu-card behavior references CodexBar (MIT), Copyright (c) 2026 Peter Steinberger.
+// Reference: https://github.com/steipete/CodexBar/tree/f46a125af227254ac14de591968bce88d9fcc0f5
+// Attribution and complete license: public/third-party/codexbar-LICENSE.txt (bundled with Lumi).
 // NSMenu owns the system material; no web window or simulated glass background is used.
 struct ChartPoint: Decodable { let label: String; let value: Double; let cost: String; let tokens: String; let requests: String }
 struct ModelRow: Decodable { let name: String; let cost: String; let share: Double }
+enum MenuBarSection: String, Decodable, CaseIterable { case balance, totals, tokenDetail, efficiency, chart, models }
 final class CardMenuItem: NSMenuItem { override var isHighlighted: Bool { false } }
 struct UsageState: Decodable {
     let type: String; let schemaVersion: Int; let phase: String; let siteName: String; let accountLabel: String
+    let viewKey: String?
+    let contents: [MenuBarSection]?
     let days: Int; let tool: String; let balance: String; let cost: String; let tokens: String; let requests: String
     let tokenDetail: String; let cacheDetail: String; let cacheHitRate: String; let tokenSpeed: String
     let message: String; let updatedLabel: String; let canRefresh: Bool; let chartCaption: String
@@ -20,12 +26,33 @@ func emit(_ data: [String: Any]) {
 }
 
 final class SpendChart: NSView {
-    var points: [ChartPoint]? { didSet { hover = nil; needsDisplay = true } }
+    var points: [ChartPoint]? { didSet { updateBars(); if let index = hover, index >= (points?.count ?? 0) { hover = nil }; detail?(hover.flatMap { points?[$0] }); needsDisplay = true } }
+    private var heights: [CGFloat] = []
+    private var targetHeights: [CGFloat] = []
+    private var animation: Timer?
     private var hover: Int? { didSet { needsDisplay = true; detail?(hover.flatMap { points?[$0] }) } }
     var detail: ((ChartPoint?) -> Void)?
     private var tracking: NSTrackingArea?
     override var isFlipped: Bool { true }
     override var allowsVibrancy: Bool { true }
+    private func updateBars() {
+        let maximum = max(points?.map(\.value).max() ?? 0, 0.001)
+        let target = points?.map { $0.value > 0 ? max(2, (bounds.height - 4) * CGFloat($0.value / maximum)) : 2 } ?? []
+        if target == targetHeights { return }; targetHeights = target
+        animation?.invalidate(); animation = nil
+        guard window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !target.isEmpty else { heights = target; return }
+        let from = heights.count == target.count ? heights : Array(repeating: CGFloat(2), count: target.count)
+        let started = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            let progress = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : min(1, (CACurrentMediaTime() - started) / 0.22)
+            let eased = CGFloat(1 - pow(1 - progress, 3))
+            self.heights = zip(from, target).map { $0.0 + ($0.1 - $0.0) * eased }; self.needsDisplay = true
+            if progress >= 1 { timer.invalidate(); self.animation = nil }
+        }
+        animation = timer; RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+    deinit { animation?.invalidate() }
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
@@ -47,7 +74,7 @@ final class SpendChart: NSView {
         let maximum = max(points.map(\.value).max() ?? 0, 0.001)
         NSColor.separatorColor.setFill(); NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
         for (index, point) in points.enumerated() {
-            let width = bounds.width / CGFloat(max(points.count, 1)), height = point.value > 0 ? max(2, (bounds.height - 4) * CGFloat(point.value / maximum)) : 2
+            let width = bounds.width / CGFloat(max(points.count, 1)), height = index < heights.count ? heights[index] : point.value > 0 ? max(2, (bounds.height - 4) * CGFloat(point.value / maximum)) : 2
             (point.value > 0 ? NSColor.systemGreen.withAlphaComponent(hover == index ? 1 : 0.72) : NSColor.tertiaryLabelColor.withAlphaComponent(0.25)).setFill()
             let rect = NSRect(x: CGFloat(index) * width + 1, y: bounds.height - height, width: max(1, width - 3), height: height)
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
@@ -73,6 +100,8 @@ final class UsageCard: NSView {
     private let chartDetail = NSTextField(labelWithString: "等待同步")
     private let footer = NSTextField(labelWithString: "点击刷新读取用量")
     private let modelFields = (0..<3).map { _ in (NSTextField(labelWithString: ""), NSTextField(labelWithString: "")) }
+    private var sectionViews: [MenuBarSection: [(NSView, NSRect)]] = [:]
+    private var buildingSection: MenuBarSection?
     private var state: UsageState?
     var selected: ((Int, String) -> Void)?
     override var isFlipped: Bool { true }
@@ -82,36 +111,48 @@ final class UsageCard: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 380, height: 450))
         field(title, x: 18, y: 10, width: 344, size: 15, weight: .semibold)
         field(account, x: 18, y: 31, width: 344, size: 11, muted: true)
-        tools.frame = NSRect(x: 18, y: 53, width: 344, height: 25); tools.segmentStyle = .rounded
-        tools.target = self; tools.action = #selector(changeSelection); addSubview(tools)
-        days.frame = NSRect(x: 18, y: 87, width: 344, height: 23); days.segmentStyle = .rounded; days.controlSize = .small
-        days.target = self; days.action = #selector(changeSelection); addSubview(days)
+        for (index, control) in [tools, days].enumerated() {
+            control.frame = NSRect(x: 18, y: 53 + CGFloat(index) * 36, width: 344, height: 28)
+            control.segmentStyle = .rounded; control.controlSize = .regular; control.font = .systemFont(ofSize: 12)
+            control.segmentDistribution = .fillEqually
+            control.target = self; control.action = #selector(changeSelection); addSubview(control)
+        }
+        tools.setAccessibilityLabel("统计工具"); days.setAccessibilityLabel("统计时间")
+        buildingSection = .balance
         label("账户余额", x: 18, y: 124, width: 150, size: 12, muted: true)
         field(balance, x: 181, y: 122, width: 181, size: 18, weight: .semibold); balance.alignment = .right
+        buildingSection = .totals
         for (index, pair) in [("本期消费", cost), ("Tokens", tokens), ("请求数", requests)].enumerated() {
             let x = 18 + CGFloat(index) * 116
             label(pair.0, x: x, y: 155, width: 110, size: 11, muted: true)
             field(pair.1, x: x, y: 173, width: 110, size: 19, weight: .semibold)
         }
+        buildingSection = .tokenDetail
         field(tokenDetail, x: 18, y: 199, width: 344, size: 10, muted: true)
+        buildingSection = .efficiency
         label("缓存命中率", x: 18, y: 225, width: 155, size: 11, muted: true)
         field(cache, x: 18, y: 241, width: 155, size: 14, weight: .medium)
         label("平均 Token 速率", x: 196, y: 225, width: 166, size: 11, muted: true)
         field(speed, x: 196, y: 241, width: 166, size: 14, weight: .medium)
+        buildingSection = .chart
         field(chartTitle, x: 18, y: 270, width: 344, size: 11, weight: .medium)
         chart.frame = NSRect(x: 18, y: 289, width: 344, height: 53); addSubview(chart)
+        sectionViews[.chart, default: []].append((chart, chart.frame))
         chart.detail = { [weak self] point in
             guard let self else { return }
             self.chartDetail.stringValue = point.map { "\($0.label) · \($0.cost) · \($0.tokens) Tokens · \($0.requests) 次" } ?? self.state?.chartCaption ?? "等待同步"
         }
         field(chartDetail, x: 18, y: 347, width: 344, size: 10, muted: true)
+        buildingSection = .models
         label("主要模型 · 按消费", x: 18, y: 371, width: 344, size: 11, weight: .medium)
         for (index, fields) in modelFields.enumerated() {
-            let y = 390 + CGFloat(index) * 15
+            let y = 390 + CGFloat(index) * 17
             field(fields.0, x: 18, y: y, width: 252, size: 10, muted: true)
             field(fields.1, x: 275, y: y, width: 87, size: 10); fields.1.alignment = .right
         }
+        buildingSection = nil
         field(footer, x: 18, y: 434, width: 344, size: 9, muted: true)
+        reflow(MenuBarSection.allCases, modelCount: 0)
         setAccessibilityLabel("Lumi 用量面板")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -124,15 +165,45 @@ final class UsageCard: NSView {
         field.textColor = muted ? .secondaryLabelColor : .labelColor
         field.lineBreakMode = .byTruncatingTail; field.maximumNumberOfLines = 1
         addSubview(field)
+        if let buildingSection { sectionViews[buildingSection, default: []].append((field, field.frame)) }
+    }
+    private func reflow(_ contents: [MenuBarSection], modelCount: Int) {
+        let visible = Set(contents)
+        let rows = max(1, min(3, modelCount))
+        var y: CGFloat = 122
+        // Original local positions keep AppKit text sizing and native material intact.
+        let sections: [(MenuBarSection, CGFloat, CGFloat)] = [(.balance, 122, 31), (.totals, 153, 46), (.tokenDetail, 199, 24), (.efficiency, 223, 47), (.chart, 270, 101), (.models, 371, 20 + CGFloat(rows) * 17 + 6)]
+        for (id, origin, height) in sections {
+            for (view, original) in sectionViews[id] ?? [] {
+                view.isHidden = !visible.contains(id)
+                // Hidden views also stay inside the compact card's bounds.
+                view.frame = NSRect(x: original.minX, y: visible.contains(id) ? y + original.minY - origin : 0, width: original.width, height: original.height)
+            }
+            if visible.contains(id) { y += height }
+        }
+        for (index, fields) in modelFields.enumerated() {
+            let hidden = !visible.contains(.models) || index >= rows
+            fields.0.isHidden = hidden; fields.1.isHidden = hidden || modelCount == 0
+            if hidden { fields.0.setFrameOrigin(NSPoint(x: 18, y: 0)); fields.1.setFrameOrigin(NSPoint(x: 275, y: 0)) }
+        }
+        footer.setFrameOrigin(NSPoint(x: 18, y: y))
+        setFrameSize(NSSize(width: 380, height: y + footer.frame.height))
     }
     func apply(_ state: UsageState) {
-        self.state = state; title.stringValue = state.siteName; account.stringValue = state.accountLabel
+        let previous = self.state
+        self.state = state
         tools.selectedSegment = state.tool == "codex" ? 1 : state.tool == "claude" ? 2 : 0
         days.selectedSegment = state.days == 7 ? 1 : state.days == 30 ? 2 : 0
-        balance.stringValue = state.balance; cost.stringValue = state.cost; tokens.stringValue = state.tokens; requests.stringValue = state.requests
+        if ["idle", "loading"].contains(state.phase), let previous, let key = previous.viewKey, key == state.viewKey {
+            reflow(state.contents ?? MenuBarSection.allCases, modelCount: previous.models.count)
+            footer.stringValue = "正在刷新用量…"; return
+        }
+        reflow(state.contents ?? MenuBarSection.allCases, modelCount: state.models.count)
+        title.stringValue = state.siteName; account.stringValue = state.accountLabel
+        setValue(balance, state.balance); setValue(cost, state.cost); setValue(tokens, state.tokens); setValue(requests, state.requests)
         tokenDetail.stringValue = state.tokenDetail; tokenDetail.toolTip = state.tokenDetail
-        cache.stringValue = state.cacheHitRate; cache.toolTip = state.cacheDetail
-        speed.stringValue = state.tokenSpeed; speed.toolTip = "输出 Tokens 合计 ÷ 有效请求总耗时，包含首字等待"
+        setValue(cache, state.cacheHitRate); cache.toolTip = state.cacheDetail
+        setValue(speed, state.tokenSpeed); speed.toolTip = "输出 Tokens 合计 ÷ 有效请求总耗时，包含首字等待"
         chartTitle.stringValue = state.chartCaption + " · 消费趋势"; chart.points = state.chart
         chartDetail.stringValue = state.chartCaption; chart.setAccessibilityLabel(state.chartCaption + "消费曲线")
         for (index, fields) in modelFields.enumerated() {
@@ -142,6 +213,16 @@ final class UsageCard: NSView {
         }
         footer.stringValue = state.message + " · " + state.updatedLabel; footer.toolTip = footer.stringValue
         needsDisplay = true
+    }
+    private func setValue(_ field: NSTextField, _ value: String) {
+        guard field.stringValue != value else { return }
+        field.stringValue = value
+        guard window != nil, !field.isHidden, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { field.alphaValue = 1; return }
+        field.alphaValue = 0.7
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18; context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            field.animator().alphaValue = 1
+        }
     }
     @objc private func changeSelection() {
         selected?([1, 7, 30][max(0, days.selectedSegment)], ["all", "codex", "claude"][max(0, tools.selectedSegment)])
@@ -156,6 +237,19 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var inputSource: DispatchSourceRead?
     private var pending = Data()
     let smoke = CommandLine.arguments.contains("--smoke")
+    private func lumiIcon() -> NSImage {
+        // Lumi's L + dot mark, rendered as a white vector at every Retina scale.
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
+            NSColor.white.setStroke(); NSColor.white.setFill()
+            let scale = rect.width / 36
+            let mark = NSBezierPath(); mark.lineWidth = 5 * scale; mark.lineCapStyle = .round; mark.lineJoinStyle = .round
+            mark.move(to: NSPoint(x: 11 * scale, y: 8 * scale)); mark.line(to: NSPoint(x: 11 * scale, y: 22 * scale))
+            mark.curve(to: NSPoint(x: 16 * scale, y: 27 * scale), controlPoint1: NSPoint(x: 11 * scale, y: 26 * scale), controlPoint2: NSPoint(x: 12 * scale, y: 27 * scale))
+            mark.line(to: NSPoint(x: 28 * scale, y: 27 * scale)); mark.stroke()
+            NSBezierPath(ovalIn: NSRect(x: 22 * scale, y: 6 * scale, width: 8 * scale, height: 8 * scale)).fill(); return true
+        }
+        image.isTemplate = false; image.accessibilityDescription = "Lumi 用量"; return image
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         menu.autoenablesItems = false; menu.delegate = self
@@ -171,15 +265,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
             statusItem?.autosaveName = "LumiUsage"
             if let button = statusItem?.button {
-                let image = NSImage(systemSymbolName: "chart.bar.fill", accessibilityDescription: "Lumi 用量")
-                image?.isTemplate = true; image?.size = NSSize(width: 17, height: 17)
-                button.image = image; button.toolTip = "Lumi · 余额与用量"
+                button.image = lumiIcon(); button.toolTip = "Lumi · 余额与用量"
                 statusItem?.menu = menu
             }
         }
         let source = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: .main)
         source.setEventHandler { [weak self] in self?.readInput() }; source.resume(); inputSource = source
-        emit(["type": "ready", "schemaVersion": 1, "nativeCard": card.superview != nil || menu.items[0].view === card, "nativeChart": card.chart.superview === card, "nativeSelectors": card.tools.superview === card && card.days.superview === card, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }])
+        emit(["type": "ready", "schemaVersion": 1, "nativeCard": card.superview != nil || menu.items[0].view === card, "nativeChart": card.chart.superview === card, "nativeSelectors": card.tools.superview === card && card.days.superview === card, "equalSelectorHeight": card.tools.frame.height == card.days.frame.height, "lumiIcon": !lumiIcon().isTemplate, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }])
     }
     private func item(_ title: String, action: String, key: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: key)
@@ -200,10 +292,10 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if pending.count > 262144 { pending.removeAll(); return }
         while let end = pending.firstIndex(of: 10) {
             let line = Data(pending[..<end]); pending.removeSubrange(...end)
-            guard let state = try? JSONDecoder().decode(UsageState.self, from: line), state.type == "state", state.schemaVersion == 1, [1, 7, 30].contains(state.days), ["all", "codex", "claude"].contains(state.tool), (state.chart?.count ?? 0) <= 60, state.models.count <= 3 else { continue }
-            card.apply(state); refreshItem.isEnabled = state.canRefresh
+            guard let state = try? JSONDecoder().decode(UsageState.self, from: line), state.type == "state", state.schemaVersion == 1, [1, 7, 30].contains(state.days), ["all", "codex", "claude"].contains(state.tool), (state.contents?.count ?? 0) <= MenuBarSection.allCases.count, (state.chart?.count ?? 0) <= 60, state.models.count <= 3 else { continue }
+            card.apply(state); refreshItem.isEnabled = state.canRefresh; menu.update()
             statusItem?.button?.toolTip = "Lumi · 余额 " + state.balance + " · 本期 " + state.cost
-            if smoke { emit(["type": "applied", "schemaVersion": 1]) }
+            if smoke { emit(["type": "applied", "schemaVersion": 1, "contents": (state.contents ?? MenuBarSection.allCases).map(\.rawValue), "cardHeight": card.frame.height, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }]) }
         }
     }
 }

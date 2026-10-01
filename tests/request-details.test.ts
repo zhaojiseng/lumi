@@ -56,3 +56,10 @@ test('CSV keeps cache, speed and upstream fields regardless of table column pref
  const csv=logsToCsv([{...log,channel:7,channel_name:'=unsafe',other:'{"cache_tokens":0,"cache_creation_tokens":200,"frt":750}'}],status);
  assert.match(csv,/缓存读取 Tokens/);assert.match(csv,/Token 速度 \(t\/s\)/);assert.match(csv,/"0","200","300","750"/);assert.match(csv,/'=unsafe #7/);
 });
+
+test('CSV includes reported reasoning effort and leaves unavailable effort blank',()=>{
+ const csv=logsToCsv([{...log,other:'{"reasoning_effort":"high"}'},{...log,id:2,other:undefined}],status);
+ assert.match(csv,/思考强度/);
+ assert.ok(csv.split('\r\n')[1].endsWith(',"high"'));
+ assert.ok(csv.split('\r\n')[2].endsWith(',""'));
+});

@@ -1,6 +1,7 @@
-import {RecentActivity} from '../components/RecentActivity';
+import {RecentActivity,RecentActivityColumnsControl} from '../components/RecentActivity';
 import {StatisticsFilter} from '../components/StatisticsFilter';
 import {rangeLabel} from '../../shared/range';
+import {DEFAULT_ACTIVITY_COLUMNS,normalizeActivityColumns} from '../../shared/logs';
 import {useSavedSelection} from '../selections';
 import { Wallet, ArrowDownLeft, Layers, Activity, ArrowUpRight, ArrowRight, Clock3, Zap, CircleCheck, ExternalLink, ChevronRight } from 'lucide-react';
 import { useApp } from '../context';
@@ -12,8 +13,10 @@ import { currency, formatMoney, compact } from '../../shared/utils';
 export default function Overview() {
   const { dashboard: d, preferences, bootstrap, overviewQuery, setOverviewQuery, setPage, toast } = useApp();
   const [metric, setMetric] = useSavedSelection<'cost' | 'tokens' | 'requests'>('overview.metric','cost',v=>['cost','tokens','requests'].includes(v));
+  const [savedActivityColumns,setActivityColumns]=useSavedSelection<string[]>('overview.activityColumns',DEFAULT_ACTIVITY_COLUMNS,Array.isArray);
+  const activityColumns=normalizeActivityColumns(savedActivityColumns);
   if (!d) return null;
-  const days=d.days; const label=rangeLabel(d.range);
+  const days=d.days; const label=rangeLabel(d.range,new Date(d.fetchedAt));
   const c = currency(d.status); const todayQuota=d.today?.quota;
   const totalTokens = d.series.reduce((s, p) => s + (p.token_used || 0), 0);
   const totalRequests = d.series.reduce((s, p) => s + (p.count || 0), 0);
@@ -43,7 +46,7 @@ export default function Overview() {
       const connected = !!config?.baseUrl; const model = config?.model || b?.model;
       return <button className="surface tool-summary" key={tool} onClick={() => setPage('tools')}><ToolIcon tool={tool}/><div className="tool-summary-name"><h3>{tool === 'codex' ? 'Codex' : 'Claude Code'}<span className={`connection-dot ${connected ? '' : 'inactive'}`}/></h3><p>{model || '尚未配置模型'}</p></div><div className="tool-summary-cost"><strong>{token ? formatMoney(token.used_quota, d.status) : '—'}</strong><span>令牌累计消耗</span></div><ChevronRight size={16} className="muted"/></button>;
     })}</div>
-    <section className="surface panel recent-panel"><SectionHeading title="最近活动" sub="每一次调用，都有记录" action={<button className="text-link" onClick={() => setPage('usage')}>查看全部<ArrowUpRight size={14}/></button>}/>{d.logs.items.length ? <RecentActivity logs={d.logs.items} status={d.status} catalog={d.catalog}/> : <Empty title="还没有请求记录" description="连接站点或开始调用模型后，记录会自动更新。"/>}</section>
+    <section className="surface panel recent-panel"><SectionHeading title="最近活动" sub="每一次调用，都有记录" action={<div className="recent-activity-actions"><RecentActivityColumnsControl key={preferences.activeSiteId} columns={activityColumns} onChange={setActivityColumns}/><button className="text-link" onClick={() => setPage('usage')}>查看全部<ArrowUpRight size={14}/></button></div>}/>{d.logs.items.length ? <RecentActivity logs={d.logs.items} status={d.status} catalog={d.catalog} columns={activityColumns}/> : <Empty title="还没有请求记录" description="连接站点或开始调用模型后，记录会自动更新。"/>}</section>
     <div className="page-footer"><span><CircleCheck size={13}/>数据来自当前 New API 站点</span><span>Lumi · 为专注而设计</span></div>
   </div>;
 }

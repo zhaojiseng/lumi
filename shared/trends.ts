@@ -1,6 +1,6 @@
 import {usageSeries} from './utils';
 import {resolveRange} from './range';
-import type {DateRange,QuotaPoint,SiteStatus,TrendGrouping,TrendMetric,UsageLog} from './types';
+import type {RangeQuery,QuotaPoint,SiteStatus,TrendGrouping,TrendMetric,UsageLog} from './types';
 
 const count=(value:number)=>Number.isFinite(value) && value>=0 ? value : 0;
 export function tokenPoints(logs:UsageLog[],window:{start_timestamp:number;end_timestamp:number}):QuotaPoint[]{
@@ -21,7 +21,7 @@ export function pointGroup(point:QuotaPoint,grouping:Exclude<TrendGrouping,'tota
   return {key:point.token_id ? 'id:'+point.token_id : 'name:'+(point.token_name || ''),name:point.token_name || (point.token_id ? '令牌 #'+point.token_id : '未标记令牌')};
 }
 export const TREND_COLORS=['#4a8b76','#8a73bf','#4d8fbd','#b47b47','#8c9b40','#c26080','#457e8f','#b56150','#656fbd','#987b58','#499686','#a276a7'];
-export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,range:DateRange|undefined,now:Date,grouping:TrendGrouping,metric:TrendMetric,selected=''){
+export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,range:RangeQuery|undefined,now:Date,grouping:TrendGrouping,metric:TrendMetric,selected=''){
   const valid=usageSeries(points,days,status,range,now);
   if(grouping==='total')return {rows:valid.map(row=>({...row,values:{} as Record<string,number>})),lines:[],options:[],combined:0};
   const groups=new Map<string,{key:string;name:string;points:QuotaPoint[];}>();

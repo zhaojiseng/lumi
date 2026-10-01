@@ -25,7 +25,11 @@ Lobe Icons 发布的静态包未带 LICENSE 文件，其许可正文保存在 [p
 
 [CC Switch](https://github.com/farion1231/cc-switch) 的配置管理和直连流程是本项目的参考来源。上游 MIT 版权及许可正文随附于 [public/third-party/cc-switch-LICENSE.txt](public/third-party/cc-switch-LICENSE.txt)，保留其归属。
 
-[CodexBar](https://github.com/steipete/CodexBar) 的原生菜单卡片、图表与按需刷新交互是 macOS 用量面板的参考来源。Lumi 使用独立实现的 AppKit 菜单和 New API 数据，不分发其应用或订阅读取代码。上游 MIT 版权及许可正文随附于 [public/third-party/codexbar-LICENSE.txt](public/third-party/codexbar-LICENSE.txt)。
+[CodexBar](https://github.com/steipete/CodexBar) 的原生菜单卡片、图表与按需刷新交互是 macOS 用量面板的参考来源。版权归属：Copyright (c) 2026 Peter Steinberger；许可为 MIT。参考文件与上游提交 [f46a125af227254ac14de591968bce88d9fcc0f5](https://github.com/steipete/CodexBar/tree/f46a125af227254ac14de591968bce88d9fcc0f5) 一致；2026-10-02 核对的公开 main 为 [59152732182b4600bb78221da9b6b437d2154608](https://github.com/steipete/CodexBar/commit/59152732182b4600bb78221da9b6b437d2154608)，其许可正文未变。
+
+Lumi 通过 AppKit 绘制菜单卡片和图表，显示 New API 数据；当前审计未发现分发 CodexBar 应用、CodexBarCore、订阅读取代码或应用图标。菜单卡片及禁用菜单项高亮等实现模式存在相似之处，因此保留上游归属和完整许可，不以“独立实现”代替许可义务。使用上游软件的副本或实质部分时，MIT 要求保留版权及许可声明。
+
+完整正文保存在源码 `public/third-party/codexbar-LICENSE.txt`，构建后随应用分发于 `app.asar/dist/third-party/codexbar-LICENSE.txt`，与本说明位于同一目录；也可查看[固定提交的上游 MIT 许可](https://github.com/steipete/CodexBar/blob/59152732182b4600bb78221da9b6b437d2154608/LICENSE)。来源、比对方法和验证边界见源码 [docs/OPEN_SOURCE_AUDIT.md](docs/OPEN_SOURCE_AUDIT.md)。CodexBar 的名称和品牌权利仍归其权利人所有，本归属不表示其认可或赞助 Lumi。
 
 [New API](https://github.com/QuantumNous/new-api) 是通过 HTTP API 对接的外部服务器项目，上游采用 AGPL-3.0。Lumi 不分发其服务器源码；部署、修改或分发 New API 时需遵循其自身许可。本项目的接口说明不构成对上游服务器的重新许可。
 

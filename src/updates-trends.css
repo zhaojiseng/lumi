@@ -12,6 +12,28 @@
 .update-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .15s linear; }
 .update-detail { display: block; margin: 1px 4px; color: var(--text-muted); font-size: 10px; line-height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-site { margin-top: 0; }
+.modal.update-release-modal { width: min(530px,calc(100vw - 36px)); padding: 24px; }
+.release-summary { display:flex; align-items:center; gap:12px; margin:4px 0 18px; }
+.release-summary>div { display:grid; gap:5px; }
+.release-summary strong { font-size:15px; color:var(--text); }
+.release-summary span { font-size:12px; color:var(--text-muted); }
+.release-notes-scroll { max-height:min(340px,40vh); min-height:100px; overflow:auto; padding:14px 16px; border:1px solid var(--border); border-radius:12px; background:var(--panel-soft); scrollbar-width:thin; }
+.release-notes { font-size:13px; line-height:1.7; color:var(--text-secondary); overflow-wrap:anywhere; }
+.release-notes h3 { font-size:14px; line-height:1.7; color:var(--text); margin:8px 0; }
+.release-notes p { margin:4px 0; white-space:pre-wrap; }
+.release-note-item { display:flex; gap:8px; }
+.release-note-item>span:first-child { color:var(--accent); }
+.release-note-gap { height:6px; }
+.release-notes-empty { font-size:13px; line-height:1.7; color:var(--text-muted); }
+.release-github { margin-top:12px; font-size:12px; }
+.release-error { margin-top:12px; color:var(--red); font-size:13px; }
+.release-download { margin-top:16px; font-size:12px; color:var(--text-secondary); }
+.release-download>span { display:flex; align-items:center; gap:7px; }
+.release-download .update-progress { height:5px; margin:9px 0; }
+.update-release-modal .modal-actions { margin-top:18px; padding-top:16px; }
+.update-release-modal { animation:release-appear .18s ease-out; }
+@keyframes release-appear { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) { .update-release-modal { animation:none; } .update-progress i { transition:none; } }
 .trend-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 8px 0 4px; }
 .trend-controls .segmented { flex-shrink: 0; }
 .trend-controls .segmented button { font-size: 12px; padding: 7px 11px; }

@@ -1,4 +1,6 @@
-import type { DashboardQuery, DateRange, StatisticsQuery } from './types';
+import type { DashboardQuery, DateRange, StatisticsQuery, RangeQuery } from './types';
+export function queryRange(query: DashboardQuery):RangeQuery {return typeof query==='object' && 'range' in query ? query.range : query;}
+export function isRollingRange(query:DashboardQuery) {return queryRange(query)==='24h';}
 export function dateKey(date: Date) { return date.toLocaleDateString('sv-SE'); }
 function parseDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('请选择有效日期。');
@@ -15,7 +17,14 @@ function minutes(value: string) {
 }
 /** Local calendar dates, inclusive minutes; old date-only preferences retain their meaning. */
 export function resolveRange(query: DashboardQuery, now = new Date()) {
-  const q=typeof query==='object' && 'range' in query ? query.range : query;
+  const q=queryRange(query);
+  if(q==='24h') {
+    const end_timestamp=Math.floor(now.getTime()/1000),start_timestamp=end_timestamp-86400;
+    const start=new Date(start_timestamp*1000),end=new Date(end_timestamp*1000);
+    const time=(d:Date)=>String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    const days=(Date.UTC(end.getFullYear(),end.getMonth(),end.getDate())-Date.UTC(start.getFullYear(),start.getMonth(),start.getDate()))/86400000+1;
+    return {days,range:{startDate:dateKey(start),endDate:dateKey(end),startTime:time(start),endTime:time(end)},start_timestamp,end_timestamp,durationDays:1};
+  }
   const endToday=new Date(now); endToday.setHours(0,0,0,0);
   let start: Date; let end: Date;
   if (typeof q === 'number') {
@@ -36,6 +45,9 @@ export function resolveRange(query: DashboardQuery, now = new Date()) {
   if(start_timestamp>end_timestamp)throw new Error('开始时间不能晚于结束时间或当前时间。');
   return { days, range, start_timestamp, end_timestamp, durationDays:(end_timestamp-start_timestamp+1)/86400 };
 }
-export function rangeLabel(range?:DateRange) {
-  return range ? `${range.startDate} ${range.startTime || '00:00'} — ${range.endDate} ${range.endTime || '23:59'}` : '';
+export function rangeLabel(range?:DateRange,now=new Date()) {
+  if(!range)return '';
+  const currentTime=String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+  const endTime=range.endTime || '23:59';
+  return `${range.startDate} ${range.startTime || '00:00'} — ${range.endDate} ${range.endDate===dateKey(now) && endTime>currentTime ? currentTime : endTime}`;
 }

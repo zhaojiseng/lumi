@@ -15,9 +15,9 @@ function optionTone(value: string, text: string, fallback: SelectTone): SelectTo
   return fallback;
 }
 /** Native customizable select: one picker style, with platform keyboard and form semantics. */
-export function Select({ value, onChange, children, label, className = '', tone = 'sage', disabled = false, displayValue }: {
+export function Select({ value, onChange, children, label, className = '', tone = 'sage', disabled = false, displayValue, decorated=true }: {
   value: string | number; onChange: (v: string) => void; children: ReactNode;
-  label: string; className?: string; tone?: SelectTone; disabled?: boolean; displayValue?: ReactNode;
+  label: string; className?: string; tone?: SelectTone; disabled?: boolean; displayValue?: ReactNode; decorated?:boolean;
 }) {
   let selectedTone: SelectTone = tone;
   const options = Children.map(children, child => {
@@ -28,7 +28,7 @@ export function Select({ value, onChange, children, label, className = '', tone 
     if (optionValue === String(value)) selectedTone = color;
     return cloneElement(child, { 'data-tone': color });
   });
-  return <div className={`select-wrap ${displayValue ? 'rich-select' : ''} ${className}`} data-tone={selectedTone} data-disabled={disabled || undefined}>
+  return <div className={`select-wrap ${displayValue ? 'rich-select' : ''} ${className}`} data-tone={selectedTone} data-decorated={decorated} data-disabled={disabled || undefined}>
     <select aria-label={label} value={value} onChange={e => onChange(e.target.value)} disabled={disabled} onKeyDown={e => { if (e.key === 'Escape' && (e.currentTarget.matches(':open') || (e.target as HTMLElement).tagName === 'OPTION')) e.stopPropagation(); }}>{options}</select>
     <ChevronDown size={15} aria-hidden="true"/>
     {displayValue && <span className="select-display-value" aria-hidden="true">{displayValue}</span>}

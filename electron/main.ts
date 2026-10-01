@@ -1,5 +1,6 @@
-import {LOG_COLUMN_IDS} from '../shared/types';
-import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Tray, Menu, nativeImage, clipboard,screen } from 'electron';
+import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
+import {refreshSeconds} from '../shared/refresh';
+import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Tray, Menu, nativeImage, clipboard,screen,nativeTheme } from 'electron';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -18,7 +19,8 @@ import {appLogs,captureConsole} from './services/app-logs';
 import {windowLayout,macMenu} from './window-layout';
 import {MenuBarService,menuBarTemplate} from './services/menu-bar';
 import {NativeMenuBar,type NativeMenuEvent} from './services/native-menu-bar';
-import {menuBarSelection,nativeMenuBarState} from '../shared/menu-bar';
+import {TrayPanel} from './services/tray-panel';
+import {menuBarSelection,nativeMenuBarState,menuBarNeedsDetails} from '../shared/menu-bar';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput,Page } from '../shared/types';
@@ -34,9 +36,9 @@ function trayImage(){
   const width=36,bitmap=Buffer.alloc(width*width*4);
   for(let y=0;y<width;y++)for(let x=0;x<width;x++){
     const vertical=Math.hypot(x-11,y-Math.max(8,Math.min(25,y)))<=2.5,horizontal=Math.hypot(x-Math.max(11,Math.min(27,x)),y-25)<=2.5,dot=Math.hypot(x-26,y-10)<=4;
-    if(vertical || horizontal || dot)bitmap[(y*width+x)*4+3]=255;
+    if(vertical || horizontal || dot)bitmap.fill(255,(y*width+x)*4,(y*width+x)*4+4);
   }
-  const image=nativeImage.createFromBitmap(bitmap,{width,height:width,scaleFactor:2});image.setTemplateImage(true);return image;
+  return nativeImage.createFromBitmap(bitmap,{width,height:width,scaleFactor:2});
 }
 const timeSchema=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),startTime:timeSchema.optional(),endTime:timeSchema.optional()}).strict();
@@ -44,12 +46,12 @@ const daySchema = z.number().int().min(1).max(90);
 const toolSchema = z.enum(['codex', 'claude']);
 const modelsSchema=z.array(z.string().min(1).max(200)).max(500);
 const tokenIdsSchema=z.array(z.number().int().positive()).max(500);
-const rangeQuerySchema=z.union([daySchema,dateRangeSchema]);
+const rangeQuerySchema=z.union([daySchema,z.literal('24h'),dateRangeSchema]);
 const statisticsSchema=z.union([rangeQuerySchema,z.object({range:rangeQuerySchema,models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional()}).strict()]);
-const logSchema = z.object({ range:dateRangeSchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), model: z.string().max(200).optional(), tokenName: z.string().max(100).optional(), models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional(),type: z.number().int().min(0).max(10).optional() }).strict();
+const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), model: z.string().max(200).optional(), tokenName: z.string().max(100).optional(), models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional(),type: z.number().int().min(0).max(10).optional() }).strict();
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
-const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
+const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
 function trustedFrame(event: Electron.IpcMainInvokeEvent) {
@@ -74,6 +76,7 @@ async function start() {
   Menu.setApplicationMenu(process.platform==='darwin' ? Menu.buildFromTemplate(macMenu()) : null);
   if(process.platform==='darwin')win.setWindowButtonVisibility(true);
   win.on('close',event=>{if(process.platform==='darwin' && !quitting && process.env.LUMI_SMOKE!=='1'){event.preventDefault();win.hide();appLogs.write('info','窗口','窗口关闭，点击 Dock 图标可重新打开。');}});
+  win.on('closed',()=>{if(process.platform!=='darwin' && !quitting)app.quit();});
   win.webContents.on('console-message',details=>appLogs.write(details.level==='warning' ? 'warn' : details.level==='error' ? 'error' : details.level==='debug' ? 'debug' : 'info','界面',details.message));
   win.webContents.on('did-fail-load',(_event,code,description)=>appLogs.write('error','页面加载',`${code} ${description}`));
   win.webContents.on('render-process-gone',(_event,details)=>appLogs.write('error','渲染进程',`${details.reason} · ${details.exitCode}`));
@@ -99,20 +102,22 @@ async function start() {
   const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
   const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
   let activeStatusMenu:Electron.Menu|undefined;
-  let nativeBar:NativeMenuBar|undefined,menuOpen=false;
+  let nativeBar:NativeMenuBar|undefined,trayPanel:TrayPanel|undefined,menuOpen=false;
+  const updatePanels=()=>{nativeBar?.update();trayPanel?.update();};
   const selected=()=>menuBarSelection(store.preferences.viewSelections[store.activeSite().id]);
-  const menuUsage=new MenuBarService({identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies,selected(),new Date().toLocaleDateString('sv-SE'),store.preferences.managedTokens,store.preferences.bindings])).digest('hex');},load:force=>api.menuBarUsage(force,selected()),loadDetails:()=>api.menuBarDetails(selected()),changed:()=>{nativeBar?.update();if(activeStatusMenu){const next=menuBarTemplate(menuUsage.snapshot(),menuActions);activeStatusMenu.items.forEach((item,index)=>{if(next[index].label!==undefined)item.label=next[index].label!;item.enabled=next[index].enabled!==false;});}}});
-  const refreshMenu=async(force=false)=>{await menuUsage.refresh(force);if(menuOpen)await menuUsage.details(force);};
-  const menuActions={navigate,refresh:()=>{void menuUsage.refresh(true);},quit:()=>app.quit()};
-  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void refreshMenu(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');void updates.check();}})));
+  const menuUsage=new MenuBarService({summaryTtl:()=>refreshSeconds(store.preferences.menuBarRefreshInterval)*1000 || 60000,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies,selected(),new Date().toLocaleDateString('sv-SE'),store.preferences.managedTokens,store.preferences.bindings])).digest('hex');},load:force=>api.menuBarUsage(force,selected()),loadDetails:()=>api.menuBarDetails(selected()),changed:()=>{updatePanels();if(activeStatusMenu){const next=menuBarTemplate(menuUsage.snapshot(),menuActions,store.preferences.menuBarContents);if(activeStatusMenu.items.length===next.length)activeStatusMenu.items.forEach((item,index)=>{if(next[index]?.label!==undefined)item.label=next[index].label!;item.enabled=next[index]?.enabled!==false;});}}});
+  const refreshMenu=async(force=false)=>{await menuUsage.refresh(force);if(menuOpen && (menuBarNeedsDetails(store.preferences.menuBarContents,selected())))await menuUsage.details(force);};
+  const menuActions={navigate,refresh:()=>{void refreshMenu(true);},quit:()=>app.quit()};
+  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void refreshMenu(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
   const nativeEvent=async(e:NativeMenuEvent)=>{
     if(e.type==='opened'){menuOpen=true;await refreshMenu();}
     else if(e.type==='closed')menuOpen=false;
     else if(e.type==='refresh')await refreshMenu(true);
     else if(e.type==='navigate')navigate(e.page);
     else if(e.type==='quit')app.quit();
-    else if(e.type==='select'){const site=store.activeSite();await store.update({selection:{siteId:site.id,values:{'menuBar.days':e.selection.days,'menuBar.tool':e.selection.tool}}});nativeBar?.update();await refreshMenu();}
+    else if(e.type==='select'){const site=store.activeSite();await store.update({selection:{siteId:site.id,values:{'menuBar.days':e.selection.days,'menuBar.tool':e.selection.tool}}});updatePanels();await refreshMenu();}
   };
+  const formattedMenuState=()=>{const site=store.activeSite(),secret=store.credentials(site.id);return {...nativeMenuBarState(menuUsage.snapshot(),selected(),store.preferences.menuBarContents),viewKey:createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId])).digest('hex')};};
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
@@ -120,19 +125,19 @@ async function start() {
   handle('inspectConfigs',noPayload,()=>configs.inspect());
   handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
   handle('installTool',toolSchema,tool=>runtimes.install(tool));
-  handle('saveSite', siteSchema, async input => {const p=await store.saveSite(input as SiteInput);nativeBar?.update();return p;});
+  handle('saveSite', siteSchema, async input => {const p=await store.saveSite(input as SiteInput);updatePanels();return p;});
   handle('loginInfo', noPayload, () => api.loginInfo());
   handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => api.login(input));
   handle('verifyLogin', z.object({challengeId:z.string().uuid(),code:z.string().trim().min(1).max(128)}).strict(), input => api.verifyLogin(input));
   let loginPending: Promise<any> | null = null;
   handle('browserLogin', noPayload, async () => { if (loginPending) throw new Error('登录窗口已打开。'); loginPending=browserLogin(win,store,api); try { return await loginPending; } finally { loginPending=null; } });
-  handle('logout', z.string().max(100), async id => {const p=await api.logout(id);nativeBar?.update();return p;});
-  handle('removeSite', z.string().max(100), async id => {const p=await store.removeSite(id);nativeBar?.update();return p;});
-  handle('preferences', preferenceSchema, async patch => {const p=await store.update(patch);nativeBar?.update();return p;});
+  handle('logout', z.string().max(100), async id => {const p=await api.logout(id);updatePanels();return p;});
+  handle('removeSite', z.string().max(100), async id => {const p=await store.removeSite(id);updatePanels();return p;});
+  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion}), async patch => {const p=await store.update(patch);scheduleMenuRefresh();updatePanels();if(menuOpen)void refreshMenu();return p;});
   handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await api.dashboard(input.query,input.force);
-    if(process.platform==='darwin')void refreshMenu();
+    if(process.platform==='darwin' || process.platform==='win32')void refreshMenu();
     if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
       lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
     }
@@ -146,7 +151,7 @@ async function start() {
   handle('downloadUpdate',noPayload,()=>updates.download());
   handle('cancelUpdate',noPayload,()=>updates.cancel());
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
-  handle('openUpdateFile',noPayload,async()=>{if(!macUpdate)throw new Error('此操作仅适用于 macOS 更新。');const error=await shell.openPath(await updates.readyFile());if(error)throw new Error('无法打开更新安装包，请在下载目录中重试。');});
+  handle('openUpdateFile',noPayload,()=>updates.openMacInstaller(file=>shell.openPath(file),()=>{setImmediate(()=>app.quit());}));
   handle('restartUpdate',noPayload,()=>updates.restart());
   handle('localUsage', statisticsSchema, query => usage.scan(query));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
@@ -172,19 +177,33 @@ async function start() {
   const unsubscribeLogs=appLogs.subscribe(entry=>{if(!win.isDestroyed())win.webContents.send('lumi:appLog',entry);});
   const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  const menuInterval=setInterval(()=>{if(menuOpen)void refreshMenu();},60000);menuInterval.unref();
-  app.once('before-quit',()=>{clearInterval(updateInterval);clearInterval(menuInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();nativeBar?.close();tray?.destroy();});
+  let menuInterval:ReturnType<typeof setInterval>|undefined;
+  function scheduleMenuRefresh(){
+    clearInterval(menuInterval);menuInterval=undefined;
+    const seconds=refreshSeconds(store.preferences.menuBarRefreshInterval);
+    if(seconds){menuInterval=setInterval(()=>{if(menuOpen)void refreshMenu();},seconds*1000);menuInterval.unref();}
+  }
+  scheduleMenuRefresh();
+  const systemThemeChanged=()=>trayPanel?.update();nativeTheme.on('updated',systemThemeChanged);
+  app.once('before-quit',()=>{clearInterval(updateInterval);clearInterval(menuInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();nativeBar?.close();trayPanel?.close();tray?.destroy();nativeTheme.removeListener('updated',systemThemeChanged);});
   const fallbackTray=()=>{
     if(tray || quitting || process.env.LUMI_SMOKE==='1')return;
     tray=new Tray(trayImage());tray.setToolTip('Lumi · 余额与今日用量');tray.setIgnoreDoubleClickEvents(true);
-    const openMenu=()=>{if(activeStatusMenu)return;activeStatusMenu=Menu.buildFromTemplate(menuBarTemplate(menuUsage.snapshot(),menuActions));activeStatusMenu.once('menu-will-close',()=>{activeStatusMenu=undefined;});void menuUsage.refresh();tray?.popUpContextMenu(activeStatusMenu);};
+    const openMenu=()=>{if(activeStatusMenu)return;menuOpen=true;activeStatusMenu=Menu.buildFromTemplate(menuBarTemplate(menuUsage.snapshot(),menuActions,store.preferences.menuBarContents));activeStatusMenu.once('menu-will-close',()=>{activeStatusMenu=undefined;menuOpen=false;});void refreshMenu();tray?.popUpContextMenu(activeStatusMenu);};
     tray.on('click',openMenu);tray.on('right-click',openMenu);
   };
-  if(process.platform==='darwin')nativeBar=new NativeMenuBar({executable:app.isPackaged ? path.join(process.resourcesPath,'native/lumi-menu-bar') : path.join(root,'dist-native/lumi-menu-bar'),state:()=>nativeMenuBarState(menuUsage.snapshot(),selected()),event:e=>{void nativeEvent(e).catch(()=>appLogs.write('warn','菜单栏','用量菜单操作暂不可用。'));},failed:()=>{menuOpen=false;appLogs.write('warn','菜单栏','原生用量面板不可用，启用系统文字菜单。');fallbackTray();}});
+  if(process.platform==='darwin')nativeBar=new NativeMenuBar({executable:app.isPackaged ? path.join(process.resourcesPath,'native/lumi-menu-bar') : path.join(root,'dist-native/lumi-menu-bar'),state:formattedMenuState,event:e=>{void nativeEvent(e).catch(()=>appLogs.write('warn','菜单栏','用量菜单操作暂不可用。'));},failed:()=>{menuOpen=false;appLogs.write('warn','菜单栏','原生用量面板不可用，启用系统文字菜单。');fallbackTray();}});
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
     if(process.platform==='darwin'){
       void nativeBar!.start().then(ok=>{if(!ok)fallbackTray();});
-    }else{tray = new Tray(trayImage());tray.setToolTip('Lumi · AI 工作台');tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click:showWindow }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click',showWindow);}
+    }else{tray = new Tray(trayImage());tray.setToolTip('Lumi · 余额与用量');
+      tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 Lumi',click:showWindow},{label:'用量分析',click:()=>navigate('usage')},{label:'刷新用量',click:()=>void refreshMenu(true)},{type:'separator'},{label:'退出 Lumi',click:()=>app.quit()}]));
+      if(process.platform==='win32'){
+        trayPanel=new TrayPanel({root,preload:path.join(__dirname,'tray-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>({usage:formattedMenuState(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme}),event:nativeEvent});
+        tray.on('click',()=>{void trayPanel?.toggle(tray!.getBounds()).catch(()=>appLogs.write('warn','托盘','用量面板暂不可用，请从右键菜单打开工作台。'));});
+      }
+      tray.on('double-click',()=>{trayPanel?.hide();showWindow();});
+    }
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
   appLogs.write('info','启动','工作台页面加载完成。');
@@ -204,8 +223,12 @@ async function start() {
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
       const buttons=process.platform==='darwin' ? win.getWindowButtonPosition() : null;
       result.nativeMacControls=process.platform!=='darwin' || buttons?.x===24 && buttons?.y===22 && result.titlebarGeometry && Menu.getApplicationMenu()!==null;
-      result.nativeStatusMenu=process.platform!=='darwin' || trayImage().isTemplateImage() && Menu.buildFromTemplate(menuBarTemplate({phase:'idle'},menuActions)).items.some(item=>item.label==='用量分析');
+      result.nativeStatusMenu=process.platform!=='darwin' || !trayImage().isEmpty() && Menu.buildFromTemplate(menuBarTemplate({phase:'idle'},menuActions)).items.some(item=>item.label==='用量分析');
       result.nativeStatusCard=process.platform!=='darwin' || !!nativeBar && await nativeBar.start(true);
+      if(process.platform==='win32'){
+        const probe=new TrayPanel({root,preload:path.join(__dirname,'tray-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>({usage:formattedMenuState(),theme:'light'}),event:()=>{}});
+        try{result.windowsTray=await probe.smoke();result.nativeWindowsTray=Object.values(result.windowsTray).every(Boolean);}finally{probe.close();}
+      }else result.nativeWindowsTray=true;
       const updaterProbe=process.platform==='darwin' ? macUpdater(path.join(data,'updates')) : await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));

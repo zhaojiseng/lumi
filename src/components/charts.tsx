@@ -1,3 +1,4 @@
+import {useRef} from 'react';
 import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { compact } from '../../shared/utils';
 const COLORS = ['#6e978a', '#9b90c5', '#83a8c6', '#c4a782', '#adbb86', '#93a4b3'];
@@ -14,5 +15,12 @@ export function TrendChart({data,metric='cost',symbol='',series=[]}:{data:ChartR
   </ComposedChart></ResponsiveContainer></div>;
 }
 export function ModelDonut({ data, total, symbol }: { data: { name: string; value: number }[]; total: string; symbol: string }) {
-  return <><div className="donut-wrap"><ResponsiveContainer width="100%" height={166}><PieChart><Pie data={data} dataKey="value" innerRadius={59} outerRadius={74} paddingAngle={data.length > 1 ? 1 : 0} minAngle={Math.max(0, Math.min(5, 360 / data.length - 1))} cornerRadius={2} stroke="none" startAngle={90} endAngle={-270}>{data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]}/>)}</Pie><Tooltip contentStyle={{ background: 'var(--tooltip-bg)', border: '1px solid var(--border)', borderRadius: 12, fontSize: 12 }} formatter={(v: any) => `${symbol}${Number(v).toFixed(2)}`}/></PieChart></ResponsiveContainer><div className="donut-label"><span>区间总消耗</span><strong>{total}</strong></div></div><div className="model-legend">{data.slice(0, 3).map((m, i) => <div key={m.name}><span className="legend-dot" style={{ background: COLORS[i] }}/><span className="legend-name" title={m.name}>{m.name}</span><span>{data.reduce((s, d) => s + d.value, 0) ? Math.round(m.value / data.reduce((s, d) => s + d.value, 0) * 100) : 0}%</span></div>)}</div></>;
+  const host=useRef<HTMLDivElement>(null);
+  return <><div className="donut-wrap" ref={host}><ResponsiveContainer width="100%" height={166}><PieChart><Pie data={data} dataKey="value" innerRadius={59} outerRadius={74} paddingAngle={data.length > 1 ? 1 : 0} minAngle={Math.max(0, Math.min(5, 360 / data.length - 1))} cornerRadius={2} stroke="none" startAngle={90} endAngle={-270}>{data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]}/>)}</Pie><Tooltip portal={document.body} wrapperStyle={{position:'fixed',top:0,left:0,zIndex:90,pointerEvents:'none'}} content={({active,payload,coordinate})=>{
+    const rect=host.current?.getBoundingClientRect(),item=payload?.[0];
+    if(!active || !rect || !item)return null;
+    const left=Math.max(8,Math.min(rect.left+(coordinate?.x || 0)+12,window.innerWidth-252));
+    const top=Math.max(8,Math.min(rect.top+(coordinate?.y || 0)+12,window.innerHeight-84));
+    return <div className="donut-tooltip" role="tooltip" style={{position:'fixed',left,top,maxWidth:240,padding:'10px 13px',background:'var(--tooltip-bg)',border:'1px solid var(--border)',borderRadius:12,fontSize:12,color:'var(--text)',overflowWrap:'anywhere'}}><strong>{item.name}</strong><div>{symbol}{Number(item.value).toFixed(2)}</div></div>;
+  }}/></PieChart></ResponsiveContainer><div className="donut-label"><span>区间总消耗</span><strong>{total}</strong></div></div><div className="model-legend">{data.slice(0, 3).map((m, i) => <div key={m.name}><span className="legend-dot" style={{ background: COLORS[i] }}/><span className="legend-name" title={m.name}>{m.name}</span><span>{data.reduce((s, d) => s + d.value, 0) ? Math.round(m.value / data.reduce((s, d) => s + d.value, 0) * 100) : 0}%</span></div>)}</div></>;
 }

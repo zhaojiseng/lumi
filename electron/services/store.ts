@@ -1,5 +1,7 @@
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
 import {applyPreferencePatch, normalizeSelections} from '../../shared/selections';
+import {normalizeMenuBarContents} from '../../shared/menu-bar';
+import {refreshSeconds} from '../../shared/refresh';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -38,7 +40,10 @@ export class SettingsStore {
     this.preferences.managedTokens ||= [];
     this.preferences.logColumns = migrateLogColumns(this.preferences.logColumns);
     this.preferences.viewSelections = normalizeSelections(this.preferences.viewSelections);
-    if (typeof this.preferences.dismissedUpdateVersion !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences.dismissedUpdateVersion) || this.preferences.dismissedUpdateVersion.length>30) this.preferences.dismissedUpdateVersion = '';
+    this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
+    this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
+    this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
+    for(const field of ['dismissedUpdateVersion','skippedUpdateVersion'] as const)if (typeof this.preferences[field] !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences[field]) || this.preferences[field].length>30) this.preferences[field] = '';
     this.encrypted = data.vault || '';
     if (this.encrypted) {
       try { this.secrets = JSON.parse(this.cipher.decrypt(this.encrypted)); }
@@ -103,6 +108,9 @@ export class SettingsStore {
     if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     this.preferences = applyPreferencePatch(this.preferences, patch);
+    this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
+    this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
+    this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);
   }
   async setToolKey(tool: Tool, key: string, binding?: Partial<ToolBinding>, id = this.preferences.activeSiteId) {

@@ -1,5 +1,5 @@
 import {normalizeHealth,normalizeHealthDetails} from '../../shared/health';
-import { resolveRange,statisticsFilters } from '../../shared/range';
+import { resolveRange,statisticsFilters,isRollingRange } from '../../shared/range';
 import {filterLogs,logStat} from '../../shared/statistics';
 import type { SettingsStore, SiteSecret, SessionCookie } from './store';
 import { publicEncrypt, randomBytes, createCipheriv, randomUUID, createHash } from 'node:crypto';
@@ -227,11 +227,11 @@ export class NewApiClient {
     const chunks=await Promise.all(windows.map(query=>this.request('/api/data/self',{query}).then(j=>j.data as QuotaPoint[])));
     return chunks.flat();
   }
-  private async completeLogs(query:DashboardQuery,type=2):Promise<{rows:UsageLog[];fetchedAt:number}>{
+  private async completeLogs(query:DashboardQuery,type=2,fixedWindow?:{start_timestamp:number;end_timestamp:number}):Promise<{rows:UsageLog[];fetchedAt:number}>{
     const scope=this.current(),secret=await this.validSecret(scope);
-    const resolved=resolveRange(query),window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
+    const resolved=resolveRange(query),window=fixedWindow || {start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
-    const cacheWindow={...window,end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
+    const cacheWindow={...window,...(isRollingRange(query) ? {start_timestamp:Math.floor(window.start_timestamp/60)*60} : {}),end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
     return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':completeLogs:'+type+':'+JSON.stringify(cacheWindow),60000,async()=>{
       const rows:UsageLog[]=[];let expected:number|undefined;const ids=new Set<number>();
       for(let page=1;page<=101;page++){
@@ -249,11 +249,11 @@ export class NewApiClient {
         }
       }
       throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
-    }).then(async result=>{this.checkScope(scope);await this.validSecret(scope);return result;});
+    }).then(async result=>{this.checkScope(scope);await this.validSecret(scope);return {...result,rows:result.rows.filter(row=>row.created_at>=window.start_timestamp && row.created_at<=window.end_timestamp)};});
   }
   async tokenUsage(query:DashboardQuery):Promise<TokenUsage>{
     if(!this.snapshot)return this.scope().tokenUsage(query);
-    const resolved=resolveRange(query),filters=statisticsFilters(query),complete=await this.completeLogs(query,filters.models?.length || filters.tokenIds?.length ? 0 : 2),rows=filterLogs(complete.rows,filters).filter(r=>r.type===2),fetchedAt=complete.fetchedAt;
+    const resolved=resolveRange(query),filters=statisticsFilters(query),complete=await this.completeLogs(query,filters.models?.length || filters.tokenIds?.length ? 0 : 2,resolved),rows=filterLogs(complete.rows,filters).filter(r=>r.type===2),fetchedAt=complete.fetchedAt;
     return {points:tokenPoints(rows,resolved),quality:summarizeQuality(rows,resolved,fetchedAt),logCount:rows.length,fetchedAt};
   }
   async usageQuality(query:DashboardQuery):Promise<UsageQuality>{
@@ -261,7 +261,7 @@ export class NewApiClient {
     const scope=this.current(),secret=await this.validSecret(scope);
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
     // Keep today's key stable across minute refreshes; detailed metrics refresh every five minutes.
-    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify([resolveRange(query).range,statisticsFilters(query)]);
+    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify([isRollingRange(query) ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(query).range,statisticsFilters(query)]);
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
@@ -303,10 +303,10 @@ export class NewApiClient {
   async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
     if (!this.snapshot) return this.scope().dashboard(query,force);
     if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
-    const resolved=resolveRange(query); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp}; const todayWindow=timeRange(1);
+    const fetchedAt=Date.now(),resolved=resolveRange(query,new Date(fetchedAt)); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp}; const todayWindow=timeRange(1);
     const filters=statisticsFilters(query),detailed=!!(range.startTime || range.endTime || filters.models?.length || filters.tokenIds?.length);
     const statusTask = this.status();
-    if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status:await statusTask,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days };
+    if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status:await statusTask,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt,days };
     const names = ['账户余额', '请求记录', '用量曲线', '消费统计', '模型广场', 'API 令牌', '今日消费'];
     const results = await Promise.allSettled([
       this.request('/api/user/self').then(j => j.data as UserInfo),
@@ -318,7 +318,7 @@ export class NewApiClient {
       this.request('/api/perf-metrics/summary',{query:{hours:24}}).then(j => normalizeHealth(j.data)),
       this.request('/api/data/self',{query:todayWindow}).then(j => j.data as QuotaPoint[]),
       statusTask,
-      detailed ? this.completeLogs(query,0).then(({rows})=>filterLogs(rows,filters)) : Promise.resolve(null),
+      detailed ? this.completeLogs(query,0,timestamps).then(({rows})=>filterLogs(rows,filters)) : Promise.resolve(null),
     ]);
     if(results[9].status==='rejected')throw results[9].reason;
     if(detailed && results[10].status==='rejected')throw results[10].reason;
@@ -335,7 +335,7 @@ export class NewApiClient {
     if (results[8].status === 'rejected') warnings.push('今日调用：'+results[8].reason.message);
     if (results[10].status === 'rejected') warnings.push('筛选统计：'+results[10].reason.message);
     const todayRows=value<QuotaPoint[]>(8,[]).filter(p => p.created_at >= todayWindow.start_timestamp);
-    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, today:{quota:value<UsageStat | null>(6,null)?.quota ?? (results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+p.quota,0) : null),requests:results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+(p.count || 0),0) : null},health:value<HealthSummary | null>(7,null),healthError:results[7].status === 'rejected' ? '健康度暂不可用：'+results[7].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series: detailed ? tokenPoints(detailRows || [],timestamps) : value(2, []), stat: detailed ? detailStat : value(3, null), catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt: Date.now(), days };
+    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, today:{quota:value<UsageStat | null>(6,null)?.quota ?? (results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+p.quota,0) : null),requests:results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+(p.count || 0),0) : null},health:value<HealthSummary | null>(7,null),healthError:results[7].status === 'rejected' ? '健康度暂不可用：'+results[7].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series: detailed ? tokenPoints(detailRows || [],timestamps) : value(2, []), stat: detailed ? detailStat : value(3, null), catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt, days };
   }
   async modelHealth(model: string): Promise<ModelHealthDetails> {
     if (!this.snapshot) return this.scope().modelHealth(model);

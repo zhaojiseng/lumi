@@ -61,6 +61,12 @@ test('dismissing an update survives restart and site changes and can be restored
   const migrated=new SettingsStore(path.join(root,'app'),cipher);await migrated.load();
   assert.equal(migrated.preferences.dismissedUpdateVersion,'');
 });
+test('skipping an update is separate from hiding its notice and persists through restart',async()=>{
+  const {root,store}=await fixture();await store.update({skippedUpdateVersion:'1.2.3',dismissedUpdateVersion:'1.2.2'});
+  const again=new SettingsStore(path.join(root,'app'),cipher);await again.load();assert.equal(again.preferences.skippedUpdateVersion,'1.2.3');assert.equal(again.preferences.dismissedUpdateVersion,'1.2.2');
+  await again.update({dismissedUpdateVersion:''});assert.equal(again.preferences.skippedUpdateVersion,'1.2.3');await again.update({skippedUpdateVersion:''});
+  const restored=new SettingsStore(path.join(root,'app'),cipher);await restored.load();assert.equal(restored.preferences.skippedUpdateVersion,'');
+});
 test('Codex direct config preserves unrelated TOML and official login, keeping the gateway token in its provider', () => {
   const before = '[projects."/sample"]\ntrust_level = "trusted"\n\n[mcp_servers.docs]\ncommand = "sample"\n';
   const r = buildCodex(before, JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'old-token' }, custom: 3 }), request, 'https://gateway.invalid', 'sk-config-only');

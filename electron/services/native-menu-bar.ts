@@ -27,7 +27,7 @@ export class NativeMenuBar {
       reader.on('line',line=>{
         if(line.length>4096)return;
         let info:any;try{info=JSON.parse(line);}catch{return;}
-        if(info.type==='ready' && info.schemaVersion===1 && info.nativeCard===true && info.nativeChart===true && info.nativeSelectors===true && info.layoutValid===true){ready=true;this.update();if(!smoke)finish(true);return;}
+        if(info.type==='ready' && info.schemaVersion===1 && info.nativeCard===true && info.nativeChart===true && info.nativeSelectors===true && info.equalSelectorHeight===true && info.lumiIcon===true && info.layoutValid===true){ready=true;this.update();if(!smoke)finish(true);return;}
         if(smoke && ready && info.type==='applied' && info.schemaVersion===1){finish(true);return;}
         const event=parseNativeMenuEvent(line);if(ready && !this.closed && event)this.options.event(event);
       });

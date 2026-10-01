@@ -65,6 +65,10 @@ select option[data-tone=sage] {
   background: var(--choice-fg);
 }
 
+.select-wrap[data-decorated=false]::before { content: none; }
+.select-wrap[data-decorated=false] select { padding-left: 13px; }
+.select-wrap[data-decorated=false] select option::before { content: none; }
+
 .select-wrap select {
   width: 100%;
   min-width: 0;
@@ -201,6 +205,23 @@ select option[data-tone=sage] {
     transform-origin: top;
     transition: opacity .18s ease, transform .18s ease, display .18s allow-discrete, overlay .18s allow-discrete;
   }
+
+  .site-switch select::picker(select) {
+    inline-size: anchor-size(width);
+    min-inline-size: anchor-size(width);
+    max-inline-size: anchor-size(width);
+    padding: 4px;
+    border-radius: 11px;
+    font-size: 11px;
+  }
+  .select-wrap.site-switch select option {
+    min-height: 33px;
+    padding: 7px 6px;
+    gap: 5px;
+    border-radius: 8px;
+    line-height: 17px;
+  }
+  .select-wrap.site-switch select option::before { flex-basis: 5px; height: 5px; margin: 0 2px; }
 
   .select-wrap select:open::picker(select) { opacity: 1; transform: translateY(0) scale(1); }
 

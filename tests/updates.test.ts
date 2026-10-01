@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {mkdtemp,readFile,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {newerVersion,validateUpdate,UpdateService,type NativeUpdateInfo,type UpdateEngine} from '../electron/services/updates';
+import {releaseNotesText,shouldPromptUpdate} from '../shared/updates';
 
 const version='0.4.21',name='Lumi-'+version+'-x64.exe',bytes=Buffer.from('Isolated updater fixture; never executable.'),hash=createHash('sha512').update(bytes).digest('base64');
 function info():NativeUpdateInfo{return {version,tag:'v'+version,files:[{url:name,sha512:hash,size:bytes.length}]};}
@@ -38,4 +39,14 @@ test('cancellation returns to available and install errors keep the UI actionabl
   const f=await fixture({blocking:true});await f.service.check();const stop=f.service.subscribe(s=>{if(s.received>0 && s.phase==='downloading')f.service.cancel();});assert.equal((await f.service.download()).phase,'available');stop();assert.equal(f.installs,0);
   const failed=await fixture({installFailure:true});await failed.service.check();await failed.service.download();await assert.rejects(failed.service.restart(),/未能启动/);assert.equal(failed.service.snapshot().phase,'error');
   const asyncFailure=await fixture();await asyncFailure.service.check();await asyncFailure.service.download();await asyncFailure.service.restart();asyncFailure.error(new Error('spawn failed'));assert.equal(asyncFailure.service.snapshot().phase,'error');
+});
+test('release notes are bounded plain text and only the target version is displayed',async()=>{
+  const raw='<h2>改进</h2><ul><li>更流畅 &amp; 更清晰</li></ul><script>untrusted()</script><style>body{display:none}</style>\r后续';
+  assert.equal(releaseNotesText(raw),'改进\n\n- 更流畅 & 更清晰\n\n后续');
+  assert.equal(releaseNotesText([{version,note:'当前说明'},{version:'0.4.22',note:'其他版本'}],version),'当前说明');assert.equal(releaseNotesText({html:'anything'}),'');assert.equal(releaseNotesText('x'.repeat(80000)).length,32000);
+  const f=await fixture({info:{...info(),releaseNotes:raw}});await f.service.check();assert.equal(f.service.snapshot().releaseNotes,releaseNotesText(raw));assert.equal(f.downloads,0);
+});
+test('skipped, hidden or already reviewed versions do not reprompt, while the next version does',()=>{
+  const state={phase:'available' as const,currentVersion:'0.4.20',version,received:0,total:100};
+  assert.ok(shouldPromptUpdate(state,'','',''));assert.ok(!shouldPromptUpdate(state,version,'',''));assert.ok(!shouldPromptUpdate(state,'',version,''));assert.ok(!shouldPromptUpdate(state,'','',version));assert.ok(shouldPromptUpdate({...state,version:'0.4.22'},version,'',version));assert.ok(!shouldPromptUpdate({...state,phase:'downloading'},'','',''));
 });

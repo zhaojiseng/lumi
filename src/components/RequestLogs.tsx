@@ -3,8 +3,9 @@ import {Columns3,ChevronLeft,ChevronRight,Info} from 'lucide-react';
 import {useApp} from '../context';
 import {Button,Modal,Pill,Empty} from './ui';
 import {DEFAULT_LOG_COLUMNS,LOG_COLUMN_IDS,type UsageLog,type LogPage,type LogColumnId,type SiteStatus,type ModelCatalog} from '../../shared/types';
-import {LOG_COLUMN_LABELS,normalizeLogColumns,visibleLogColumns,logMetrics,upstreamChannel,requestStatus,requestTiming} from '../../shared/logs';
+import {LOG_COLUMN_LABELS,normalizeLogColumns,visibleLogColumns,logMetrics,upstreamChannel,requestStatus,requestTiming,requestReasoningEffort} from '../../shared/logs';
 import {formatMoney,toolForLog} from '../../shared/utils';
+import '../recent-activity.css';
 function tokens(n:number|null) {return n===null ? '—' : n.toLocaleString();}
 function speedText(n:number|null) {return n===null ? '—' : n.toLocaleString('en-US',{maximumFractionDigits:1})+' t/s';}
 function firstToken(n:number|null) {return n===null ? '—' : (n/1000).toLocaleString('en-US',{maximumFractionDigits:3})+'s';}
@@ -25,6 +26,7 @@ export function RequestLogTable({logs,busy,page,onPage,onDetail,status,catalog}:
     switch(id){
       case 'time':return <span className="nowrap muted">{new Date(log.created_at*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}</span>;
       case 'model':return <span className="log-text-cell font-medium" title={log.model_name}>{log.model_name}</span>;
+      case 'reasoning':{const effort=requestReasoningEffort(log);return <span className="log-text-cell" title={effort || undefined}>{effort || '—'}</span>;}
       case 'token':return <span className="log-text-cell muted" title={log.token_name}>{log.token_name || '—'}</span>;
       case 'input':return <div className="log-input-cell"><strong>{tokens(log.prompt_tokens)}</strong>{showCacheRead && <small>缓存读取 {tokens(m.cacheRead)}</small>}</div>;
       case 'output':return tokens(log.completion_tokens);
@@ -46,8 +48,8 @@ export function RequestLogTable({logs,busy,page,onPage,onDetail,status,catalog}:
 }
 export function RequestDetail({log,status,onClose}:{log:UsageLog;status:SiteStatus;onClose():void}) {
   const m=logMetrics(log),state=requestStatus(log),timing=requestTiming(log);
-  const fields=[['模型',log.model_name],['令牌',log.token_name],['时间',new Date(log.created_at*1000).toLocaleString()],['路由分组',log.group || '—'],['上游渠道',upstreamChannel(log) || '站点未提供'],['输入 Tokens',tokens(log.prompt_tokens)],['输出 Tokens',tokens(log.completion_tokens)],['缓存读取 Tokens',tokens(m.cacheRead)],['缓存写入 Tokens',tokens(m.cacheWrite)],['Token 速度',speedText(m.speed)],['首字延迟',firstToken(m.firstTokenMs)],['费用',formatMoney(log.quota,status,6)],['耗时',log.use_time+'s'],['请求 ID',log.request_id || '—'],['流式输出',log.is_stream ? '是' : '否']];
+  const fields=[['模型',log.model_name],['思考强度',requestReasoningEffort(log) || '—'],['令牌',log.token_name],['时间',new Date(log.created_at*1000).toLocaleString()],['路由分组',log.group || '—'],['上游渠道',upstreamChannel(log) || '站点未提供'],['输入 Tokens',tokens(log.prompt_tokens)],['输出 Tokens',tokens(log.completion_tokens)],['缓存读取 Tokens',tokens(m.cacheRead)],['缓存写入 Tokens',tokens(m.cacheWrite)],['Token 速度',speedText(m.speed)],['首字延迟',firstToken(m.firstTokenMs)],['费用',formatMoney(log.quota,status,6)],['耗时',log.use_time+'s'],['请求 ID',log.request_id || '—'],['流式输出',log.is_stream ? '是' : '否']];
   fields.push(['HTTP 状态码',state.httpStatus===null ? '站点未提供' : String(state.httpStatus)],['后续耗时',timing.subsequentMs===null ? '—' : (timing.subsequentMs/1000).toLocaleString('en-US',{maximumFractionDigits:3})+'s']);
   if(state.isError)fields.push(['错误类型',state.errorType || '站点未提供'],['错误代码',state.errorCode || '站点未提供']);
-  return <Modal title={state.isError ? '请求错误详情' : '请求详情'} subtitle={'记录 #'+log.id} onClose={onClose}><div className="detail-grid">{fields.map(([key,value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div><p className="field-help">{speedHelp}后续耗时为总耗时减去首字等待，仅在流式请求提供有效首字时间时显示。</p>{state.message && <div className="info-note request-error-message">{state.message}</div>}{log.other && <details className="raw-detail"><summary>计费与缓存元数据</summary><pre>{(() => {try{return JSON.stringify(JSON.parse(log.other!),null,2);}catch{return log.other;}})()}</pre></details>}<div className="modal-actions"><Button onClick={onClose}>关闭</Button></div></Modal>;
+  return <Modal title={state.isError ? '请求错误详情' : '请求详情'} subtitle={'记录 #'+log.id} onClose={onClose}><div className="detail-grid">{fields.map(([key,value]) => <div key={key}><span>{key}</span><strong className={key==='思考强度' ? 'request-reasoning-value' : undefined} title={key==='思考强度' ? value : undefined}>{value}</strong></div>)}</div><p className="field-help">{speedHelp}后续耗时为总耗时减去首字等待，仅在流式请求提供有效首字时间时显示。</p>{state.message && <div className="info-note request-error-message">{state.message}</div>}{log.other && <details className="raw-detail"><summary>计费与缓存元数据</summary><pre>{(() => {try{return JSON.stringify(JSON.parse(log.other!),null,2);}catch{return log.other;}})()}</pre></details>}<div className="modal-actions"><Button onClick={onClose}>关闭</Button></div></Modal>;
 }

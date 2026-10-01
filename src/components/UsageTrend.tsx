@@ -4,7 +4,7 @@ import {bridge} from '../bridge';
 import {useApp} from '../context';
 import {useSavedSelection} from '../selections';
 import {groupedTrend} from '../../shared/trends';
-import {resolveRange} from '../../shared/range';
+import {resolveRange,isRollingRange} from '../../shared/range';
 import {currency,usageGranularity} from '../../shared/utils';
 import type {Dashboard,TokenUsage,TrendGrouping,TrendMetric} from '../../shared/types';
 import {Empty,Select} from './ui';
@@ -27,10 +27,11 @@ export function UsageTrend({dashboard:d,metric,preferenceKey}:{dashboard:Dashboa
   const tokenData=d.detailed ? null : tokens?.key===scope ? tokens.value : null;
   const points=grouping==='token' && !d.detailed ? tokenData?.points || [] : d.series;
   const now=grouping==='token' && tokenData ? new Date(tokenData.fetchedAt) : new Date(d.fetchedAt);
+  const range=isRollingRange(d.query || d.range || d.days) ? '24h' : d.range;
   const selection=grouping==='model' ? model : token;
-  const all=useMemo(()=>groupedTrend(points,d.days,d.status,d.range,now,grouping,metric),[points,d.days,d.status,d.range,now.getTime(),grouping,metric]);
+  const all=useMemo(()=>groupedTrend(points,d.days,d.status,range,now,grouping,metric),[points,d.days,d.status,range,now.getTime(),grouping,metric]);
   const selected=all.options.some(option=>option.key===selection) ? selection : '';
-  const chart=selected ? groupedTrend(points,d.days,d.status,d.range,now,grouping,metric,selected) : all;
+  const chart=selected ? groupedTrend(points,d.days,d.status,range,now,grouping,metric,selected) : all;
   const label=grouping==='model' ? '模型' : '令牌';
   return <>
     <div className="trend-controls"><div className="segmented" aria-label="曲线分组">{(['total','model','token'] as const).map((mode,i)=><button type="button" key={mode} className={grouping===mode ? 'active' : ''} aria-pressed={grouping===mode} onClick={()=>setGrouping(mode)}>{['合计','按模型','按令牌'][i]}</button>)}</div>
@@ -41,6 +42,6 @@ export function UsageTrend({dashboard:d,metric,preferenceKey}:{dashboard:Dashboa
       <TrendChart data={chart.rows} metric={metric} symbol={currency(d.status).symbol} series={chart.lines}/>
     </> : <Empty title="暂无用量曲线" description="所选时间段没有消费记录。"/>}
     {points.length>0 && !loading && !error && chart.lines.length>0 && <div className="trend-legend">{chart.lines.map(line=><span key={line.id} title={line.name}><i style={{background:line.color}}/>{line.name}</span>)}</div>}
-    <div className="chart-note"><span>{usageGranularity(d.range?.startTime || d.range?.endTime ? resolveRange(d.range,new Date(d.fetchedAt)).durationDays : d.days).label}汇总 · {(grouping==='token' || d.detailed) ? '来源：完整消费日志 · 输入 + 输出 Tokens' : '来源：站点用量统计'}</span>{chart.combined>0 && <span>{metric==='cost' ? '消费金额' : metric==='tokens' ? 'Tokens' : '请求次数'}最高的 8 项单列，其余合并；可选择任意{label}单独查看</span>}</div>
+    <div className="chart-note"><span>{usageGranularity(range==='24h' || d.range?.startTime || d.range?.endTime ? resolveRange(range || d.days,now).durationDays : d.days).label}汇总 · {(grouping==='token' || d.detailed) ? '来源：完整消费日志 · 输入 + 输出 Tokens' : '来源：站点用量统计'}</span>{chart.combined>0 && <span>{metric==='cost' ? '消费金额' : metric==='tokens' ? 'Tokens' : '请求次数'}最高的 8 项单列，其余合并；可选择任意{label}单独查看</span>}</div>
   </>;
 }

@@ -1,11 +1,14 @@
 import {DEFAULT_LOG_COLUMNS,LOG_COLUMN_IDS,type UsageLog,type LogColumnId} from './types';
 export const LOG_COLUMN_LABELS: Record<LogColumnId,string> = {
-  time:'时间',model:'模型',token:'令牌',input:'输入 Tokens',output:'输出 Tokens',cacheRead:'缓存读取',cacheWrite:'缓存写入',cost:'费用',duration:'耗时',speed:'Token 速度',channel:'渠道',status:'状态',firstToken:'首字延迟',group:'路由分组',requestId:'请求 ID',stream:'流式输出',tool:'工具归属',
+  time:'时间',model:'模型',reasoning:'思考强度',token:'令牌',input:'输入 Tokens',output:'输出 Tokens',cacheRead:'缓存读取',cacheWrite:'缓存写入',cost:'费用',duration:'耗时',speed:'Token 速度',channel:'渠道',status:'状态',firstToken:'首字延迟',group:'路由分组',requestId:'请求 ID',stream:'流式输出',tool:'工具归属',
 };
+function normalizeColumns<T extends string>(value:unknown,ids:readonly T[],defaults:readonly T[]):T[] {
+  if(!Array.isArray(value))return [...defaults];
+  const columns=[...new Set(value.filter((v):v is T => typeof v==='string' && ids.includes(v as T)))];
+  return columns.length ? columns : [...defaults];
+}
 export function normalizeLogColumns(value:unknown):LogColumnId[] {
-  if(!Array.isArray(value))return [...DEFAULT_LOG_COLUMNS];
-  const columns=[...new Set(value.filter((v):v is LogColumnId => LOG_COLUMN_IDS.includes(v as LogColumnId)))];
-  return columns.length ? columns : [...DEFAULT_LOG_COLUMNS];
+  return normalizeColumns(value,LOG_COLUMN_IDS,DEFAULT_LOG_COLUMNS);
 }
 export function visibleLogColumns(value:unknown):LogColumnId[] {
   const columns=normalizeLogColumns(value);
@@ -13,11 +16,41 @@ export function visibleLogColumns(value:unknown):LogColumnId[] {
 }
 export function migrateLogColumns(value:unknown):LogColumnId[] {
   const oldDefault=['time','model','token','input','output','cacheRead','cacheWrite','cost','duration','speed','channel','status'];
-  return Array.isArray(value) && value.length===oldDefault.length && value.every((c,i)=>c===oldDefault[i]) ? [...DEFAULT_LOG_COLUMNS] : normalizeLogColumns(value);
+  const previousDefault=oldDefault.filter(c=>c!=='cacheWrite');
+  return Array.isArray(value) && [oldDefault,previousDefault].some(columns=>value.length===columns.length && value.every((c,i)=>c===columns[i])) ? [...DEFAULT_LOG_COLUMNS] : normalizeLogColumns(value);
+}
+export const ACTIVITY_COLUMN_IDS = ['model','time','reasoning','token','input','cacheRead','cacheWrite','output','cost','speed','timing','duration','firstToken','channel','group','requestId','stream','tool','status'] as const satisfies readonly (LogColumnId|'timing')[];
+export type ActivityColumnId = typeof ACTIVITY_COLUMN_IDS[number];
+export const DEFAULT_ACTIVITY_COLUMNS: ActivityColumnId[] = ['model','input','cacheRead','output','cost','speed','timing','status'];
+export const ACTIVITY_COLUMN_LABELS: Record<ActivityColumnId,string> = {
+  ...LOG_COLUMN_LABELS,input:'输入',output:'输出',speed:'速率',timing:'首字 / 后续',status:'状态码',
+};
+export function normalizeActivityColumns(value:unknown):ActivityColumnId[] {
+  return normalizeColumns(value,ACTIVITY_COLUMN_IDS,DEFAULT_ACTIVITY_COLUMNS);
+}
+export function visibleActivityColumns(value:unknown):ActivityColumnId[] {
+  const columns=normalizeActivityColumns(value);
+  return columns.filter(id=>!(id==='cacheRead' && columns.includes('input')) && !(id==='firstToken' && columns.includes('timing')));
 }
 function record(value:unknown):Record<string,unknown> {return value && typeof value==='object' && !Array.isArray(value) ? value as Record<string,unknown> : {};}
 export function logMetadata(log:UsageLog):Record<string,unknown> {
   try {return record(typeof log.other==='string' ? JSON.parse(log.other) : log.other);}catch{return {};}
+}
+export function requestReasoningEffort(log:UsageLog):string|null {
+  const root=record(log),other=logMetadata(log);
+  // New API GenerateTextOtherInfo publishes other.reasoning_effort from RelayInfo.ReasoningEffort.
+  // Read only explicit logged request fields, never model names, prompts or configuration defaults.
+  const sources=[root,other];
+  for(const source of [root,other]) {
+    const request=record(source.request),metadata=record(source.metadata);
+    sources.push(request,metadata,record(request.metadata),record(metadata.request));
+  }
+  for(const source of sources) {
+    for(const value of [source.reasoning_effort,record(source.reasoning).effort]) {
+      if(typeof value==='string' && value.trim())return value;
+    }
+  }
+  return null;
 }
 const count=(value:unknown):number|null => typeof value==='number' && Number.isFinite(value) && value>=0 ? value : null;
 export function logMetrics(log:UsageLog) {

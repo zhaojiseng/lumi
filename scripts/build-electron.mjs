@@ -5,6 +5,7 @@ await mkdir('dist-electron', { recursive: true });
 await Promise.all([
   build({ entryPoints: ['electron/main.ts'], outfile: 'dist-electron/main.cjs', bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron'], sourcemap: false }),
   build({ entryPoints: ['electron/preload.ts'], outfile: 'dist-electron/preload.cjs', bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron'], sourcemap: false }),
+  build({ entryPoints: ['electron/tray-preload.ts'], outfile: 'dist-electron/tray-preload.cjs', bundle: true, platform: 'node', format: 'cjs', target: 'node24', external: ['electron'], sourcemap: false }),
 ]);
 // Remove the previous build's obsolete template assets before packaging.
 const obsolete=path.resolve('dist-electron/vendor/codex-0.159.1');

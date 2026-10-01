@@ -1,0 +1,9 @@
+.recent-activity-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.recent-panel .section-heading { flex-wrap: wrap; gap: 12px; }
+.recent-panel .recent-activity-table { min-width: 0; }
+.recent-activity-table .activity-text-cell { display: inline-block; max-width: 230px; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; white-space: nowrap; }
+.detail-grid .request-reasoning-value { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-columns-modal .log-column-presets { flex-wrap: wrap; }
+@media (max-width: 680px) {
+  .activity-columns-modal .log-columns-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}

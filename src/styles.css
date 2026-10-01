@@ -980,6 +980,8 @@ h1,h2,h3,h4 {
   margin-top: -2px;
 }
 
+.donut-wrap .recharts-pie-sector:focus, .donut-wrap .recharts-sector:focus { outline: none; }
+
 .donut-label {
   position: absolute;
   left: 50%;

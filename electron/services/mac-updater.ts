@@ -4,12 +4,12 @@ import {randomUUID} from 'node:crypto';
 import {validateUpdate,type NativeUpdateInfo,type UpdateEngine} from './updates';
 const ROOT='https://github.com/zhaojiseng/lumi/releases/download/';
 export function macReleaseInfo(value:unknown):NativeUpdateInfo {
-  const data=value as {tag_name?:string;draft?:boolean;prerelease?:boolean;assets?:{name?:string;size?:number;digest?:string;browser_download_url?:string}[]};
+  const data=value as {tag_name?:string;body?:unknown;draft?:boolean;prerelease?:boolean;assets?:{name?:string;size?:number;digest?:string;browser_download_url?:string}[]};
   if(!data || data.draft!==false || data.prerelease!==false || typeof data.tag_name!=='string' || !/^v\d+\.\d+\.\d+$/.test(data.tag_name) || !Array.isArray(data.assets))throw new Error('更新 Release 元数据无效。');
   const version=data.tag_name.slice(1),name=`Lumi-${version}-arm64.dmg`,matches=data.assets.filter(a=>a.name===name);
   if(matches.length!==1 || matches[0].browser_download_url!==ROOT+data.tag_name+'/'+name)throw new Error('更新 macOS ARM64 附件无效。');
   const asset=matches[0],sha256=asset.digest?.match(/^sha256:([a-f0-9]{64})$/)?.[1];
-  const info={version,tag:data.tag_name,files:[{url:asset.browser_download_url!,sha256,size:asset.size}]};
+  const info={version,tag:data.tag_name,releaseNotes:data.body,files:[{url:asset.browser_download_url!,sha256,size:asset.size}]};
   validateUpdate(info,'mac-arm64');return info;
 }
 /** Downloads official DMG with no account credentials. Installation remains a macOS Finder action. */

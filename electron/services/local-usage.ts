@@ -3,7 +3,7 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
-import {resolveRange,statisticsFilters} from '../../shared/range';
+import {resolveRange,statisticsFilters,isRollingRange} from '../../shared/range';
 import type { DashboardQuery,LocalUsage, LocalUsageRow, Tool } from '../../shared/types';
 interface Counters { input: number; output: number; cache: number; write: number; }
 const n = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -33,7 +33,7 @@ export class LocalUsageService {
   private respectEnvironment: boolean;
   constructor(home?: string) { this.home = home || process.env.LUMI_TEST_HOME || os.homedir(); this.respectEnvironment = !home && !process.env.LUMI_TEST_HOME; }
   async scan(query: DashboardQuery): Promise<LocalUsage> {
-    const key=JSON.stringify([resolveRange(query).range,statisticsFilters(query)]);
+    const key=JSON.stringify([isRollingRange(query) ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(query).range,statisticsFilters(query)]);
     const cached = this.cache.get(key); if (cached && Date.now() - cached.at < 60000) return cached.data;
     if (this.inFlight.has(key)) return this.inFlight.get(key)!;
     const request = this.read(query); this.inFlight.set(key, request);

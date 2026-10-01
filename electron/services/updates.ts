@@ -2,9 +2,10 @@ import {createHash} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {lstat} from 'node:fs/promises';
 import type {UpdateState} from '../../shared/types';
+import {releaseNotesText} from '../../shared/updates';
 
 const REPOSITORY='zhaojiseng/lumi',MAX_PACKAGE=512*1024*1024;
-export interface NativeUpdateInfo {version:string;tag?:string;files:{url:string;sha512?:string;sha256?:string;size?:number}[];packages?:unknown;}
+export interface NativeUpdateInfo {version:string;tag?:string;files:{url:string;sha512?:string;sha256?:string;size?:number}[];packages?:unknown;releaseNotes?:unknown;}
 export interface UpdateEngine {
   check():Promise<NativeUpdateInfo|null>;
   download(signal:AbortSignal,progress:(received:number,total:number)=>void):Promise<string>;
@@ -48,12 +49,12 @@ export class UpdateService {
     if(this.checking)return this.checking;const job=this.performCheck();this.checking=job;return job.finally(()=>{if(this.checking===job)this.checking=undefined;});
   }
   private async performCheck(){
-    this.release=undefined;this.set({phase:'checking',error:undefined,version:undefined,received:0,total:0});
+    this.release=undefined;this.set({phase:'checking',error:undefined,version:undefined,releaseUrl:undefined,releaseNotes:undefined,received:0,total:0});
     try{
       const info=await this.options.engine!.check();if(!info)throw new Error('更新检查暂不可用。');
       const version=versionParts(info.version).join('.');this.release=undefined;
       if(!newerVersion(version,this.options.version))this.set({phase:'current',version:undefined,received:0,total:0,checkedAt:Date.now()});
-      else{this.release=validateUpdate(info,this.options.target);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,received:0,total:this.release.size,checkedAt:Date.now()});}
+      else{this.release=validateUpdate(info,this.options.target);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,releaseNotes:releaseNotesText(info.releaseNotes,version),received:0,total:this.release.size,checkedAt:Date.now()});}
     }catch(e){this.set({phase:'error',error:e instanceof Error && /^更新/.test(e.message) ? e.message : '更新检查失败，请检查网络后重试。'});}
     return this.snapshot();
   }
@@ -76,6 +77,13 @@ export class UpdateService {
   async readyFile(){
     if(!this.ready || !this.release || this.state.phase!=='ready')throw new Error('更新尚未下载完成。');
     try{await verifyFile(this.ready,this.release);return this.ready;}catch{this.ready=undefined;this.set({phase:'error',error:'更新文件已变更，请重新下载。'});throw new Error(this.state.error);}
+  }
+  /** Open the verified DMG before quitting; a Finder failure must keep Lumi running. */
+  openMacInstaller(open:(file:string)=>Promise<string>,quit:()=>void):Promise<void>{
+    if(this.options.target!=='mac-arm64')return Promise.reject(new Error('此操作仅适用于 macOS 更新。'));
+    if(this.installing)return this.installing;
+    const job=(async()=>{const file=await this.readyFile();this.set({phase:'installing',error:undefined});try{const error=await open(file);if(error)throw new Error(error);quit();}catch{this.set({phase:'ready',error:'无法打开更新安装包，请重试。'});throw new Error(this.state.error);}})();
+    this.installing=job;return job.finally(()=>{if(this.installing===job)this.installing=undefined;});
   }
   restart():Promise<void>{
     if(this.options.target==='mac-arm64')return Promise.reject(new Error('macOS 更新请打开已下载的 DMG，并替换 Applications 中的 Lumi。'));

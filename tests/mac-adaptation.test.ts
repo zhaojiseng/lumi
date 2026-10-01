@@ -57,3 +57,15 @@ test('macOS update removes partial downloads on cancel and rejects corrupt files
   const engine=macUpdater(directory,async input=>String(input).includes('api.github.com') ? Response.json(release()) : new Response(bytes));await engine.check();await assert.rejects(engine.download(controller.signal,()=>controller.abort()));assert.deepEqual(await readdir(directory),[]);
   const corrupt=macUpdater(directory,async input=>String(input).includes('api.github.com') ? Response.json(release()) : new Response(Buffer.alloc(bytes.length)));const service=new UpdateService({version:'0.4.22',enabled:true,target:'mac-arm64',engine:corrupt});await service.check();assert.equal((await service.download()).phase,'error');await assert.rejects(service.readyFile());service.close();
 });
+test('macOS update opens a verified DMG exactly once before quitting and retains the app on Finder failure',async()=>{
+  const directory=await mkdtemp(path.resolve('.test-data/mac-open-')),events:string[]=[];
+  const engine=macUpdater(directory,async input=>String(input).includes('api.github.com') ? Response.json({...release(),body:'## 更新\n- 优化菜单'}) : new Response(bytes));
+  const service=new UpdateService({version:'0.4.22',enabled:true,target:'mac-arm64',engine});await service.check();assert.equal(service.snapshot().releaseNotes,'## 更新\n- 优化菜单');await service.download();
+  await assert.rejects(service.openMacInstaller(async()=>{events.push('open-failed');return 'Finder unavailable';},()=>events.push('quit')),/无法打开/);assert.deepEqual(events,['open-failed']);assert.equal(service.snapshot().phase,'ready');
+  events.length=0;const open=async(file:string)=>{assert.ok(file.endsWith(name));events.push('open');await new Promise(r=>setTimeout(r,20));return '';};
+  await Promise.all([service.openMacInstaller(open,()=>events.push('quit')),service.openMacInstaller(open,()=>events.push('quit'))]);assert.deepEqual(events,['open','quit']);assert.equal(service.snapshot().phase,'installing');service.close();
+});
+test('macOS update cannot quit after the downloaded DMG is altered',async()=>{
+  const directory=await mkdtemp(path.resolve('.test-data/mac-open-changed-'));const engine=macUpdater(directory,async input=>String(input).includes('api.github.com') ? Response.json(release()) : new Response(bytes));
+  const service=new UpdateService({version:'0.4.22',enabled:true,target:'mac-arm64',engine});await service.check();await service.download();const file=await service.readyFile();await writeFile(file,'changed');let opened=false,quit=false;await assert.rejects(service.openMacInstaller(async()=>{opened=true;return '';},()=>{quit=true;}),/已变更/);assert.equal(opened,false);assert.equal(quit,false);service.close();
+});
