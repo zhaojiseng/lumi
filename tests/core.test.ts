@@ -45,6 +45,22 @@ test('encrypted settings restore secrets but never include raw keys in preferenc
   assert.equal(again.credentials().accessToken, 'account-secret'); assert.equal(again.toolKey('codex'), 'sk-fixture-only');
   assert.ok(!JSON.stringify(store.preferences).includes('sk-fixture-only'));
 });
+
+test('dismissing an update survives restart and site changes and can be restored',async()=>{
+  const {root,store}=await fixture();
+  assert.equal(store.preferences.dismissedUpdateVersion,'');
+  await store.update({dismissedUpdateVersion:'1.2.3'});
+  await store.saveSite({name:'Other',url:'https://other.invalid',allowHttp:false});
+  const again=new SettingsStore(path.join(root,'app'),cipher);await again.load();
+  assert.equal(again.preferences.dismissedUpdateVersion,'1.2.3');
+  await again.update({dismissedUpdateVersion:''});
+  const restored=new SettingsStore(path.join(root,'app'),cipher);await restored.load();
+  assert.equal(restored.preferences.dismissedUpdateVersion,'');
+  const file=path.join(root,'app','settings.json'),saved=JSON.parse(await readFile(file,'utf8'));
+  saved.preferences.dismissedUpdateVersion={version:'1.2.3'};await writeFile(file,JSON.stringify(saved));
+  const migrated=new SettingsStore(path.join(root,'app'),cipher);await migrated.load();
+  assert.equal(migrated.preferences.dismissedUpdateVersion,'');
+});
 test('Codex direct config preserves unrelated TOML and official login, keeping the gateway token in its provider', () => {
   const before = '[projects."/sample"]\ntrust_level = "trusted"\n\n[mcp_servers.docs]\ncommand = "sample"\n';
   const r = buildCodex(before, JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'old-token' }, custom: 3 }), request, 'https://gateway.invalid', 'sk-config-only');

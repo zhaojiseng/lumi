@@ -1,7 +1,7 @@
 {
   "name": "lumi-ai-workbench",
   "productName": "Lumi",
-  "version": "0.4.20",
+  "version": "0.4.21",
   "description": "A flat desktop workbench for New API, Codex and Claude Code",
   "author": "CYG",
   "license": "MIT",
@@ -76,8 +76,11 @@
     },
     "mac": {
       "target": [
-        "dmg"
+        { "target": "dmg", "arch": ["arm64"] }
       ],
+      "artifactName": "Lumi-${version}-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false,
       "category": "public.app-category.developer-tools",
       "icon": "public/icon.png"
     },

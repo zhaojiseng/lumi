@@ -82,3 +82,5 @@ Codex 使用站点 /v1 下的 Responses，Claude Code 使用 Anthropic Messages�
 正式 Windows x64 安装包启动后及每 4 小时通过 electron-updater 的公开 GitHub Provider 查询 Lumi 仓库正式 Release，读取 `latest.yml` 与对应 NSIS 安装包。更新请求独立于站点，不携带账户凭据。主进程校验版本、标签、固定附件名、大小和 SHA-512；下载及重启前均复核文件。使用标准差量下载、缓存及取消流程，GitHub Actions 同时发布 `.blockmap` 与 `latest.yml`。
 
 受限 IPC 提供 `updateStatus`、`checkUpdate`、`downloadUpdate`、`cancelUpdate`、`showUpdateFile`、`restartUpdate` 及状态订阅；`restartUpdate` 不接收路径或命令。只对已下载并通过校验的文件调用 `quitAndInstall(true, true)`，静默升级后自动重开。普通退出不触发升级，卸载 / 更新配置保留用户数据。浏览器预览与开发运行不自动检查更新。
+
+`dismissedUpdateVersion` 保存用户隐藏的正式版本号，跨站点和重启生效，只隐藏同一版本的左栏提示。设置中的软件更新仍订阅完整状态并提供操作和恢复入口；隐藏不取消下载，也不关闭自动检查，更新版本号变化后重新提醒。

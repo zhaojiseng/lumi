@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.20。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.21。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -60,6 +60,8 @@ CLI 检测优先继承 PATH 的实际入口，再补充用户 / 系统 PATH 和�
 远程登录窗口无 Node / preload / Lumi IPC，站点权限请求与任意新窗口被拒绝。凭据和原始配置备份由系统加密存储保护，密码不落盘。浏览器预览只提供公开状态，不处理账户凭据。
 
 GitHub 更新服务独立于账户 API，正式安装包使用 electron-updater 的 GitHub / NSIS Provider。启动后及每 4 小时检查，校验正式版本与固定文件名；下载和重启前验证大小及 SHA-512。发布包含 latest.yml 和 blockmap。点击重启更新后调用 quitAndInstall(true, true)，后台安装并重开；autoInstallOnAppQuit=false，正常退出不自动升级。
+
+更新提示和设置页使用同一状态订阅；隐藏版本号作为全局偏好保存，设置页始终保留查看和恢复入口。GitHub 构建在 Windows x64 与 macOS ARM64 本机分别打包；Mac DMG 使用临时签名并核验应用及 Electron 架构，Electron / Chromium 许可另复制入应用 Resources，发布时合并两平台校验清单。
 
 ## 构建与许可
 

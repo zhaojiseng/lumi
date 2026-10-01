@@ -11,7 +11,7 @@ Lumi 是基于 Electron、React 和 TypeScript 的 New API 桌面客户端，集
 - 工作台与用量分析提供 1 / 7 / 30 天及精确到分钟的时间范围；模型、令牌均可多选，两类条件取交集，每分钟刷新。
 - 工作台与站点消费曲线可按模型 / 令牌分色对比或选择单项；只缓存短期只读数据，合并并发请求以减少站点压力。
 - 当前范围的模型缓存命中率、平均 Token 速率与有效样本数量；Windows 安装后直接启动，同一窗口显示清晰的矢量加载画面。
-- 自动检查 GitHub 最新正式 Release，左栏突出显示新版本和下载进度；下载校验通过后点击“重启更新”，后台完成安装并重新打开。
+- Windows 安装版自动检查 GitHub 最新正式 Release，左栏使用柔和绿色显示新版本和下载进度，可隐藏当前版本提示；设置中仍可查看及恢复，下载校验通过后点击“重启更新”完成后台升级。
 - 模型广场按名称排序、收藏置顶，默认显示最低价渠道；展示完整单价、条件档位、时间倍率和固定 24 格健康状态。
 - Codex / Claude Code 直连配置，自动复用或创建 `Lumi-` 专用令牌；提供脱敏预览、系统加密备份和恢复。
 - 分别检测 Codex CLI、ChatGPT 桌面应用和 Claude Code CLI 的版本；CLI 支持官方自动安装和更新，工具定价默认收起，专用密钥说明点击感叹号查看。
@@ -23,7 +23,7 @@ Claude 集成面向 Claude Code CLI。价格、渠道及健康度以站点返回
 
 ## 开始使用
 
-需要 Node.js 24 或更新版本、npm 11 或更新版本、Git，以及你有权访问的 New API 站点。Windows x64 是当前验证的打包平台；macOS / Linux 的安装包需在对应系统构建验证。
+需要 Node.js 24 或更新版本、npm 11 或更新版本、Git，以及你有权访问的 New API 站点。发行包提供 Windows x64 安装包和 macOS Apple Silicon ARM64 DMG；Linux 暂不提供安装包。
 
 ```bash
 npm ci
@@ -59,11 +59,13 @@ npm run verify:release
 
 Windows 输出 `release/Lumi-<version>-x64.exe` 安装包及软件内更新所需的 `latest.yml`、`.blockmap`；`npm run dist:dir` 生成目录版。发行包目前未签名。构建需下载相应系统的 Electron 运行时。
 
+在 Apple Silicon Mac 上执行同样命令，生成 `release/Lumi-<version>-arm64.dmg`。打开 DMG 后将 Lumi 拖入 Applications；目前 macOS 更新需下载新版替换应用。Mac 包使用临时签名，尚未进行 Apple 公证，首次打开可能需要通过系统“隐私与安全性”允许。
+
 安装默认针对当前 Windows 用户，支持选择安装目录；程序文件只在安装和更新时解压。旧便携用户首次迁移需运行新安装包一次，账号与配置继续使用原 Electron 用户数据目录，旧程序缓存不主动删除。软件内更新面向安装版。
 
 Windows x64 安装版在启动后及每 4 小时检查 GitHub 正式 Release。左栏点击“下载更新”，显示进度、支持取消 / 重试；通过文件大小与 SHA-512 校验后，点击“重启更新”由 electron-updater 静默安装并自动重新打开，无需再次操作安装向导。普通退出不会自动安装，账号与本机设置保留。开发 / 浏览器模式不自动检查更新。
 
-GitHub Actions 在推送 main 后自动执行 Windows / Linux 检查并生成 Windows x64 构建包；推送与版本号一致的 v 标签后，检查和打包通过才会发布 Release，附带安装 EXE、源码 ZIP、更新元数据及 SHA-256 校验文件。也可手动运行工作流；详见 [发布流程](docs/RELEASING.md)，验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
+GitHub Actions 在推送 main 后自动执行 Windows / Linux / macOS 检查，并生成 Windows x64 安装包和 macOS ARM64 DMG；推送与版本号一致的 v 标签后，检查和打包通过才会发布 Release，附带两个安装包、源码 ZIP、Windows 更新元数据及统一 SHA-256 校验文件。也可手动运行工作流；详见 [发布流程](docs/RELEASING.md)，验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
 ## 数据与本机文件
 

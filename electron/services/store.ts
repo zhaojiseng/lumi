@@ -38,6 +38,7 @@ export class SettingsStore {
     this.preferences.managedTokens ||= [];
     this.preferences.logColumns = migrateLogColumns(this.preferences.logColumns);
     this.preferences.viewSelections = normalizeSelections(this.preferences.viewSelections);
+    if (typeof this.preferences.dismissedUpdateVersion !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences.dismissedUpdateVersion) || this.preferences.dismissedUpdateVersion.length>30) this.preferences.dismissedUpdateVersion = '';
     this.encrypted = data.vault || '';
     if (this.encrypted) {
       try { this.secrets = JSON.parse(this.cipher.decrypt(this.encrypted)); }

@@ -32,7 +32,7 @@ npm audit
 
 CI 只需要 contents: read，不使用真实站点、账号或发布密钥。当前锁定依赖已验证 `npm ci --ignore-scripts` 可完成测试和构建；桌面运行和打包前需额外执行 `npm run setup:electron`。
 
-## Windows 包
+## Windows 与 macOS 安装包
 
 在 Windows x64 环境：
 
@@ -43,23 +43,25 @@ npm run verify:release
 
 检查 app.asar 与当前构建一致、版本号一致，以及应用和依赖许可随包附带。SHA256SUMS.txt 只覆盖当前版本的发行文件；确认安装 EXE 已完成写入后再校验。
 
-GitHub 的 [Build and Release](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 工作流在推送 main 时自动运行 Windows / Linux 检查，再生成 Windows x64 安装包和源码 ZIP，作为 artifacts 保留 14 天。Pull Request 使用相同 CI 检查。当前 Windows 包未签名；macOS / Linux 尚不提供安装包。
+在 macOS ARM64 主机上执行同样命令，生成 `Lumi-<version>-arm64.dmg`。Mac 包核验会检查 app.asar、应用版本及标识、应用和 Electron 的 ARM64 架构、临时签名与 DMG 完整性。运行时许可保存在应用 `Contents/Resources/licenses/`。Mac 校验清单只含 DMG，发布任务核对两平台清单后合并，避免同名源码 ZIP 的重复条目。
+
+GitHub 的 [Build and Release](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 工作流在推送 main 时自动运行 Windows / Linux / macOS 检查，再生成 Windows x64 安装包、macOS ARM64 DMG 和源码 ZIP，作为 artifacts 保留 14 天。macOS 固定使用 `macos-15` Apple Silicon runner 并校验实际架构。当前 Windows 包未签名；Mac 包使用临时签名，未进行 Apple 公证。Linux 尚不提供安装包。
 
 ## 源码包与版本
 
-更新 package.json / package-lock.json、渲染器版本、CHANGELOG 和验证记录，并将公开代码推送到远程 main。随后创建与版本号完全一致的标签，例如当前 0.4.18：
+更新 package.json / package-lock.json、渲染器版本、CHANGELOG 和验证记录，并将公开代码推送到远程 main。随后创建与版本号完全一致的标签，例如 0.4.21：
 
 ```bash
 git switch public
 npm run check:history
 git push origin public:main
-git tag -a v0.4.18 -m "Lumi 0.4.18"
-git push origin refs/tags/v0.4.18
+git tag -a v0.4.21 -m "Lumi 0.4.21"
+git push origin refs/tags/v0.4.21
 ```
 
-标签触发自动发布。工作流检查版本一致、标签指向当前构建提交且该提交已进入远程 main，依次运行两平台 CI、打包、包内文件核验和 SHA-256 校验。仅最后发布任务拥有 contents: write；前面的检查和编译只有读取权限，不需要额外配置发布密钥。
+标签触发自动发布。工作流检查版本一致、标签指向当前构建提交且该提交已进入远程 main，依次运行三平台 CI、两平台打包、包内文件核验和 SHA-256 校验。仅最后发布任务拥有 contents: write；前面的检查和编译只有读取权限，不需要额外配置发布密钥。
 
-Release 先创建为草稿，全部文件上传成功后才公开。附件为安装 EXE、该标签源码 ZIP、latest.yml、安装包 blockmap 和 SHA256SUMS.txt，说明来自 CHANGELOG 当前版本段落。公开版本的附件不会在重跑时覆盖；不要移动或重用已发布标签。
+Release 先创建为草稿，全部文件上传成功后才公开。附件为 Windows 安装 EXE、macOS ARM64 DMG、该标签源码 ZIP、latest.yml、Windows 安装包 blockmap 和 SHA256SUMS.txt，说明来自 CHANGELOG 当前版本段落。公开版本的附件不会在重跑时覆盖；不要移动或重用已发布标签。
 
 若发布在上传中失败，可在 Actions 中重跑失败任务以完成同一草稿。手动运行 Build and Release 时选择 main 只生成构建 artifacts，选择尚未发布的版本标签则完成该标签 Release。
 
