@@ -47,14 +47,14 @@ GitHub 的 [Build and Release](https://github.com/zhaojiseng/lumi/actions/workfl
 
 ## 源码包与版本
 
-更新 package.json / package-lock.json、渲染器版本、CHANGELOG 和验证记录，并将公开代码推送到远程 main。随后创建与版本号完全一致的标签，例如当前 0.4.17：
+更新 package.json / package-lock.json、渲染器版本、CHANGELOG 和验证记录，并将公开代码推送到远程 main。随后创建与版本号完全一致的标签，例如当前 0.4.18：
 
 ```bash
 git switch public
 npm run check:history
 git push origin public:main
-git tag -a v0.4.17 -m "Lumi 0.4.17"
-git push origin refs/tags/v0.4.17
+git tag -a v0.4.18 -m "Lumi 0.4.18"
+git push origin refs/tags/v0.4.18
 ```
 
 标签触发自动发布。工作流检查版本一致、标签指向当前构建提交且该提交已进入远程 main，依次运行两平台 CI、打包、包内文件核验和 SHA-256 校验。仅最后发布任务拥有 contents: write；前面的检查和编译只有读取权限，不需要额外配置发布密钥。

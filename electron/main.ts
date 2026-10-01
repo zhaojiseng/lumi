@@ -9,6 +9,7 @@ import { NewApiClient } from './services/new-api';
 import { ConfigService } from './services/config';
 import { LocalUsageService } from './services/local-usage';
 import { browserLogin } from './services/browser-login';
+import { UpdateService } from './services/updates';
 import { currency, logsToCsv } from '../shared/utils';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput } from '../shared/types';
 const root = path.resolve(__dirname, '..');
@@ -44,9 +45,11 @@ async function start() {
   });
   await store.load();
   const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
+  const updates=new UpdateService({version:app.getVersion(),directory:path.join(data,'updates'),enabled:app.isPackaged && process.env.LUMI_SMOKE!=='1'});
   let lastNotice = 0;
   const noPayload = z.undefined();
-  handle('bootstrap', noPayload, async () => ({ preferences: structuredClone(store.preferences), desktop: true, version: app.getVersion(), configs: await configs.inspect(), secureStorage: store.cipher.available() }));
+  handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
+  handle('inspectConfigs',noPayload,()=>configs.inspect());
   handle('saveSite', siteSchema, input => store.saveSite(input as SiteInput));
   handle('loginInfo', noPayload, () => api.loginInfo());
   handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => api.login(input));
@@ -57,14 +60,21 @@ async function start() {
   handle('removeSite', z.string().max(100), id => store.removeSite(id));
   handle('preferences', preferenceSchema, patch => store.update(patch));
   handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
-  handle('dashboard', z.union([daySchema,dateRangeSchema]), async days => {
-    const d = await api.dashboard(days);
+  handle('dashboard', z.object({query:z.union([daySchema,dateRangeSchema]),force:z.boolean().optional()}).strict(), async input => {
+    const d = await api.dashboard(input.query,input.force);
     if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
       lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
     }
     return d;
   });
   handle('logs', logSchema, q => api.logs(q as LogQuery));
+  handle('tokenUsage',z.union([daySchema,dateRangeSchema]),query=>api.tokenUsage(query));
+  handle('usageQuality',z.union([daySchema,dateRangeSchema]),query=>api.usageQuality(query));
+  handle('updateStatus',noPayload,()=>updates.snapshot());
+  handle('checkUpdate',noPayload,()=>updates.check());
+  handle('downloadUpdate',noPayload,()=>updates.download());
+  handle('cancelUpdate',noPayload,()=>updates.cancel());
+  handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
   handle('localUsage', daySchema, days => usage.scan(days));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
   handle('applyConfig', z.string().uuid(), id => configs.apply(id));
@@ -93,12 +103,16 @@ async function start() {
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   win.webContents.session.setPermissionCheckHandler(() => false);
+  const unsubscribeUpdates=updates.subscribe(state=>{if(!win.isDestroyed())win.webContents.send('lumi:updateState',state);});
+  const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
+  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.cancel();});
   win.once('ready-to-show', () => { if (process.env.LUMI_SMOKE !== '1') win.show(); });
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
     tray = new Tray(icon.resize({ width: 20, height: 20 })); tray.setToolTip('Lumi · AI 工作台');
     tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click: () => { win.show(); win.focus(); } }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click', () => { win.show(); win.focus(); });
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
+  if(app.isPackaged && process.env.LUMI_SMOKE!=='1')void updates.check();
   if (process.env.LUMI_SMOKE === '1') {
     try {
       const result = await win.webContents.executeJavaScript(String.raw`(async () => {

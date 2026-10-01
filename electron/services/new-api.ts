@@ -5,8 +5,11 @@ import { publicEncrypt, randomBytes, createCipheriv, randomUUID, createHash } fr
 import { normalizeCatalog, availableGroups } from '../../shared/catalog';
 import {tokenSettings} from './token-controls';
 import {DEFAULT_SITE_URL} from '../../shared/types';
+import {ReadCache} from './read-cache';
+import {tokenPoints} from '../../shared/trends';
+import {summarizeQuality} from '../../shared/usage-quality';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
-import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput } from '../../shared/types';
+import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality } from '../../shared/types';
 export interface ResolvedToolToken { key: string; tokenName: string; tokenId: number; group: string; created: boolean; siteId: string; siteUrl: string; models?:ModelInfo[]; }
 class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 interface Scope { site: SiteProfile; secret: SiteSecret; preferences: Preferences; }
@@ -14,10 +17,12 @@ interface Challenge { scope: Scope; cookies: SessionCookie[]; flowToken?: string
 
 export function timeRange(query: DashboardQuery) { const r=resolveRange(query); return {start_timestamp:r.start_timestamp,end_timestamp:r.end_timestamp}; }
 export class NewApiClient {
+  private cache:ReadCache;
   private refreshes: Map<string, Promise<SiteSecret>>;
   private provisions: Map<string, Promise<ResolvedToolToken>>;
   private challenges: Map<string, Challenge>;
   constructor(private store: SettingsStore, private snapshot?: Scope, private owner?: NewApiClient) {
+    this.cache=owner?.cache || new ReadCache();
     this.refreshes = owner?.refreshes || new Map(); this.provisions = owner?.provisions || new Map(); this.challenges = owner?.challenges || new Map();
   }
   private scope() { const site = structuredClone(this.store.activeSite()); return new NewApiClient(this.store, { site, secret: this.store.credentials(site.id), preferences: structuredClone(this.store.preferences) }, this.owner || this); }
@@ -86,11 +91,31 @@ export class NewApiClient {
   }
   private async request(endpoint: string, options: { query?: Record<string, unknown>; method?: string; body?: unknown; public?: boolean } = {}): Promise<any> {
     const scope = this.current();
-    if (options.public) return (await this.raw(scope,endpoint,options)).json;
+    this.checkScope(scope);
+    const prefix=scope.site.id+'\0'+scope.site.url+'\0';
+    if (options.public) {
+      const result=await this.cache.get(prefix+'public:'+endpoint,300000,async()=>(await this.raw(scope,endpoint,options)).json);
+      this.checkScope(scope);return result;
+    }
     let secret = await this.validSecret(scope);
     if (!secret.accessToken && !secret.cookies?.length) throw new Error('请先用账号和密码登录当前站点。');
-    try { return (await this.raw(scope,endpoint,{ ...options,secret,authenticated:true })).json; }
-    catch (e) { if (e instanceof ApiError && e.status === 401 && secret.sessionAuth) { secret = await this.refreshSecret({ ...scope,secret }); return (await this.raw(scope,endpoint,{...options,secret,authenticated:true})).json; } throw e; }
+    const load=async()=>{
+      try {return (await this.raw(scope,endpoint,{...options,secret,authenticated:true})).json;}
+      catch(e){if(e instanceof ApiError && e.status===401 && secret.sessionAuth){secret=await this.refreshSecret({...scope,secret});return (await this.raw(scope,endpoint,{...options,secret,authenticated:true})).json;}throw e;}
+    };
+    const ttl=endpoint==='/api/pricing' ? 300000 : endpoint==='/api/data/self' || endpoint==='/api/log/self/stat' || endpoint.startsWith('/api/perf-metrics') ? 60000 : endpoint==='/api/token/' || endpoint==='/api/user/self' ? 30000 : endpoint==='/api/log/self' ? 15000 : 0;
+    let result:any;
+    if((options.method || 'GET')==='GET' && options.body===undefined && ttl){
+      const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
+      const entries=Object.entries(options.query || {}).filter(([,v])=>v!==undefined && v!=='').map(([key,value])=>[key,key==='end_timestamp' && typeof value==='number' && value>=Date.now()/1000-60 ? Math.floor(value/60)*60 : value]).sort(([a],[b])=>String(a).localeCompare(String(b)));
+      result=await this.cache.get(prefix+identity+':'+endpoint+JSON.stringify(entries),ttl,load);
+    }else{
+      const mutation=(options.method || 'GET')!=='GET';
+      if(mutation)this.cache.invalidate(prefix);
+      try{result=await load();}finally{if(mutation)this.cache.invalidate(prefix);}
+    }
+    this.checkScope(scope);await this.validSecret(scope);
+    return result;
   }
   private bundle(data: any, cookies: SessionCookie[], previous: SiteSecret = {}): SiteSecret {
     const user = data?.user || data;
@@ -154,6 +179,7 @@ export class NewApiClient {
   async logout(siteId: string) {
     const site = this.store.preferences.sites.find(s => s.id === siteId); if (!site) throw new Error('站点不存在。');
     const secret = this.store.credentials(siteId);
+    this.cache.invalidate(siteId+'\0');
     if (secret.sessionAuth) { try { await this.raw({site,secret,preferences:this.store.preferences},'/api/user/auth/logout',{method:'POST',authenticated:true,secret}); } catch { /* Local logout must still remove the encrypted session. */ } }
     return this.store.clearSession(siteId,site.url,secret.accessToken);
   }
@@ -181,22 +207,70 @@ export class NewApiClient {
     }
     return items;
   }
-  async dashboard(query: DashboardQuery): Promise<Dashboard> {
-    if (!this.snapshot) return this.scope().dashboard(query);
+  private async usageData(window: {start_timestamp:number;end_timestamp:number}): Promise<QuotaPoint[]> {
+    // Some New API sites cap /api/data/self at one month per request.
+    const chunkSeconds=28*86400;
+    const windows=[];
+    for(let start=window.start_timestamp;start<=window.end_timestamp;start+=chunkSeconds)
+      windows.push({start_timestamp:start,end_timestamp:Math.min(start+chunkSeconds-1,window.end_timestamp)});
+    const chunks=await Promise.all(windows.map(query=>this.request('/api/data/self',{query}).then(j=>j.data as QuotaPoint[])));
+    return chunks.flat();
+  }
+  async tokenUsage(query:DashboardQuery):Promise<TokenUsage>{
+    if(!this.snapshot)return this.scope().tokenUsage(query);
+    const scope=this.current(),secret=await this.validSecret(scope);
+    const resolved=resolveRange(query),window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
+    const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
+    const cacheWindow={...window,end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
+    return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':tokenUsage:'+JSON.stringify(cacheWindow),60000,async()=>{
+      const rows:UsageLog[]=[];let expected:number|undefined;const ids=new Set<number>();
+      for(let page=1;page<=101;page++){
+        const j=await this.request('/api/log/self',{query:{...window,p:page,page_size:100,type:2}}),data=j.data;
+        const items:UsageLog[]=Array.isArray(data) ? data : data?.items;
+        if(!Array.isArray(items))throw new Error('站点未返回可用的消费日志。');
+        const total=Array.isArray(data) ? j.total : data.total;
+        if(Number.isSafeInteger(total) && total>=0){if(expected!==undefined && expected!==total)throw new Error('消费记录已变化，请重新加载曲线。');expected=total;}
+        if(expected!==undefined && expected>10000 || rows.length+items.length>10000)throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
+        for(const item of items){if(!Number.isSafeInteger(item.id) || ids.has(item.id))throw new Error('消费日志分页不完整，请重新加载曲线。');ids.add(item.id);rows.push(item);}
+        if(items.length<100 || expected!==undefined && rows.length>=expected){
+          if(expected!==undefined && rows.length!==expected)throw new Error('消费日志分页不完整，请缩小日期范围后重试。');
+          this.checkScope(scope);await this.validSecret(scope);
+          const fetchedAt=Date.now();
+          return {points:tokenPoints(rows,window),quality:summarizeQuality(rows,window,fetchedAt),logCount:rows.length,fetchedAt};
+        }
+      }
+      throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
+    }).then(async result=>{this.checkScope(scope);await this.validSecret(scope);return result;});
+  }
+  async usageQuality(query:DashboardQuery):Promise<UsageQuality>{
+    if(!this.snapshot)return this.scope().usageQuality(query);
+    const scope=this.current(),secret=await this.validSecret(scope);
+    const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
+    // Keep today's key stable across minute refreshes; detailed metrics refresh every five minutes.
+    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify(resolveRange(query).range);
+    const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
+    this.checkScope(scope);await this.validSecret(scope);return value;
+  }
+  async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
+    if (!this.snapshot) return this.scope().dashboard(query,force);
+    if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
     const resolved=resolveRange(query); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp}; const todayWindow=timeRange(1);
-    const status = await this.status();
-    if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days };
+    const statusTask = this.status();
+    if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status:await statusTask,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days };
     const names = ['账户余额', '请求记录', '用量曲线', '消费统计', '模型广场', 'API 令牌', '今日消费'];
     const results = await Promise.allSettled([
       this.request('/api/user/self').then(j => j.data as UserInfo),
       this.logs({ days, range, page: 1, pageSize: 100 },timestamps),
-      this.request('/api/data/self', { query: timestamps }).then(j => j.data as QuotaPoint[]),
+      this.usageData(timestamps),
       this.request('/api/log/self/stat', { query: { ...timestamps, type: 2 } }).then(j => j.data as UsageStat),
       this.catalog(), this.tokens(),
       this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j => j.data as UsageStat),
       this.request('/api/perf-metrics/summary',{query:{hours:24}}).then(j => normalizeHealth(j.data)),
       this.request('/api/data/self',{query:todayWindow}).then(j => j.data as QuotaPoint[]),
+      statusTask,
     ]);
+    if(results[9].status==='rejected')throw results[9].reason;
+    const status=results[9].value as SiteStatus;
     const value = <T>(i: number, fallback: T): T => results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
     const knownTokens = value<ApiToken[]>(5, []);
     const prefs = this.snapshot?.preferences || this.store.preferences;

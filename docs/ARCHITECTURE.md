@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.17。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.18。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -9,10 +9,14 @@
 | shared/types.ts | 业务 DTO、IPC 契约及不含真实站点的默认配置 |
 | shared/catalog.ts / pricing.ts | 可达渠道、最低价与站点表达式的公布单价；使用受限 AST，不执行脚本 |
 | shared/range.ts / utils.ts | 日期范围、动态分组、币种换算与 CSV |
+| shared/trends.ts | 按模型 / 令牌分组、动态时间粒度、空桶补齐与多曲线合计 |
+| shared/usage-quality.ts | 模型缓存命中率、按耗时加权的 Token 速率及有效样本覆盖 |
 | shared/logs.ts / health.ts | 缓存、速度、时间和状态元数据归一化；固定 24 格健康采样 |
 | shared/selections.ts | 按站点保存并合并页面选择 |
 | electron/services/store.ts | 原子串行写入、safeStorage 密钥库、设置迁移和账户隔离 |
 | electron/services/new-api.ts | 登录 / 验证 / 续期、数据接口、专用令牌复用与创建 |
+| electron/services/read-cache.ts | 有期限的内存只读缓存、并发合并、副本隔离及写操作失效 |
+| electron/services/updates.ts | GitHub 正式版检查、流式下载、取消、进度及文件校验 |
 | electron/services/browser-login.ts / login-capture.ts | 隔离站点窗口与认证捕获；重新验证账户后保存 |
 | electron/services/config.ts | 脱敏预览、加密备份、应用 / 恢复、冲突检查与回滚 |
 | electron/services/codex-direct.ts / codex-sessions.ts | Codex 历史及索引同步、运行状态检查 |
@@ -20,7 +24,7 @@
 | electron/main.ts / preload.ts | 窗口、托盘、通知及参数校验后的有限 IPC |
 | src/components / pages | 账户、请求、模型、工具、令牌与设置界面 |
 
-品牌图标统一在 BrandIcon.tsx，使用本地官方 SVG。主题通过最后加载的 theme.css 覆盖基础样式，使用不透明表面与语义颜色。
+品牌图标统一在 BrandIcon.tsx，使用本地官方 SVG。主题通过 theme.css 覆盖基础样式，最后加载 updates-trends.css 提供更新栏、分组曲线和焦点样式，使用不透明表面与语义颜色。
 
 ## 配置事务
 
@@ -36,9 +40,17 @@ Claude Code 合并 CLI settings.json 中的 API 配置，保留无关设置；Cl
 
 公开状态不携带凭据，账户请求使用作用域快照。切换站点、退出或改变身份会使旧请求和配置预览失效。并发续期 / 配钥分别共享任务，拒绝跳转和 TLS 校验绕过。
 
+主进程的只读缓存由作用域客户端共享，按站点、地址、账户凭据摘要及查询参数隔离。余额 / 令牌缓存 30 秒，日志 15 秒，用量 / 健康度 1 分钟，状态 / 定价 5 分钟；最多 256 项，失败不缓存。手动刷新及站点写操作失效相关缓存，在途旧任务不能写回。缓存不写入账户或浏览器存储，命中后仍校验作用域。
+
+按令牌曲线及效率统计复用完整消费分页，返回纯用量点和汇总指标，超过 10,000 条要求缩小时间范围。效率统计在后台读取并缓存 5 分钟；图表沿用动态粒度，超过 8 个分组将其余合并，保留总量并允许任意单项查看。
+
+HTML 内联启动页在主脚本加载前可显示，React 在本机设置初始化时沿用同一界面。`bootstrap` 只返回本机设置与运行环境，工具配置由 `inspectConfigs` 后台读取；首页动态资源提前加载，账户数据与公开状态并行请求。详细效率统计后加载，初始化失败提供重试，无人为等待时间或伪进度。
+
 默认占位站点没有网络请求。初次配置后的数据来自用户选择的服务器；登录、余额、消费、模型与健康度不使用演示数据。缺失元数据保留“—”或灰色采样条。
 
 远程登录窗口无 Node / preload / Lumi IPC，站点权限请求与任意新窗口被拒绝。凭据和原始配置备份由系统加密存储保护，密码不落盘。浏览器预览只提供公开状态，不处理账户凭据。
+
+GitHub 更新服务独立于账户 API，仅在正式包中启动。启动及每 4 小时检查最新正式 Release；下载写入随机临时文件，校验大小与 SHA-256 后重命名。左栏订阅进度，支持取消和重试；完成入口再次校验文件并打开所在文件夹，更新文件不会自动执行。
 
 ## 构建与许可
 

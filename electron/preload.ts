@@ -7,8 +7,13 @@ async function call(channel: string, payload?: unknown) {
 }
 const bridge: LumiBridge = {
   bootstrap: () => call('bootstrap'), saveSite: p => call('saveSite', p), removeSite: id => call('removeSite', id),
+  inspectConfigs:()=>call('inspectConfigs'),
   loginInfo:() => call('loginInfo'),login:p => call('login',p),verifyLogin:p => call('verifyLogin',p),browserLogin:() => call('browserLogin'),logout:id => call('logout',id),
-  updatePreferences: p => call('preferences', p), modelHealth:model => call('modelHealth',model), dashboard: days => call('dashboard', days), logs: q => call('logs', q), localUsage: days => call('localUsage', days),
+  updatePreferences: p => call('preferences', p), modelHealth:model => call('modelHealth',model), dashboard: (query,force) => call('dashboard', {query,force}), logs: q => call('logs', q), localUsage: days => call('localUsage', days),
+  tokenUsage:query=>call('tokenUsage',query),
+  usageQuality:query=>call('usageQuality',query),
+  updateStatus:()=>call('updateStatus'),checkUpdate:()=>call('checkUpdate'),downloadUpdate:()=>call('downloadUpdate'),cancelUpdate:()=>call('cancelUpdate'),showUpdateFile:()=>call('showUpdateFile'),
+  onUpdate:listener=>{const receive=(_event:Electron.IpcRendererEvent,state:Parameters<typeof listener>[0])=>listener(state);ipcRenderer.on('lumi:updateState',receive);return ()=>{ipcRenderer.removeListener('lumi:updateState',receive);};},
   previewConfig: q => call('previewConfig', q), applyConfig: id => call('applyConfig', id), backups: () => call('backups'), restoreBackup: id => call('restoreBackup', id),
   createToken: p => call('createToken', p), toggleToken: (id, enabled) => call('toggleToken', { id, enabled }), updateToken:p=>call('updateToken',p), exportLogs: q => call('exportLogs', q),
   getTokenKey: id => call('getTokenKey', id), copyTokenKey: id => call('copyTokenKey', id),

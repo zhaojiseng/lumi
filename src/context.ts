@@ -4,7 +4,7 @@ export interface AppState {
   openLogin():void; bootstrap: Bootstrap; preferences: Preferences; dashboard: Dashboard | null;
   page: Page; setPage(page: Page): void; days: number; setDays(n: number): void;
   overviewQuery: DashboardQuery; setOverviewQuery(query: DashboardQuery): void;
-  loading: boolean; error: string; refresh(): Promise<void>;
+  loading: boolean; error: string; refresh(force?: boolean): Promise<void>;
   updatePreferences(p: PreferencePatch): Promise<void>;
   setPreferences(p: Preferences): void; reloadBootstrap(): Promise<void>;
   toast(message: string, kind?: 'success' | 'error' | 'info'): void;

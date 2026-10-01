@@ -1,19 +1,20 @@
 import {RecentActivity} from '../components/RecentActivity';
 import {DateRangePicker} from '../components/DateRangePicker';
 import {resolveRange} from '../../shared/range';
-import { useState } from 'react';
 import {useSavedSelection} from '../selections';
 import { Wallet, ArrowDownLeft, Layers, Activity, ArrowUpRight, ArrowRight, Clock3, Zap, CircleCheck, ExternalLink, ChevronRight } from 'lucide-react';
 import { useApp } from '../context';
 import { Pill, SectionHeading, ToolIcon, Button, Empty } from '../components/ui';
-import { TrendChart, ModelDonut } from '../components/charts';
-import { currency, formatMoney, compact, usageSeries, usageGranularity } from '../../shared/utils';
+import { ModelDonut } from '../components/charts';
+import {UsageTrend} from '../components/UsageTrend';
+import {UsageQuality} from '../components/UsageQuality';
+import { currency, formatMoney, compact } from '../../shared/utils';
 export default function Overview() {
   const { dashboard: d, preferences, bootstrap, overviewQuery, setOverviewQuery, setPage, toast } = useApp();
   const [metric, setMetric] = useSavedSelection<'cost' | 'tokens' | 'requests'>('overview.metric','cost',v=>['cost','tokens','requests'].includes(v));
   if (!d) return null;
   const days=d.days; const label=typeof overviewQuery === 'number' ? '最近 '+days+' 天' : d.range?.startDate+' — '+d.range?.endDate;
-  const c = currency(d.status); const trend = usageSeries(d.series, days, d.status,d.range,new Date(d.fetchedAt)); const todayQuota=d.today?.quota;
+  const c = currency(d.status); const todayQuota=d.today?.quota;
   const totalTokens = d.series.reduce((s, p) => s + (p.token_used || 0), 0);
   const totalRequests = d.series.reduce((s, p) => s + (p.count || 0), 0);
   const cost = d.stat?.quota ?? d.series.reduce((s, p) => s + p.quota, 0);
@@ -30,8 +31,9 @@ export default function Overview() {
       <div className="stat-card surface"><div className="stat-top"><span><Layers size={15}/>Token 用量</span><span className="stat-symbol lavender"><Layers size={16}/></span></div><div className="stat-number">{compact(totalTokens)}</div><div className="stat-bottom"><span>{label}</span><span className="mini-bars">{[8, 15, 10, 21, 17, 25, 19, 28].map((h, i) => <i style={{ height: h }} key={i}/>)}</span></div></div>
       <div className="stat-card surface"><div className="stat-top"><span><Activity size={15}/>请求次数</span><span className="stat-symbol blue"><Activity size={16}/></span></div><div className="stat-number">{totalRequests.toLocaleString()}</div><div className="stat-bottom"><span>{label}</span><span className="muted">{d.stat ? `${d.stat.rpm} RPM` : '暂无速率数据'}</span></div></div>
     </div>
+    <UsageQuality dashboard={d}/>
     <div className="overview-charts">
-      <section className="surface panel trend-panel"><SectionHeading title="用量趋势" sub="每一点消耗，清晰可见" action={<span className="muted range-chart-label">{label}</span>}/><div className="chart-topline"><div><strong>{metric === 'cost' ? formatMoney(cost, d.status) : metric === 'tokens' ? compact(totalTokens) : totalRequests.toLocaleString()}</strong><span>{label} · {metric === 'cost' ? '消费金额' : metric === 'tokens' ? 'Token 用量' : '请求次数'}</span></div><div className="metric-tabs">{(['cost', 'tokens', 'requests'] as const).map((m, i) => <button className={metric === m ? 'active' : ''} onClick={() => setMetric(m)} key={m}>{['消费', 'Tokens', '请求'][i]}</button>)}</div></div>{d.series.length ? <TrendChart data={trend} metric={metric} symbol={c.symbol}/> : <Empty title="暂无用量数据" description="所选时间段暂无用量记录。"/>}<div className="chart-note"><span className="legend-dot"/>{metric === 'cost' ? '消费金额' : metric === 'tokens' ? 'Token 用量' : '请求次数'}<span>{usageGranularity(days).label+'汇总'} · 来源：站点用量统计</span></div></section>
+      <section className="surface panel trend-panel"><SectionHeading title="用量趋势" sub="每一点消耗，清晰可见" action={<span className="muted range-chart-label">{label}</span>}/><div className="chart-topline"><div><strong>{metric === 'cost' ? formatMoney(cost, d.status) : metric === 'tokens' ? compact(totalTokens) : totalRequests.toLocaleString()}</strong><span>{label} · {metric === 'cost' ? '消费金额' : metric === 'tokens' ? 'Token 用量' : '请求次数'}</span></div><div className="metric-tabs">{(['cost', 'tokens', 'requests'] as const).map((m, i) => <button className={metric === m ? 'active' : ''} onClick={() => setMetric(m)} key={m}>{['消费', 'Tokens', '请求'][i]}</button>)}</div></div><UsageTrend dashboard={d} metric={metric} preferenceKey="overview.trend"/></section>
       <section className="surface panel distribution-panel"><SectionHeading title="模型分布" action={<button className="icon-button" onClick={() => setPage('usage')} aria-label="查看详细用量"><ArrowUpRight size={17}/></button>}/>{modelData.length ? <ModelDonut data={modelData} total={formatMoney(d.series.reduce((s, p) => s + p.quota, 0), d.status)} symbol={c.symbol}/> : <Empty title="暂无模型消耗" description="开始使用后即可查看分布。"/>}<button className="panel-bottom-link" onClick={() => setPage('usage')}>探索用量详情<ArrowRight size={14}/></button></section>
     </div>
     <div className="section-title-row"><h3>你的开发伙伴<span>CONNECTED TO YOUR FLOW</span></h3><button className="text-link" onClick={() => setPage('tools')}>管理工具<ChevronRight size={14}/></button></div>

@@ -39,7 +39,11 @@ test('dashboard uses one custom window for charts, stats and logs, but keeps tod
  if(u.pathname === '/api/status')data={system_name:'Fixture',quota_per_unit:500000};
  if(u.pathname === '/api/user/self')data={id:42,username:'test',quota:1000};
  if(u.pathname === '/api/log/self')data={items:[],total:0};
- if(u.pathname === '/api/data/self')data=[];
+ if(u.pathname === '/api/data/self'){
+  const start=Number(u.searchParams.get('start_timestamp')),end=Number(u.searchParams.get('end_timestamp'));
+  if(end-start+1>28*86400){res.statusCode=400;res.end(JSON.stringify({success:false,message:'时间跨度不能超过 1 个月'}));return;}
+  data=[{created_at:start,model_name:'fixture',quota:1,token_used:2,count:1}];
+ }
  if(u.pathname === '/api/log/self/stat')data={quota:u.searchParams.get('start_timestamp') === String(new Date(2026,8,1).getTime()/1000) ? 100 : 20,rpm:0,tpm:0};
  if(u.pathname === '/api/token/')data={items:[],total:0};
  if(u.pathname === '/api/pricing')data=[];
@@ -50,7 +54,16 @@ test('dashboard uses one custom window for charts, stats and logs, but keeps tod
  try {await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/explorer-'));const store=new SettingsStore(root,{available:() => true,encrypt:s => Buffer.from(s).toString('base64'),decrypt:s => Buffer.from(s,'base64').toString()});await store.load();await store.saveSite({id:store.activeSite().id,name:'Fixture',url:'http://127.0.0.1:'+port,allowHttp:true,accessToken:'fixture-account',userId:42});const api=new NewApiClient(store);
  const d=await api.dashboard({startDate:'2026-09-01',endDate:'2026-09-03'});const range=resolveRange({startDate:'2026-09-01',endDate:'2026-09-03'});assert.equal(d.days,3);assert.equal(d.stat?.quota,100);assert.equal(d.today?.quota,20);assert.equal(d.health?.models[0].success_rate,98.5);
  for(const endpoint of ['/api/data/self','/api/log/self','/api/log/self/stat']){const r=seen.find(x => x.path === endpoint && x.query.get('start_timestamp') === String(range.start_timestamp));assert.ok(r,endpoint);assert.equal(r.query.get('end_timestamp'),String(range.end_timestamp));}
+ const beforeLong=seen.length,earliestEnd=resolveRange(90).end_timestamp;const long=await api.dashboard(90);
+ const dataWindows=seen.slice(beforeLong).filter(x=>x.path==='/api/data/self' && x.query.get('start_timestamp')!==String(resolveRange(1).start_timestamp));
+ assert.ok(dataWindows.length>=3);assert.ok(dataWindows.every(x=>Number(x.query.get('end_timestamp'))-Number(x.query.get('start_timestamp'))+1<=28*86400));
+ const ordered=dataWindows.map(x=>[Number(x.query.get('start_timestamp')),Number(x.query.get('end_timestamp'))]).sort((a,b)=>a[0]-b[0]);
+ assert.equal(ordered[0][0],resolveRange(long.range!).start_timestamp);
+ assert.ok(ordered.at(-1)![1]>=earliestEnd && ordered.at(-1)![1]<=Math.floor(long.fetchedAt/1000));
+ for(let i=1;i<ordered.length;i++)assert.equal(ordered[i][0],ordered[i-1][1]+1);
+ assert.equal(long.series.length,dataWindows.length);
+ assert.ok(!long.warnings.some(w=>w.startsWith('用量曲线')));
  const h=seen.find(x => x.path === '/api/perf-metrics/summary')!;assert.equal(h.query.get('hours'),'24');assert.equal(h.auth,'Bearer fixture-account');const detail=await api.modelHealth('claude');assert.equal(detail.groups[0].avg_ttft_ms,300);
- healthStatus=404;const unavailable=await api.dashboard(7);assert.equal(unavailable.health,null);assert.match(unavailable.healthError!,/健康度/);assert.equal(unavailable.user?.id,42);assert.equal(unavailable.warnings.length,0);
+ healthStatus=404;const cached=await api.dashboard(7);assert.equal(cached.health?.models[0].success_rate,98.5);const unavailable=await api.dashboard(7,true);assert.equal(unavailable.health,null);assert.match(unavailable.healthError!,/健康度/);assert.equal(unavailable.user?.id,42);assert.equal(unavailable.warnings.length,0);
  } finally {await new Promise<void>(r => server.close(() => r()));}
 });

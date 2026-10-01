@@ -6,7 +6,9 @@ import { useApp } from '../context';
 import { bridge } from '../bridge';
 import { Button, PageIntro, SectionHeading, Select, Pill, ToolIcon, Empty } from '../components/ui';
 import { TrendChart } from '../components/charts';
-import { compact, formatMoney, currency, dailySeries, usageSeries, usageGranularity } from '../../shared/utils';
+import {UsageTrend} from '../components/UsageTrend';
+import {UsageQuality} from '../components/UsageQuality';
+import { compact, formatMoney, dailySeries, usageGranularity } from '../../shared/utils';
 import type { LocalUsage, LogPage, UsageLog } from '../../shared/types';
 export default function Usage() {
   const { dashboard: d, preferences, days, setDays, toast, setPage } = useApp();
@@ -23,9 +25,8 @@ export default function Usage() {
     else if (tab === 'local') bridge.localUsage(days).then(r => { if (active) setLocal(r); }).catch(e => { if (active) toast(e.message, 'error'); }).finally(() => { if (active) setBusy(false); });
     else setBusy(false);
     return () => { active = false; };
-  }, [tab, days, page, model, tokenName, type, preferences.activeSiteId]);
+  }, [tab, days, page, model, tokenName, type, preferences.activeSiteId, tab === 'logs' ? d?.fetchedAt : undefined]);
   if (!d) return null;
-  const c = currency(d.status); const trend = usageSeries(d.series, days, d.status,d.range,new Date(d.fetchedAt));
   const seriesModel = new Map<string, { quota: number; tokens: number; count: number }>();
   for (const p of d.series) { const r = seriesModel.get(p.model_name) || { quota: 0, tokens: 0, count: 0 }; r.quota += p.quota; r.tokens += p.token_used || 0; r.count += p.count || 0; seriesModel.set(p.model_name, r); }
   const bindingList = preferences.bindings.filter(b => b.siteId === preferences.activeSiteId);
@@ -35,8 +36,9 @@ export default function Usage() {
   return <div className="page"><PageIntro title="每一份消耗，尽在掌握" description="从站点账单到本地会话，了解你的 AI 如何工作。" action={<div className="segmented large">{[1, 7, 30, 90].map(n => <button key={n} className={days === n ? 'active' : ''} onClick={() => setDays(n)}>{n === 1 ? '今天' : `${n} 天`}</button>)}</div>}/>
     <div className="page-tabs">{([['billing', Cloud, '站点消费'], ['logs', FileText, '请求明细'], ['local', Monitor, '本机会话']] as const).map(([key, Icon, title]) => <button className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}><Icon size={16}/>{title}{tab === key && <span className="tab-dot"/>}</button>)}</div>
     {tab === 'billing' && <>
+      <UsageQuality dashboard={d}/>
       <div className="billing-summary-grid"><div className="surface billing-total"><span className="muted">最近 {days} 天 · 账户总消费</span><strong>{formatMoney(d.stat?.quota ?? d.series.reduce((s, p) => s + p.quota, 0), d.status)}</strong><p>{compact(d.series.reduce((s, p) => s + (p.token_used || 0), 0))} Tokens · {d.series.reduce((s, p) => s + (p.count || 0), 0).toLocaleString()} 次调用</p></div>{(['codex', 'claude'] as const).map(tool => { const b = bindingList.find(x => x.tool === tool); const st = d.toolStats?.find(s => s.tool === tool); return <div className="surface billing-tool" key={tool}><div><ToolIcon tool={tool} size={32}/><span>{tool === 'codex' ? 'Codex' : 'Claude Code'}</span><Pill tone="muted">独立令牌</Pill></div><strong>{st?.stat ? formatMoney(st.stat.quota, d.status) : '—'}</strong><p>{st?.stat ? `最近 ${days} 天 · ${st.tokenName}` : b?.tokenName ? '需要可用的账户访问令牌' : '尚未绑定独立令牌'}</p><button className="text-link" onClick={() => setPage('tools')}>管理绑定<ChevronRight size={13}/></button></div>; })}</div>
-      <section className="surface panel"><SectionHeading title="消费与调用趋势" sub={usageGranularity(d.days).label+'汇总'} action={<div className="segmented">{(['cost', 'tokens', 'requests'] as const).map((m, i) => <button className={metric === m ? 'active' : ''} key={m} onClick={() => setMetric(m)}>{['消费', 'Tokens', '请求'][i]}</button>)}</div>}/>{d.series.length ? <TrendChart data={trend} metric={metric} symbol={c.symbol}/> : <Empty title="暂无曲线" description="请检查账户权限与站点的数据统计功能。"/>}</section>
+      <section className="surface panel"><SectionHeading title="消费与调用趋势" sub={usageGranularity(d.days).label+'汇总'} action={<div className="segmented">{(['cost', 'tokens', 'requests'] as const).map((m, i) => <button className={metric === m ? 'active' : ''} key={m} onClick={() => setMetric(m)}>{['消费', 'Tokens', '请求'][i]}</button>)}</div>}/><UsageTrend dashboard={d} metric={metric} preferenceKey="usage.trend"/></section>
       <section className="surface panel"><SectionHeading title="模型消费排行" sub="按站点汇总记录统计，包含整个日期范围"/>{seriesModel.size ? <div className="table-scroll"><table className="data-table"><thead><tr><th>模型</th><th>调用次数</th><th>Tokens</th><th>消费金额</th><th>消费占比</th></tr></thead><tbody>{[...seriesModel].sort((a, b) => b[1].quota - a[1].quota).map(([name, s]) => { const all = d.series.reduce((sum, p) => sum + p.quota, 0); const ratio = all ? s.quota / all * 100 : 0; return <tr key={name}><td className="font-medium">{name}</td><td>{s.count.toLocaleString()}</td><td>{compact(s.tokens)}</td><td className="money-cell">{formatMoney(s.quota, d.status, 3)}</td><td><div className="ratio-cell"><div><i style={{ width: `${ratio}%` }}/></div><span>{ratio.toFixed(1)}%</span></div></td></tr>; })}</tbody></table></div> : <Empty title="暂无消费记录" description="连接账户后自动同步。"/>}</section>
       <div className="info-note"><Info size={15}/><span>工具消费按绑定的独立令牌精确查询。共享令牌的消耗无法区分应用；本地 Tokens 可在“本机会话”中查看。</span></div>
     </>}

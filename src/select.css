@@ -179,11 +179,11 @@ select option[data-tone=sage] {
   }
 
   .select-wrap select::picker(select) {
-    min-inline-size: max(anchor-size(width), 210px);
+    min-inline-size: anchor-size(width);
     max-inline-size: min(520px, calc(100vw - 24px));
     max-block-size: min(352px, calc(100dvh - 28px));
     width: max-content;
-    margin: 7px 8px;
+    margin: 4px 0 0;
     padding: 7px;
     border: 1px solid var(--border);
     border-radius: 18px;

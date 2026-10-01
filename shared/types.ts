@@ -37,6 +37,7 @@ export interface UserInfo {
 }
 export interface UsageLog {
   id: number; created_at: number; type: number; model_name: string; token_name: string;
+  token_id?: number;
   prompt_tokens: number; completion_tokens: number; quota: number; use_time: number;
   is_stream: boolean; group: string; channel?: number; channel_name?: string; content?: string; other?: string; request_id?: string; status_code?: number;
 }
@@ -44,7 +45,19 @@ export interface DateRange { startDate: string; endDate: string; }
 export type DashboardQuery = number | DateRange;
 export interface LogQuery { range?: DateRange; days: number; page: number; pageSize: number; model?: string; tokenName?: string; type?: number; }
 export interface LogPage { items: UsageLog[]; total: number; page: number; pageSize: number; }
-export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; }
+export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; }
+export interface UsageQuality {
+  requestCount:number;cacheSamples:number;speedSamples:number;inputTokens:number;cacheReadTokens:number;
+  outputTokens:number;durationSeconds:number;cacheHitRate:number|null;averageTokenSpeed:number|null;fetchedAt:number;
+}
+export interface TokenUsage { points: QuotaPoint[]; quality:UsageQuality; logCount: number; fetchedAt: number; }
+export type TrendGrouping = 'total' | 'model' | 'token';
+export type TrendMetric = 'cost' | 'tokens' | 'requests';
+export interface UpdateState {
+  phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'error' | 'unsupported';
+  currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;
+  received: number; total: number; error?: string;
+}
 export interface UsageStat { quota: number; rpm: number; tpm: number; }
 export interface ModelInfo {
   model_name: string; description?: string; vendor_id?: number; vendor?: string;
@@ -101,6 +114,7 @@ export interface CreateTokenInput {
 export interface UpdateTokenInput extends Omit<CreateTokenInput,'tool'> { id:number; }
 export interface LumiBridge {
   bootstrap(): Promise<Bootstrap>;
+  inspectConfigs(): Promise<ToolConfigState[]>;
   saveSite(input: SiteInput): Promise<Preferences>;
   removeSite(id: string): Promise<Preferences>;
   updatePreferences(patch: PreferencePatch): Promise<Preferences>;
@@ -109,7 +123,15 @@ export interface LumiBridge {
   verifyLogin(input: { challengeId: string; code: string }): Promise<LoginResult>;
   browserLogin(): Promise<Preferences>;
   logout(siteId: string): Promise<Preferences>;
-  dashboard(query: DashboardQuery): Promise<Dashboard>;
+  dashboard(query: DashboardQuery, force?: boolean): Promise<Dashboard>;
+  tokenUsage(query: DashboardQuery): Promise<TokenUsage>;
+  usageQuality(query:DashboardQuery):Promise<UsageQuality>;
+  updateStatus(): Promise<UpdateState>;
+  checkUpdate(): Promise<UpdateState>;
+  downloadUpdate(): Promise<UpdateState>;
+  cancelUpdate(): Promise<void>;
+  showUpdateFile(): Promise<void>;
+  onUpdate(listener: (state: UpdateState) => void): () => void;
   modelHealth(model: string): Promise<ModelHealthDetails>;
   logs(query: LogQuery): Promise<LogPage>;
   localUsage(days: number): Promise<LocalUsage>;
