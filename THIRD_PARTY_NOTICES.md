@@ -14,7 +14,8 @@ Lumi 自身源码使用 MIT 许可。依赖、品牌标识及外部服务沿用�
 | [smol-toml](https://github.com/cyco130/smol-toml) | Codex TOML 处理 | BSD-3-Clause |
 | [Zod](https://github.com/colinhacks/zod) | IPC 参数校验 | MIT |
 | [Victory vendor](https://github.com/FormidableLabs/victory) | 图表间接依赖 | MIT AND ISC，包括随附 D3 / InternMap 许可 |
-| [electron-builder](https://github.com/electron-userland/electron-builder) | Windows 便携启动器模板 | MIT，正文随附于 public/third-party/electron-builder-LICENSE.txt |
+| [electron-builder / electron-updater](https://github.com/electron-userland/electron-builder) | Windows 安装包、更新元数据和静默升级 | MIT，正文随附于 public/third-party/electron-builder-LICENSE.txt，运行依赖许可另见 dependencies-LICENSES.txt |
+| [lazy-val](https://github.com/develar/lazy-val) | electron-updater 的延迟值依赖 | 上游声明 MIT，未附单独许可文件；按包声明重现标准文本并标明来源，见 public/third-party/lazy-val-LICENSE.txt |
 
 锁定版本与完整依赖关系见 package-lock.json。构建脚本从非开发依赖收集完整 LICENSE / NOTICE 文本到 dist/third-party/dependencies-LICENSES.txt；缺少许可正文会导致构建失败。Lumi 自身许可和本说明同样随包分发。
 

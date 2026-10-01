@@ -56,7 +56,7 @@ export interface TokenUsage { points: QuotaPoint[]; quality:UsageQuality; logCou
 export type TrendGrouping = 'total' | 'model' | 'token';
 export type TrendMetric = 'cost' | 'tokens' | 'requests';
 export interface UpdateState {
-  phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'error' | 'unsupported';
+  phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error' | 'unsupported';
   currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;
   received: number; total: number; error?: string;
 }
@@ -92,7 +92,7 @@ export interface ToolConfigState {
   keyConfigured: boolean; error?: string; contextWindow?:number;
 }
 export interface ToolRuntimeState {
-  tool: Tool; installed: boolean; version?: string; path?: string; checkedAt: number;
+  tool: Tool | 'chatgpt'; installed: boolean; version?: string; path?: string; checkedAt: number;
   phase: 'idle' | 'checking' | 'installing' | 'error'; message?: string;
   npmAvailable: boolean; nodeVersion?: string;
 }
@@ -142,6 +142,7 @@ export interface LumiBridge {
   downloadUpdate(): Promise<UpdateState>;
   cancelUpdate(): Promise<void>;
   showUpdateFile(): Promise<void>;
+  restartUpdate(): Promise<void>;
   onUpdate(listener: (state: UpdateState) => void): () => void;
   modelHealth(model: string): Promise<ModelHealthDetails>;
   logs(query: LogQuery): Promise<LogPage>;

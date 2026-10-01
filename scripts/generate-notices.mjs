@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const lock=JSON.parse(await readFile('package-lock.json','utf8'));
 const notice=/^(?:licen[sc]e|copying|notice)(?:[.-]|$)/i;
-const fallback={'@lobehub/icons-static-svg':'public/third-party/lobe-icons-LICENSE.txt','victory-vendor':'public/third-party/victory-vendor-LICENSE.txt'};
+const fallback={'@lobehub/icons-static-svg':'public/third-party/lobe-icons-LICENSE.txt','victory-vendor':'public/third-party/victory-vendor-LICENSE.txt','lazy-val':'public/third-party/lazy-val-LICENSE.txt'};
 const sections=[];
 for(const [directory,entry] of Object.entries(lock.packages).sort(([a],[b])=>a.localeCompare(b))){
   if(!directory || entry.dev || !directory.startsWith('node_modules/'))continue;

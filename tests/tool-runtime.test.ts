@@ -27,3 +27,18 @@ test('Windows npm shims execute by literal PowerShell arguments, update the disc
   await service.inspect();const installed=await service.install('codex');assert.equal(installed.version,'2.0.0');const probes=seen.filter(c=>Buffer.from(c.args.at(-1)!,'base64').toString('utf16le').includes("'--version'"));assert.ok(probes.some(c=>Buffer.from(c.args.at(-1)!,'base64').toString('utf16le').includes("it''s $(noop) & tool.cmd'")));service.close();
 });
 test('CLI versions preserve prerelease identities and omit unparseable output',()=>{assert.equal(versionFromOutput('codex-cli 1.2.3-beta.2'),'1.2.3-beta.2');assert.equal(versionFromOutput('unknown'),undefined);});
+
+test('ChatGPT Store desktop version is separate from Codex CLI and desktop executables are never launched',async()=>{
+  const commands:Command[]=[];
+  const service=new ToolRuntimeService({directory:'.test-data/unused',platform:'win32',find:async name=>name==='codex' ? '/mock/codex.exe' : undefined,run:async command=>{
+    commands.push(command);const script=command.args.includes('-EncodedCommand') ? Buffer.from(command.args.at(-1)!,'base64').toString('utf16le') : '';
+    if(script.includes('Get-AppxPackage'))return {code:0,stdout:JSON.stringify([{version:'1.2026.271.0',path:'/registered/ChatGPT'}]),stderr:''};
+    if(script.includes('ConvertTo-Json'))return {code:0,stdout:'[]',stderr:''};return {code:0,stdout:'codex-cli 0.160.0',stderr:''};
+  }});
+  const states=await service.inspect();assert.equal(states.find(r=>r.tool==='codex')?.version,'0.160.0');assert.equal(states.find(r=>r.tool==='chatgpt')?.version,'1.2026.271.0');assert.ok(!commands.some(c=>c.file.includes('ChatGPT')));service.close();
+});
+
+test('failed ChatGPT registration query does not report a fake version or block CLI detection',async()=>{
+  const service=new ToolRuntimeService({directory:'.test-data/unused',platform:'win32',find:async name=>name==='codex' ? '/mock/codex.exe' : undefined,run:async command=>{if(command.args.includes('-EncodedCommand'))return {code:1,stdout:'',stderr:'Registry read denied'};return {code:0,stdout:'codex-cli 0.160.0',stderr:''};}});
+  const states=await service.inspect();assert.equal(states.find(r=>r.tool==='codex')?.version,'0.160.0');assert.equal(states.find(r=>r.tool==='chatgpt')?.version,undefined);assert.equal(states.find(r=>r.tool==='chatgpt')?.phase,'error');service.close();
+});

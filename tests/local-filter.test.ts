@@ -13,12 +13,3 @@ test('local historical usage applies minute and model selection, preserving cumu
   assert.deepEqual((await service.scan({range,models:['b']})).rows,[]);
   const tokens=await service.scan({range,tokenIds:[1]});assert.deepEqual(tokens.rows,[]);assert.match(tokens.warnings[0],/令牌 ID/);assert.equal(tokens.filesScanned,0);
 });
-test('portable extraction cache is deterministic across file order, changes with every packaged resource and architecture',async()=>{
-  const modulePath='../scripts/portable-build.mjs';const {portableCacheIdentity}=await import(modulePath);
-  const a=await mkdtemp(path.resolve('.test-data/portable-a-')),b=await mkdtemp(path.resolve('.test-data/portable-b-'));
-  await mkdir(path.join(a,'resources'));await mkdir(path.join(b,'resources'));
-  for(const dir of [a,b]){await writeFile(path.join(dir,'Lumi.exe'),'fixture executable');await writeFile(path.join(dir,'resources','app.asar'),'fixture archive');await writeFile(path.join(dir,'file.dll'),'fixture dll');}
-  const initial=await portableCacheIdentity(a,1);assert.equal(initial,await portableCacheIdentity(b,1));assert.notEqual(initial,await portableCacheIdentity(a,2));
-  await writeFile(path.join(a,'file.dll'),'changed dll');assert.notEqual(initial,await portableCacheIdentity(a,1));
-  await writeFile(path.join(a,'new-resource.bin'),'new resource');assert.notEqual(await portableCacheIdentity(a,1),await portableCacheIdentity(b,1));
-});

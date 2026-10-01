@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.19。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.20。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -17,13 +17,13 @@
 | electron/services/store.ts | 原子串行写入、safeStorage 密钥库、设置迁移和账户隔离 |
 | electron/services/new-api.ts | 登录 / 验证 / 续期、数据接口、专用令牌复用与创建 |
 | electron/services/read-cache.ts | 有期限的内存只读缓存、并发合并、副本隔离及写操作失效 |
-| electron/services/updates.ts | GitHub 正式版检查、流式下载、取消、进度及文件校验 |
+| electron/services/updates.ts / native-updater.ts | GitHub 正式版检查、NSIS 标准更新、下载校验与重启安装 |
 | electron/services/browser-login.ts / login-capture.ts | 隔离站点窗口与认证捕获；重新验证账户后保存 |
 | electron/services/config.ts | 脱敏预览、加密备份、应用 / 恢复、冲突检查与回滚 |
 | electron/services/codex-direct.ts / codex-sessions.ts | Codex 历史及索引同步、运行状态检查 |
 | electron/services/local-usage.ts | 本机 JSONL 用量元数据提取 |
 | electron/services/tool-runtime.ts | CLI 路径和版本检测、固定厂商安装命令及安装状态 |
-| build/portable.nsi / scripts/portable-build.mjs | 原生启动提示、构建内容缓存及并发解压互斥 |
+| electron/startup.ts / scripts/package.mjs | 同窗口矢量启动画面、当前用户安装包与更新元数据 |
 | electron/main.ts / preload.ts | 窗口、托盘、通知及参数校验后的有限 IPC |
 | src/components / pages | 账户、请求、模型、工具、令牌与设置界面 |
 
@@ -49,7 +49,7 @@ Claude Code 合并 CLI settings.json 中的 API 配置，保留无关设置；Cl
 
 HTML 内联启动页在主脚本加载前可显示，React 在本机设置初始化时沿用同一界面。`bootstrap` 只返回本机设置与运行环境，工具配置由 `inspectConfigs` 后台读取；首页动态资源提前加载，账户数据与公开状态并行请求。详细效率统计后加载，初始化失败提供重试，无人为等待时间或伪进度。
 
-Windows 便携启动器在解压前显示原生 BMP 提示；完整包内文件和架构的 SHA-256 摘要形成缓存目录身份。互斥保护并发解压，只在完成复制后写完成标记；只在 NSIS 私有临时目录中解压，不删除共享缓存或用户数据。Electron 在读取设置前创建无 preload、无网络的轻量启动窗口，主窗口 ready-to-show 后接替。
+Windows 使用当前用户 NSIS 安装包，程序文件只在安装和更新时解压。Electron 在读取设置前创建最终主窗口并载入本地矢量加载画面，随后在同一窗口载入主页面，避免位图缩放和两次窗口交接。electron-updater 延迟初始化，版本检测只在工具页运行。
 
 统计筛选按站点保存范围、模型数组和令牌 ID 数组。起止时间为本地分钟，结束分钟包含 59 秒，今天上限截断到当前时刻。分钟范围或多选条件需要完整日志，缓存按账户和时间范围共享，不因筛选组合重复分页；10,000 条上限、缺失令牌 ID 或分页变化时停止准确统计。默认日期范围继续使用站点小时统计。切换范围保留旧仪表盘，成功后替换；账户变化才清空。
 
@@ -59,7 +59,7 @@ CLI 检测优先继承 PATH 的实际入口，再补充用户 / 系统 PATH 和�
 
 远程登录窗口无 Node / preload / Lumi IPC，站点权限请求与任意新窗口被拒绝。凭据和原始配置备份由系统加密存储保护，密码不落盘。浏览器预览只提供公开状态，不处理账户凭据。
 
-GitHub 更新服务独立于账户 API，仅在正式包中启动。启动及每 4 小时检查最新正式 Release；下载写入随机临时文件，校验大小与 SHA-256 后重命名。左栏订阅进度，支持取消和重试；完成入口再次校验文件并打开所在文件夹，更新文件不会自动执行。
+GitHub 更新服务独立于账户 API，正式安装包使用 electron-updater 的 GitHub / NSIS Provider。启动后及每 4 小时检查，校验正式版本与固定文件名；下载和重启前验证大小及 SHA-512。发布包含 latest.yml 和 blockmap。点击重启更新后调用 quitAndInstall(true, true)，后台安装并重开；autoInstallOnAppQuit=false，正常退出不自动升级。
 
 ## 构建与许可
 

@@ -46,6 +46,8 @@ jobs:
           name: Lumi-Windows-x64
           path: |
             release/Lumi-*.exe
+            release/Lumi-*.exe.blockmap
+            release/latest.yml
             release/Lumi-*-source.zip
             release/SHA256SUMS.txt
             release/RELEASE_NOTES.md
@@ -84,6 +86,6 @@ jobs:
           if [ -z "$draft" ]; then
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "Lumi $RELEASE_VERSION" --notes-file RELEASE_NOTES.md
           fi
-          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "Lumi-$RELEASE_VERSION-x64.exe" "Lumi-$RELEASE_VERSION-source.zip" SHA256SUMS.txt
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "Lumi-$RELEASE_VERSION-x64.exe" "Lumi-$RELEASE_VERSION-x64.exe.blockmap" "Lumi-$RELEASE_VERSION-source.zip" latest.yml SHA256SUMS.txt
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "Lumi $RELEASE_VERSION" --notes-file RELEASE_NOTES.md --draft=false --latest
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

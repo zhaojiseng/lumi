@@ -31,9 +31,10 @@ await mkdir('release',{recursive:true});
 git('archive','--format=zip','--prefix=Lumi-'+version+'/','-o',path.join('release','Lumi-'+version+'-source.zip'),'HEAD');
 const notes='# Lumi '+version+'\n\n'+changes+'\n\n'+
   '## 下载与使用\n\n'+
-  '- `Lumi-'+version+'-x64.exe`：Windows x64 便携版，下载后运行。\n'+
+  '- `Lumi-'+version+'-x64.exe`：Windows x64 安装包，首次下载后安装；以后在软件内下载更新并点击“重启更新”。\n'+
   '- `Lumi-'+version+'-source.zip`：当前标签的公开源码。\n'+
-  '- `SHA256SUMS.txt`：上述两个文件的 SHA-256 校验值。\n\n'+
+  '- `latest.yml` 与 `.blockmap`：软件内更新所需的版本元数据与差量信息。\n'+
+  '- `SHA256SUMS.txt`：上述发行文件的 SHA-256 校验值。\n\n'+
   '首次运行请在设置中填写你的 New API 站点地址后登录。Windows 包尚未签名；本次未提供 macOS / Linux 安装包。\n';
 await writeFile('release/RELEASE_NOTES.md',notes);
 if(process.env.GITHUB_OUTPUT)await appendFile(process.env.GITHUB_OUTPUT,'version='+version+'\ntag='+tag+'\n');

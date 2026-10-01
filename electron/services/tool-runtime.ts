@@ -26,7 +26,7 @@ interface RuntimeOptions {
 }
 /** Fixed vendor commands only; the renderer cannot submit commands, paths or install packages. */
 export class ToolRuntimeService {
-  private states=new Map<Tool,ToolRuntimeState>();private pending=new Map<Tool,Promise<ToolRuntimeState>>();
+  private states=new Map<Tool|'chatgpt',ToolRuntimeState>();private pending=new Map<Tool|'chatgpt',Promise<ToolRuntimeState>>();
   private installs=new Map<Tool,Promise<ToolRuntimeState>>();
   private listeners=new Set<(state:ToolRuntimeState)=>void>();private children=new Set<ReturnType<typeof spawn>>();
   private abort=new AbortController();private platform:NodeJS.Platform;private home:string;private env:NodeJS.ProcessEnv;private run:CommandRunner;
@@ -83,11 +83,32 @@ export class ToolRuntimeService {
     try{const r=await this.run(invocation(file,['--version'],this.platform)),version=r.code===0 ? versionFromOutput(r.stdout || r.stderr) : undefined;if(!version)throw new Error(safeMessage(r.stderr || r.stdout) || '已发现工具，但无法读取版本。');return this.emit({...base,version});}
     catch(e){return this.emit({...base,phase:'error',message:e instanceof Error ? e.message : '版本检测失败。'});}
   }
-  async inspect(force=false):Promise<ToolRuntimeState[]> {return Promise.all((['codex','claude'] as Tool[]).map(tool=>this.inspectOne(tool,force)));}
-  private async inspectOne(tool:Tool,force:boolean) {
+  private async detectChatGPT():Promise<ToolRuntimeState>{
+    const base:ToolRuntimeState={tool:'chatgpt',installed:false,checkedAt:Date.now(),npmAvailable:false,phase:'idle'};
+    try{
+      if(this.platform==='win32'){
+        // Query registration and executable metadata; never launch a desktop app with --version.
+        const script="[Console]::OutputEncoding=[Text.Encoding]::UTF8; $apps=@(); Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(^|[.])ChatGPT([.-]|$)' } | ForEach-Object { $apps += @{version=$_.Version.ToString();path=$_.InstallLocation} }; if (!$apps.Count) { Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match '^ChatGPT(?:$|\\s)' } | ForEach-Object { $apps += @{version=$_.DisplayVersion;path=$_.InstallLocation} } }; if (!$apps.Count) { @((Join-Path $env:LOCALAPPDATA 'Programs\\ChatGPT\\ChatGPT.exe'),(Join-Path $env:LOCALAPPDATA 'ChatGPT\\ChatGPT.exe'),(Join-Path $env:ProgramFiles 'ChatGPT\\ChatGPT.exe')) | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Leaf) { $item=Get-Item -LiteralPath $_; $apps += @{version=$item.VersionInfo.ProductVersion;path=$item.FullName} } } }; ConvertTo-Json -InputObject @($apps) -Compress";
+        const r=await this.run({file:path.join(this.env.SystemRoot || 'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),args:['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],timeout:15000});
+        if(r.code!==0)throw new Error('无法读取 ChatGPT 桌面应用安装信息。');
+        const apps:unknown=JSON.parse(r.stdout.replace(/^\uFEFF/,''));if(!Array.isArray(apps))throw new Error('桌面应用检测结果无效。');
+        const app=apps.find(a=>a && typeof a.version==='string' && /^\d+(?:\.\d+){2,3}(?:[-+][\w.-]+)?$/.test(a.version));
+        if(app)return this.emit({...base,installed:true,version:app.version,path:typeof app.path==='string' ? app.path : undefined});
+        if(apps.length)return this.emit({...base,installed:true,phase:'error',message:'已发现 ChatGPT 桌面应用，但未能读取版本。'});
+      }else if(this.platform==='darwin'){
+        for(const directory of [path.join(this.home,'Applications','ChatGPT.app'),'/Applications/ChatGPT.app'])try{
+          const r=await this.run({file:'/usr/bin/plutil',args:['-extract','CFBundleShortVersionString','raw','-o','-',path.join(directory,'Contents','Info.plist')]});
+          if(r.code===0 && /^\d+(?:\.\d+){2,3}$/.test(r.stdout.trim()))return this.emit({...base,installed:true,version:r.stdout.trim(),path:directory});
+        }catch{}
+      }
+      return this.emit(base);
+    }catch{return this.emit({...base,phase:'error',message:'ChatGPT 桌面应用版本检测失败，请重新检测。'});}
+  }
+  async inspect(force=false):Promise<ToolRuntimeState[]> {return Promise.all((['codex','claude','chatgpt'] as const).map(tool=>this.inspectOne(tool,force)));}
+  private async inspectOne(tool:Tool|'chatgpt',force:boolean) {
     const job=this.pending.get(tool);if(job)return job;
     const cached=this.states.get(tool);if(!force && cached && Date.now()-cached.checkedAt<30000)return structuredClone(cached);
-    const task=this.detect(tool);this.pending.set(tool,task);try{return await task;}finally{if(this.pending.get(tool)===task)this.pending.delete(tool);}
+    const task=tool==='chatgpt' ? this.detectChatGPT() : this.detect(tool);this.pending.set(tool,task);try{return await task;}finally{if(this.pending.get(tool)===task)this.pending.delete(tool);}
   }
   install(tool:Tool):Promise<ToolRuntimeState> {
     const installing=this.installs.get(tool);if(installing)return installing;

@@ -41,9 +41,9 @@ npm run dist
 npm run verify:release
 ```
 
-检查 app.asar 与当前构建一致、版本号一致，以及应用和依赖许可随包附带。SHA256SUMS.txt 只覆盖当前版本的发行文件；确认便携 EXE 已完成写入后再校验。
+检查 app.asar 与当前构建一致、版本号一致，以及应用和依赖许可随包附带。SHA256SUMS.txt 只覆盖当前版本的发行文件；确认安装 EXE 已完成写入后再校验。
 
-GitHub 的 [Build and Release](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 工作流在推送 main 时自动运行 Windows / Linux 检查，再生成 Windows x64 便携包和源码 ZIP，作为 artifacts 保留 14 天。Pull Request 使用相同 CI 检查。当前 Windows 包未签名；macOS / Linux 尚不提供安装包。
+GitHub 的 [Build and Release](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 工作流在推送 main 时自动运行 Windows / Linux 检查，再生成 Windows x64 安装包和源码 ZIP，作为 artifacts 保留 14 天。Pull Request 使用相同 CI 检查。当前 Windows 包未签名；macOS / Linux 尚不提供安装包。
 
 ## 源码包与版本
 
@@ -59,7 +59,7 @@ git push origin refs/tags/v0.4.18
 
 标签触发自动发布。工作流检查版本一致、标签指向当前构建提交且该提交已进入远程 main，依次运行两平台 CI、打包、包内文件核验和 SHA-256 校验。仅最后发布任务拥有 contents: write；前面的检查和编译只有读取权限，不需要额外配置发布密钥。
 
-Release 先创建为草稿，全部文件上传成功后才公开。附件为便携 EXE、该标签源码 ZIP 和 SHA256SUMS.txt，说明来自 CHANGELOG 当前版本段落。公开版本的附件不会在重跑时覆盖；不要移动或重用已发布标签。
+Release 先创建为草稿，全部文件上传成功后才公开。附件为安装 EXE、该标签源码 ZIP、latest.yml、安装包 blockmap 和 SHA256SUMS.txt，说明来自 CHANGELOG 当前版本段落。公开版本的附件不会在重跑时覆盖；不要移动或重用已发布标签。
 
 若发布在上传中失败，可在 Actions 中重跑失败任务以完成同一草稿。手动运行 Build and Release 时选择 main 只生成构建 artifacts，选择尚未发布的版本标签则完成该标签 Release。
 

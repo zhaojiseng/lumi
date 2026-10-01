@@ -1,7 +1,7 @@
 {
   "name": "lumi-ai-workbench",
   "productName": "Lumi",
-  "version": "0.4.19",
+  "version": "0.4.20",
   "description": "A flat desktop workbench for New API, Codex and Claude Code",
   "author": "CYG",
   "license": "MIT",
@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@lobehub/icons-static-svg": "1.95.1",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^1.49.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -67,7 +68,7 @@
     "npmRebuild": false,
     "win": {
       "target": [
-        "portable"
+        "nsis"
       ],
       "artifactName": "Lumi-${version}-${arch}.${ext}",
       "icon": "public/icon.ico",
@@ -86,6 +87,25 @@
       ],
       "category": "Development",
       "icon": "public/icon.png"
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "artifactName": "Lumi-${version}-${arch}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "zhaojiseng",
+        "repo": "lumi",
+        "releaseType": "release"
+      }
+    ]
   }
 }

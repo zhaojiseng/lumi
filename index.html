@@ -11,16 +11,18 @@
       .startup-screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--canvas,#f5f7f8); color: var(--text,#203b31); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif; -webkit-app-region: drag; }
       .startup-brand { text-align: center; }
       .startup-brand svg { width: 64px; height: 64px; }
-      .startup-brand h1 { margin: 15px 0 6px; font-size: 30px; font-weight: 600; letter-spacing: -.8px; }
-      .startup-brand p,.startup-message { margin: 0; color: var(--text-muted,#61736c); font-size: 13px; }
+      .startup-brand h1 { margin: 18px 0 8px; font-size: 32px; font-weight: 650; letter-spacing: -.8px; }
+      .startup-brand p,.startup-message { margin: 0; color: var(--text-secondary,#566b61); font-size: 14px; }
       .startup-brand p { margin-bottom: 14px; }
-      .startup-spinner { width: 20px; height: 20px; border: 2px solid #286b5425; border-top-color: #42876c; border-radius: 50%; animation: startup-spin .8s linear infinite; }
+      .startup-dots { display: flex; justify-content: center; gap: 6px; }
+      .startup-dots i { width: 5px; height: 5px; background: var(--accent,#286b54); border-radius: 50%; animation: startup-pulse 1.2s ease-in-out infinite; }
+      .startup-dots i:nth-child(2) { animation-delay: .15s; }.startup-dots i:nth-child(3) { animation-delay: .3s; }
       .startup-error { max-width: 520px; margin: 0 24px; color: var(--text-muted,#61736c); font-size: 13px; text-align: center; overflow-wrap: anywhere; }
       .startup-screen button { -webkit-app-region: no-drag; }
-      @keyframes startup-spin { to { transform: rotate(360deg); } }
-      @media (prefers-reduced-motion: reduce) { .startup-spinner { animation: none; } }
+      @keyframes startup-pulse { 0%,80%,100% { opacity: .3; } 40% { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .startup-dots i { animation: none; } }
       @media (prefers-color-scheme: dark) { .startup-screen { background: var(--canvas,#17221d); color: var(--text,#e1e9e4); } .startup-brand p,.startup-message { color: var(--text-muted,#a4b7ab); } }
     </style>
   </head>
-  <body><div id="root"><div class="startup-screen" role="status" aria-live="polite"><div class="startup-brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="1" y="1" width="62" height="62" rx="16" fill="#286b54"/><path d="M23 17v23c0 3 2 5 5 5h18" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/><circle cx="42" cy="22" r="6" fill="#c6e5d0"/></svg><h1>Lumi</h1><p>你的 AI，尽在一处</p></div><div class="startup-spinner" aria-hidden="true"></div><p class="startup-message">正在加载工作台…</p></div></div><script type="module" src="/src/main.tsx"></script></body>
+  <body><div id="root"><div class="startup-screen" role="status" aria-live="polite"><div class="startup-brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="1" y="1" width="62" height="62" rx="16" fill="#286b54"/><path d="M23 17v23c0 3 2 5 5 5h18" fill="none" stroke="white" stroke-width="6" stroke-linecap="round"/><circle cx="42" cy="22" r="6" fill="#c6e5d0"/></svg><h1>Lumi</h1><p>你的 AI，尽在一处</p></div><div class="startup-dots" aria-hidden="true"><i></i><i></i><i></i></div><p class="startup-message">正在加载工作台…</p></div></div><script type="module" src="/src/main.tsx"></script></body>
 </html>

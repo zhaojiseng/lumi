@@ -73,10 +73,12 @@ Codex 使用站点 /v1 下的 Responses，Claude Code 使用 Anthropic Messages�
 
 `toolRuntimes`、`installTool`、`onToolRuntime` 为本机受限 IPC；安装参数只能为 codex / claude。检测优先实际 PATH 入口并读取 `--version`，状态短期缓存，不请求站点。未安装时下载固定官方安装器，已有 npm 版本更新保留安装前缀，安装后自动检测实际版本；不会自动执行模型请求。
 
+`toolRuntimes` 另返回 `tool: chatgpt` 的桌面应用状态。Windows 读取当前用户 MSIX 注册、卸载注册及常见位置的文件版本，macOS 读取应用 Info.plist；不会启动 ChatGPT 来检测版本，也不将 Codex CLI 版本当作桌面版本。未安装或检测失败分别显示。
+
 接口和服务参考：[New API 文档](https://docs.newapi.ai/zh/docs/api)。
 
 ## GitHub 更新
 
-正式 Windows x64 包启动时及每 4 小时查询 Lumi 仓库的 `/repos/zhaojiseng/lumi/releases/latest`。更新请求独立于站点，不携带账户凭据，仅接受正式版本、对应便携包及 `SHA256SUMS.txt`。下载保留 TLS 校验，仅允许 GitHub 官方附件域名重定向，验证文件大小、SHA-256 和可用的附件摘要。
+正式 Windows x64 安装包启动后及每 4 小时通过 electron-updater 的公开 GitHub Provider 查询 Lumi 仓库正式 Release，读取 `latest.yml` 与对应 NSIS 安装包。更新请求独立于站点，不携带账户凭据。主进程校验版本、标签、固定附件名、大小和 SHA-512；下载及重启前均复核文件。使用标准差量下载、缓存及取消流程，GitHub Actions 同时发布 `.blockmap` 与 `latest.yml`。
 
-受限 IPC 提供 `updateStatus`、`checkUpdate`、`downloadUpdate`、`cancelUpdate`、`showUpdateFile` 及状态订阅。更新文件保存在应用数据目录，临时文件在失败或取消时清理。下载完成后仅打开文件夹，用户退出当前 Lumi 后运行新版便携文件。浏览器预览与开发运行不自动检查更新。
+受限 IPC 提供 `updateStatus`、`checkUpdate`、`downloadUpdate`、`cancelUpdate`、`showUpdateFile`、`restartUpdate` 及状态订阅；`restartUpdate` 不接收路径或命令。只对已下载并通过校验的文件调用 `quitAndInstall(true, true)`，静默升级后自动重开。普通退出不触发升级，卸载 / 更新配置保留用户数据。浏览器预览与开发运行不自动检查更新。

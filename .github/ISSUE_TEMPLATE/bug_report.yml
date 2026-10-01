@@ -8,7 +8,7 @@ body:
     id: version
     attributes:
       label: Lumi 版本与运行方式
-      placeholder: 例如 0.4.17 / Windows 便携版或源码运行
+      placeholder: 例如 0.4.17 / Windows 安装版或源码运行
     validations:
       required: true
   - type: input

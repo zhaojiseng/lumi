@@ -10,6 +10,7 @@ import { ConfigService } from './services/config';
 import { LocalUsageService } from './services/local-usage';
 import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
+import {nativeUpdater} from './services/native-updater';
 import {ToolRuntimeService} from './services/tool-runtime';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
@@ -17,7 +18,7 @@ import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenI
 const root = path.resolve(__dirname, '..');
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
 if (process.env.LUMI_TEST_DATA) app.setPath('userData', path.resolve(process.env.LUMI_TEST_DATA));
-let win: BrowserWindow; let startup:BrowserWindow|undefined;let tray: Tray | undefined;
+let win: BrowserWindow;let tray: Tray | undefined;
 const timeSchema=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),startTime:timeSchema.optional(),endTime:timeSchema.optional()}).strict();
 const daySchema = z.number().int().min(1).max(90);
@@ -45,9 +46,19 @@ function handle<T extends z.ZodType>(channel: string, schema: T, action: (data: 
   });
 }
 async function start() {
-  startup=new BrowserWindow({width:440,height:240,show:process.env.LUMI_SMOKE!=='1',frame:false,resizable:false,alwaysOnTop:false,title:'Lumi · 正在启动',backgroundColor:'#f5f7f8',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,devTools:false}});
-  startup.webContents.setWindowOpenHandler(()=>({action:'deny'}));startup.webContents.on('will-navigate',e=>e.preventDefault());
-  await startup.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(startupHtml));
+  const startupStarted=performance.now();
+  const icon = nativeImage.createFromPath(path.join(root, 'public/icon.png'));
+  win = new BrowserWindow({ width: 1480, height: 990, minWidth: 1080, minHeight: 740, show: false, frame: false, titleBarStyle: 'hidden', backgroundColor: '#f5f7f8', icon,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
+  });
+  Menu.setApplicationMenu(null);
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', e => e.preventDefault());
+  win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  win.webContents.session.setPermissionCheckHandler(() => false);
+  win.once('ready-to-show',()=>{if(process.env.LUMI_SMOKE!=='1')win.show();});
+  await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(startupHtml));
+  const startupPaintMs=Math.round(performance.now()-startupStarted);
   const data = app.getPath('userData');
   const store = new SettingsStore(data, {
     available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
@@ -55,7 +66,8 @@ async function start() {
   });
   await store.load();
   const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
-  const updates=new UpdateService({version:app.getVersion(),directory:path.join(data,'updates'),enabled:app.isPackaged && process.env.LUMI_SMOKE!=='1'});
+  const updateEnabled=app.isPackaged && process.platform==='win32' && process.arch==='x64' && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
+  const updates=new UpdateService({version:app.getVersion(),enabled:updateEnabled,engine:updateEnabled ? await nativeUpdater() : undefined});
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   let lastNotice = 0;
   const noPayload = z.undefined();
@@ -88,6 +100,7 @@ async function start() {
   handle('downloadUpdate',noPayload,()=>updates.download());
   handle('cancelUpdate',noPayload,()=>updates.cancel());
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
+  handle('restartUpdate',noPayload,()=>updates.restart());
   handle('localUsage', statisticsSchema, query => usage.scan(query));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
   handle('applyConfig', z.string().uuid(), id => configs.apply(id));
@@ -107,26 +120,16 @@ async function start() {
   });
   handle('openExternal', z.string().max(4000), async raw => { const url = new URL(raw); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('不支持此链接。'); await shell.openExternal(url.href); });
   handle('window', z.enum(['minimize', 'maximize', 'close']), action => { if (action === 'minimize') win.minimize(); else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize(); else win.close(); });
-  const icon = nativeImage.createFromPath(path.join(root, 'public/icon.png'));
-  win = new BrowserWindow({ width: 1480, height: 990, minWidth: 1080, minHeight: 740, show: false, frame: false, titleBarStyle: 'hidden', backgroundColor: '#f5f7f8', icon,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
-  });
-  Menu.setApplicationMenu(null);
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  win.webContents.on('will-navigate', e => e.preventDefault());
-  win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-  win.webContents.session.setPermissionCheckHandler(() => false);
   const unsubscribeUpdates=updates.subscribe(state=>{if(!win.isDestroyed())win.webContents.send('lumi:updateState',state);});
   const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.cancel();unsubscribeRuntimes();runtimes.close();});
-  win.once('ready-to-show', () => { if (process.env.LUMI_SMOKE !== '1') win.show();startup?.destroy();startup=undefined; });
+  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();});
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
     tray = new Tray(icon.resize({ width: 20, height: 20 })); tray.setToolTip('Lumi · AI 工作台');
     tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click: () => { win.show(); win.focus(); } }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click', () => { win.show(); win.focus(); });
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
-  if(app.isPackaged && process.env.LUMI_SMOKE!=='1')void updates.check();
+  if(updateEnabled){const firstUpdate=setTimeout(()=>{void updates.check();},3000);firstUpdate.unref();}
   if (process.env.LUMI_SMOKE === '1') {
     try {
       const result = await win.webContents.executeJavaScript(String.raw`(async () => {
@@ -136,6 +139,8 @@ async function start() {
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
         return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台')};
       })()`);
+      result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
+      const updaterProbe=await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));
       if(process.env.LUMI_SMOKE_RESULT_PATH)await writeFile(process.env.LUMI_SMOKE_RESULT_PATH,JSON.stringify(result));
@@ -146,7 +151,7 @@ async function start() {
 }
 if (!app.requestSingleInstanceLock() && process.env.LUMI_SMOKE !== '1') app.quit();
 else {
-  app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } else if(startup && !startup.isDestroyed()){startup.show();startup.focus();} });
+  app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
   app.whenReady().then(start).catch(e => { if (process.env.LUMI_SMOKE === '1') { console.error('LUMI_SMOKE_FAILED', String(e.message || e)); app.exit(1); } else { dialog.showErrorBox('Lumi 启动失败', String(e.message || e)); app.quit(); } });
   app.on('window-all-closed', () => { tray?.destroy(); app.quit(); });
 }
