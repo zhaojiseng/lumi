@@ -73,7 +73,7 @@ Codex 使用站点 /v1 下的 Responses，Claude Code 使用 Anthropic Messages�
 
 `toolRuntimes`、`installTool`、`onToolRuntime` 为本机受限 IPC；安装参数只能为 codex / claude。检测优先实际 PATH 入口并读取 `--version`，状态短期缓存，不请求站点。未安装时下载固定官方安装器，已有 npm 版本更新保留安装前缀，安装后自动检测实际版本；不会自动执行模型请求。
 
-`toolRuntimes` 另返回 `tool: chatgpt` 的桌面应用状态。Windows 读取当前用户 MSIX 注册、卸载注册及常见位置的文件版本，macOS 读取应用 Info.plist；不会启动 ChatGPT 来检测版本，也不将 Codex CLI 版本当作桌面版本。未安装或检测失败分别显示。
+`toolRuntimes` 另返回 `tool: chatgpt` 的桌面应用状态。Windows 读取当前用户 MSIX 注册、卸载注册及常见位置的文件版本，macOS 读取应用 Info.plist；不会启动 ChatGPT 来检测版本，也不将 Codex CLI 版本当作桌面版本。未安装或检测失败分别显示。最新 CLI 版本来自对应官方 npm 包的 `latest` 标签；Windows ChatGPT 桌面最新版来自 Microsoft Store 的正式版产品目录。网络查询失败时最新版显示为暂不可查，不影响本机版本检测。
 
 接口和服务参考：[New API 文档](https://docs.newapi.ai/zh/docs/api)。
 

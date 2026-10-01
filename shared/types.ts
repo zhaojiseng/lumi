@@ -94,6 +94,7 @@ export interface ToolConfigState {
 }
 export interface ToolRuntimeState {
   tool: Tool | 'chatgpt'; installed: boolean; version?: string; path?: string; checkedAt: number;
+  latestVersion?: string; latestCheckedAt?: number;
   phase: 'idle' | 'checking' | 'installing' | 'error'; message?: string;
   npmAvailable: boolean; nodeVersion?: string;
 }

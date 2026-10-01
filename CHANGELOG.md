@@ -2,6 +2,12 @@
 
 本文件描述当前可用行为。测试与平台验证见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
+## 0.4.22 · 2026-10-01
+
+- 修复 Windows 上 ChatGPT 桌面应用已安装但未被识别的问题，兼容名称为 OpenAI.Codex / CodexBeta 的注册包，并核对 ChatGPT 可执行文件，优先正式版。
+- 工具配置分别展示 Codex CLI、Claude Code CLI、ChatGPT 桌面的当前版本和最新版本；最新版读取官方 npm 或 Microsoft Store 目录。
+- 最新版查询独立缓存，网络失败显示“暂不可查”，不会影响本机安装状态和当前版本检测。
+
 ## 0.4.21 · 2026-10-01
 
 - 左栏更新提示统一为柔和绿色，按钮和进度沿用主题配色；工具配置的专用密钥感叹号同步改为绿色。

@@ -10,6 +10,26 @@ export interface CommandResult {code:number;stdout:string;stderr:string;}
 export type CommandRunner=(command:Command)=>Promise<CommandResult>;
 const packages={codex:'@openai/codex',claude:'@anthropic-ai/claude-code'} as const;
 export function versionFromOutput(text:string){return text.match(/\b\d+\.\d+\.\d+(?:-[\w.-]+)?\b/)?.[0];}
+const latestVersionPattern=/^\d+\.\d+\.\d+(?:\.\d+)?(?:-[\w.-]+)?$/;
+export function chatGPTStoreVersion(data:unknown,architecture:'x64'|'arm64'=process.arch==='arm64' ? 'arm64' : 'x64'):string|undefined {
+  const product=(data as {Product?:{DisplaySkuAvailabilities?:unknown}})?.Product;
+  const skus=product?.DisplaySkuAvailabilities;
+  if(!Array.isArray(skus))return undefined;
+  const versions=skus.flatMap(sku=>Array.isArray(sku?.Sku?.Properties?.Packages) ? sku.Sku.Properties.Packages : [])
+    .filter(pkg=>pkg?.PackageFamilyName==='OpenAI.Codex_2p2nqsd0c76g0' && typeof pkg.PackageFullName==='string')
+    .map(pkg=>pkg.PackageFullName.match(/^OpenAI\.Codex_(\d+\.\d+\.\d+\.\d+)_(x64|arm64)__2p2nqsd0c76g0$/))
+    .filter(match=>match?.[2]===architecture)
+    .map(match=>match?.[1])
+    .filter((v):v is string=>!!v);
+  return versions.sort((a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<4;i++)if(x[i]!==y[i])return y[i]-x[i];return 0;})[0];
+}
+const chatGPTWindowsScript=[
+  '[Console]::OutputEncoding=[Text.Encoding]::UTF8; $apps=@();',
+  "Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(^|[.])ChatGPT([.-]|$)' -or ($_.Name -in @('OpenAI.Codex','OpenAI.CodexBeta') -and (Test-Path -LiteralPath (Join-Path $_.InstallLocation 'app\\ChatGPT.exe') -PathType Leaf)) } | Sort-Object { if ($_.Name -eq 'OpenAI.Codex') { 0 } elseif ($_.Name -eq 'OpenAI.CodexBeta') { 2 } else { 1 } } | ForEach-Object { $apps += @{version=$_.Version.ToString();path=$_.InstallLocation} };",
+  "if (!$apps.Count) { Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match '^ChatGPT(?:$|\\s)' } | ForEach-Object { $apps += @{version=$_.DisplayVersion;path=$_.InstallLocation} } };",
+  "if (!$apps.Count) { @((Join-Path $env:LOCALAPPDATA 'Programs\\ChatGPT\\ChatGPT.exe'),(Join-Path $env:LOCALAPPDATA 'ChatGPT\\ChatGPT.exe'),(Join-Path $env:ProgramFiles 'ChatGPT\\ChatGPT.exe')) | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Leaf) { $item=Get-Item -LiteralPath $_; $apps += @{version=$item.VersionInfo.ProductVersion;path=$item.FullName} } } };",
+  'ConvertTo-Json -InputObject @($apps) -Compress'
+].join(' ');
 const psLiteral=(s:string)=>"'"+s.replaceAll("'","''")+"'";
 function invocation(file:string,args:string[],platform=process.platform):Command {
   if(platform==='win32' && /\.(?:cmd|bat|ps1)$/i.test(file)) {
@@ -23,16 +43,18 @@ interface RuntimeOptions {
   directory:string;platform?:NodeJS.Platform;home?:string;env?:NodeJS.ProcessEnv;run?:CommandRunner;
   find?:(name:string)=>Promise<string|undefined>;
   download?:(url:string,target:string)=>Promise<void>;
+  latest?:(tool:Tool|'chatgpt')=>Promise<string|undefined>;
 }
 /** Fixed vendor commands only; the renderer cannot submit commands, paths or install packages. */
 export class ToolRuntimeService {
   private states=new Map<Tool|'chatgpt',ToolRuntimeState>();private pending=new Map<Tool|'chatgpt',Promise<ToolRuntimeState>>();
+  private latestCache=new Map<Tool|'chatgpt',{version?:string;checkedAt:number}>();
   private installs=new Map<Tool,Promise<ToolRuntimeState>>();
   private listeners=new Set<(state:ToolRuntimeState)=>void>();private children=new Set<ReturnType<typeof spawn>>();
   private abort=new AbortController();private platform:NodeJS.Platform;private home:string;private env:NodeJS.ProcessEnv;private run:CommandRunner;
   constructor(private options:RuntimeOptions) {this.platform=options.platform || process.platform;this.home=options.home || os.homedir();this.env={...process.env,...options.env};this.run=options.run || (command=>this.execute(command));}
   subscribe(listener:(state:ToolRuntimeState)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
-  private emit(state:ToolRuntimeState){this.states.set(state.tool,state);for(const listener of this.listeners)listener(structuredClone(state));return state;}
+  private emit(state:ToolRuntimeState){const latest=this.latestCache.get(state.tool);if(latest && state.latestCheckedAt===undefined)state={...state,latestVersion:latest.version,latestCheckedAt:latest.checkedAt};this.states.set(state.tool,state);for(const listener of this.listeners)listener(structuredClone(state));return state;}
   private async execute(command:Command):Promise<CommandResult> {
     if(this.abort.signal.aborted)throw new Error('操作已取消。');
     const env={...this.env,...command.env};for(const key of Object.keys(env))if(/(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD)$/i.test(key))delete env[key];
@@ -88,8 +110,7 @@ export class ToolRuntimeService {
     try{
       if(this.platform==='win32'){
         // Query registration and executable metadata; never launch a desktop app with --version.
-        const script="[Console]::OutputEncoding=[Text.Encoding]::UTF8; $apps=@(); Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '(^|[.])ChatGPT([.-]|$)' } | ForEach-Object { $apps += @{version=$_.Version.ToString();path=$_.InstallLocation} }; if (!$apps.Count) { Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -match '^ChatGPT(?:$|\\s)' } | ForEach-Object { $apps += @{version=$_.DisplayVersion;path=$_.InstallLocation} } }; if (!$apps.Count) { @((Join-Path $env:LOCALAPPDATA 'Programs\\ChatGPT\\ChatGPT.exe'),(Join-Path $env:LOCALAPPDATA 'ChatGPT\\ChatGPT.exe'),(Join-Path $env:ProgramFiles 'ChatGPT\\ChatGPT.exe')) | ForEach-Object { if (Test-Path -LiteralPath $_ -PathType Leaf) { $item=Get-Item -LiteralPath $_; $apps += @{version=$item.VersionInfo.ProductVersion;path=$item.FullName} } } }; ConvertTo-Json -InputObject @($apps) -Compress";
-        const r=await this.run({file:path.join(this.env.SystemRoot || 'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),args:['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(script,'utf16le').toString('base64')],timeout:15000});
+        const r=await this.run({file:path.join(this.env.SystemRoot || 'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe'),args:['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(chatGPTWindowsScript,'utf16le').toString('base64')],timeout:15000});
         if(r.code!==0)throw new Error('无法读取 ChatGPT 桌面应用安装信息。');
         const apps:unknown=JSON.parse(r.stdout.replace(/^\uFEFF/,''));if(!Array.isArray(apps))throw new Error('桌面应用检测结果无效。');
         const app=apps.find(a=>a && typeof a.version==='string' && /^\d+(?:\.\d+){2,3}(?:[-+][\w.-]+)?$/.test(a.version));
@@ -104,11 +125,30 @@ export class ToolRuntimeService {
       return this.emit(base);
     }catch{return this.emit({...base,phase:'error',message:'ChatGPT 桌面应用版本检测失败，请重新检测。'});}
   }
+  private async latestVersion(tool:Tool|'chatgpt',force:boolean){
+    const cached=this.latestCache.get(tool);
+    if(!force && cached && Date.now()-cached.checkedAt<(cached.version ? 30*60_000 : 5*60_000))return cached;
+    let version:string|undefined;
+    try{
+      if(this.options.latest)version=await this.options.latest(tool);
+      else if(tool==='chatgpt'){
+        if(this.platform==='win32'){
+          const response=await fetch('https://displaycatalog.mp.microsoft.com/v7.0/products/9PLM9XGG6VKS?market=CN&languages=zh-cn&MS-CV=DGU1mcuYo0WMMp+F.1',{signal:AbortSignal.timeout(8000)});
+          if(response.ok)version=chatGPTStoreVersion(await response.json());
+        }
+      }else{
+        const response=await fetch('https://registry.npmjs.org/'+encodeURIComponent(packages[tool])+'/latest',{signal:AbortSignal.timeout(8000)});
+        if(response.ok){const data:unknown=await response.json();const value=(data as {version?:unknown})?.version;if(typeof value==='string' && latestVersionPattern.test(value))version=value;}
+      }
+    }catch{/* Remote version lookup never changes local installation status. */}
+    const result={version:version && latestVersionPattern.test(version) ? version : undefined,checkedAt:Date.now()};
+    this.latestCache.set(tool,result);return result;
+  }
   async inspect(force=false):Promise<ToolRuntimeState[]> {return Promise.all((['codex','claude','chatgpt'] as const).map(tool=>this.inspectOne(tool,force)));}
   private async inspectOne(tool:Tool|'chatgpt',force:boolean) {
     const job=this.pending.get(tool);if(job)return job;
     const cached=this.states.get(tool);if(!force && cached && Date.now()-cached.checkedAt<30000)return structuredClone(cached);
-    const task=tool==='chatgpt' ? this.detectChatGPT() : this.detect(tool);this.pending.set(tool,task);try{return await task;}finally{if(this.pending.get(tool)===task)this.pending.delete(tool);}
+    const task=(async()=>{const local=tool==='chatgpt' ? await this.detectChatGPT() : await this.detect(tool);const latest=await this.latestVersion(tool,force);return this.emit({...local,latestVersion:latest.version,latestCheckedAt:latest.checkedAt});})();this.pending.set(tool,task);try{return await task;}finally{if(this.pending.get(tool)===task)this.pending.delete(tool);}
   }
   install(tool:Tool):Promise<ToolRuntimeState> {
     const installing=this.installs.get(tool);if(installing)return installing;
