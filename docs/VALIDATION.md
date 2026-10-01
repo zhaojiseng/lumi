@@ -26,6 +26,8 @@ Windows 本机 `Lumi-0.4.23-x64.exe` 的 SHA-256：
 
 Mac 下载后仍需退出 Lumi，通过 DMG 将新应用拖入 Applications 替换；使用临时签名，未进行 Apple 公证。日志最多保留 10,000 条，较早记录超过上限后释放，退出即清空。截图、隔离测试数据及本机发行文件不提交，下载文件应核对同次 Release 的校验清单。
 
+首次三平台 CI 发现新测试混入构建机预装 Node / CLI：macOS 读取了另一版本 Node，Linux 的隔离路径断言也受到系统工具影响。测试现使用明确的隔离发现路径，真实 shebang 仍通过实际子进程执行并检查 Node 版本；生产环境继续尊重已配置 PATH 的优先级。
+
 ## 0.4.22 · ChatGPT 识别与工具当前 / 最新版本
 
 日期：2026-10-01（Asia/Shanghai）。本机 Windows x64，Node.js 24.18.0、npm 11.16.0、Electron 44.5.0。

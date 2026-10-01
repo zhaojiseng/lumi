@@ -21,13 +21,13 @@ test('runtime logs capture from startup, sanitize credentials, keep bounded memo
   const safe=redactLog(raw);for(const value of ['fixture-password','fixture-access','fixture-key','fixture-bearer','sk-fixturesecret','name:secret','token=private','#private'])assert.ok(!safe.includes(value),value);
   assert.ok(!redactLog('{"cookie":"fixture-session; more=private"}').includes('fixture-session'));
 });
-test('macOS tool discovery puts NVM Node on PATH when the GUI inherited only system directories',async()=>{
+test('macOS tool discovery finds NVM Node when the inherited GUI PATH has no Node',async()=>{
   const home=await mkdtemp(path.resolve('.test-data/mac-env-')),bin=path.join(home,'.nvm','versions','node','v24.18.0','bin');await mkdir(bin,{recursive:true});
   for(const name of ['node','npm','codex','claude'])await writeFile(path.join(bin,name),'#!/usr/bin/env node\n');
   let shellReads=0;const seen:{file:string;path?:string}[]=[];
-  const service=new ToolRuntimeService({directory:home,home,platform:'darwin',env:{PATH:'/usr/bin:/bin',SHELL:'/bin/zsh'},latest:async()=>undefined,run:async command=>{
+  const service=new ToolRuntimeService({directory:home,home,platform:'darwin',env:{PATH:home,SHELL:'/bin/zsh',NVM_DIR:path.join(home,'.nvm')},latest:async()=>undefined,run:async command=>{
     seen.push({file:command.file,path:command.env?.PATH});
-    if(command.args.includes('-ilc')){shellReads++;return {code:0,stdout:'Shell startup text\n\x1eLUMI_PATH\x1f/usr/bin:/bin\x1e',stderr:''};}
+    if(command.args.includes('-ilc')){shellReads++;return {code:0,stdout:'Shell startup text\n\x1eLUMI_PATH\x1f'+home+'\x1e',stderr:''};}
     if(command.file==='/usr/bin/plutil')return {code:1,stdout:'',stderr:''};
     assert.ok(command.env?.PATH?.startsWith(bin),JSON.stringify(command.env));return {code:0,stdout:command.file.endsWith('node') ? 'v24.18.0' : 'tool 1.2.3',stderr:''};
   }});
@@ -36,9 +36,10 @@ test('macOS tool discovery puts NVM Node on PATH when the GUI inherited only sys
 });
 test('Unix CLI shebang actually resolves Node from the repaired GUI environment',{skip:process.platform==='win32'},async()=>{
   const home=await mkdtemp(path.resolve('.test-data/mac-real-env-')),bin=path.join(home,'.nvm','versions','node','v24.18.0','bin');await mkdir(bin,{recursive:true});await symlink(process.execPath,path.join(bin,'node'));
-  const cli=path.join(bin,'codex');await writeFile(cli,"#!/usr/bin/env node\nconsole.log('codex-cli 1.2.3');\n");await chmod(cli,0o755);
-  const service=new ToolRuntimeService({directory:home,home,platform:'darwin',env:{PATH:'/usr/bin:/bin',HOME:home,SHELL:'/bin/sh'},latest:async()=>undefined});
-  try{const states=await service.inspect();assert.equal(states[0].version,'1.2.3');assert.equal(states[0].nodeVersion,process.versions.node);}finally{service.close();}
+  const cli=path.join(bin,'codex');await writeFile(cli,`#!/usr/bin/env node\nif (process.versions.node !== '${process.versions.node}') process.exit(1);\nconsole.log('codex-cli 1.2.3');\n`);await chmod(cli,0o755);
+  // Keep discovery isolated from preinstalled CI tools; execution uses the real process runner.
+  const service=new ToolRuntimeService({directory:home,home,platform:'darwin',env:{PATH:'/usr/bin:/bin',HOME:home,SHELL:'/bin/sh',NVM_DIR:path.join(home,'.nvm')},find:async name=>name==='node' || name==='codex' ? path.join(bin,name) : undefined,latest:async()=>undefined});
+  try{const states=await service.inspect();assert.equal(states[0].version,'1.2.3',JSON.stringify(states[0]));assert.equal(states[0].nodeVersion,process.versions.node,JSON.stringify(states[0]));}finally{service.close();}
 });
 const bytes=Buffer.from('Isolated DMG fixture, not an application.'),version='0.4.23',name=`Lumi-${version}-arm64.dmg`,url=`https://github.com/zhaojiseng/lumi/releases/download/v${version}/${name}`;
 function release(){return {tag_name:'v'+version,draft:false,prerelease:false,assets:[{name,size:bytes.length,digest:'sha256:'+createHash('sha256').update(bytes).digest('hex'),browser_download_url:url}]};}
