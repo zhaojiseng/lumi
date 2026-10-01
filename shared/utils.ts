@@ -45,6 +45,8 @@ export function hourlySeries(points: QuotaPoint[], status: SiteStatus, range?: D
 }
 /** Chart resolution follows the selected calendar window; upstream precision is one hour. */
 export function usageGranularity(days: number) {
+  if(days <= 1/24)return {hours:1/12,days:0,label:'每 5 分钟'};
+  if(days <= 1/4)return {hours:1/4,days:0,label:'每 15 分钟'};
   if(days <= 1)return {hours:1,days:0,label:'每 1 小时'};
   if(days <= 3)return {hours:3,days:0,label:'每 3 小时'};
   if(days <= 7)return {hours:6,days:0,label:'每 6 小时'};
@@ -53,8 +55,8 @@ export function usageGranularity(days: number) {
   return {hours:0,days:7,label:'每 7 天'};
 }
 export function usageSeries(points: QuotaPoint[], days: number, status: SiteStatus, range?: DateRange, now = new Date()) {
-  const resolved=resolveRange(range || days,now);const grain=usageGranularity(resolved.days);
-  if(resolved.days === 1)return hourlySeries(points,status,resolved.range,now);
+  const resolved=resolveRange(range || days,now);const grain=usageGranularity(range?.startTime || range?.endTime ? resolved.durationDays : resolved.days);
+  if(resolved.days === 1 && grain.hours>=1)return hourlySeries(points,status,resolved.range,now);
   const origin=new Date(resolved.start_timestamp*1000);const buckets:{start:number;end:number}[]=[];
   if(grain.hours) {
     for(let start=resolved.start_timestamp;start<=resolved.end_timestamp;start+=grain.hours*3600)

@@ -16,5 +16,5 @@ const code = await new Promise(resolve => { child.on('exit', resolve); child.on(
 clearTimeout(timer);
 if (code !== 0 || !out.includes('LUMI_SMOKE_RESULT=')) { console.error(error); process.exit(1); }
 const result = JSON.parse(out.split('LUMI_SMOKE_RESULT=')[1].split('\n')[0]);
-if (!result.desktop || !result.contextIsolation || !result.noDemo || !result.loginVisible || !result.ipcValidation || !result.secureStorage) { console.error(result); process.exit(1); }
+if (!result.desktop || !result.contextIsolation || !result.noDemo || !result.loginVisible || !result.ipcValidation || !result.toolIpcValidation || !result.secureStorage) { console.error(result); process.exit(1); }
 console.log('Electron smoke passed: logged-out rendering, isolated preload, system encryption availability, IPC validation and removal of demo mode.');

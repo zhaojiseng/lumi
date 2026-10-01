@@ -6,4 +6,5 @@ import './workbench.css';
 import './select.css';
 import './theme.css';
 import './updates-trends.css';
+import './filters-tools-motion.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);

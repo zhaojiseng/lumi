@@ -1,5 +1,6 @@
 import {normalizeHealth,normalizeHealthDetails} from '../../shared/health';
-import { resolveRange } from '../../shared/range';
+import { resolveRange,statisticsFilters } from '../../shared/range';
+import {filterLogs,logStat} from '../../shared/statistics';
 import type { SettingsStore, SiteSecret, SessionCookie } from './store';
 import { publicEncrypt, randomBytes, createCipheriv, randomUUID, createHash } from 'node:crypto';
 import { normalizeCatalog, availableGroups } from '../../shared/catalog';
@@ -190,6 +191,10 @@ export class NewApiClient {
   }
   async logs(q: LogQuery, window?: {start_timestamp:number;end_timestamp:number}): Promise<LogPage> {
     if (!this.snapshot) return this.scope().logs(q,window);
+    if(q.models?.length || q.tokenIds?.length){
+      const rows=filterLogs((await this.completeLogs(q.range || q.days,0)).rows,q).filter(row=>(!q.type || row.type===q.type) && (!q.model || row.model_name===q.model) && (!q.tokenName || row.token_name===q.tokenName));
+      return {items:rows.slice((q.page-1)*q.pageSize,q.page*q.pageSize),total:rows.length,page:q.page,pageSize:q.pageSize};
+    }
     const j = await this.request('/api/log/self', { query: { ...(window || timeRange(q.range || q.days)), p: q.page, page_size: q.pageSize, type: q.type || 0, model_name: q.model, token_name: q.tokenName } });
     // New API changed from an array to a paginated DTO; accept both shapes.
     const data = j.data;
@@ -216,16 +221,15 @@ export class NewApiClient {
     const chunks=await Promise.all(windows.map(query=>this.request('/api/data/self',{query}).then(j=>j.data as QuotaPoint[])));
     return chunks.flat();
   }
-  async tokenUsage(query:DashboardQuery):Promise<TokenUsage>{
-    if(!this.snapshot)return this.scope().tokenUsage(query);
+  private async completeLogs(query:DashboardQuery,type=2):Promise<{rows:UsageLog[];fetchedAt:number}>{
     const scope=this.current(),secret=await this.validSecret(scope);
     const resolved=resolveRange(query),window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
     const cacheWindow={...window,end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
-    return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':tokenUsage:'+JSON.stringify(cacheWindow),60000,async()=>{
+    return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':completeLogs:'+type+':'+JSON.stringify(cacheWindow),60000,async()=>{
       const rows:UsageLog[]=[];let expected:number|undefined;const ids=new Set<number>();
       for(let page=1;page<=101;page++){
-        const j=await this.request('/api/log/self',{query:{...window,p:page,page_size:100,type:2}}),data=j.data;
+        const j=await this.request('/api/log/self',{query:{...window,p:page,page_size:100,type}}),data=j.data;
         const items:UsageLog[]=Array.isArray(data) ? data : data?.items;
         if(!Array.isArray(items))throw new Error('站点未返回可用的消费日志。');
         const total=Array.isArray(data) ? j.total : data.total;
@@ -235,19 +239,23 @@ export class NewApiClient {
         if(items.length<100 || expected!==undefined && rows.length>=expected){
           if(expected!==undefined && rows.length!==expected)throw new Error('消费日志分页不完整，请缩小日期范围后重试。');
           this.checkScope(scope);await this.validSecret(scope);
-          const fetchedAt=Date.now();
-          return {points:tokenPoints(rows,window),quality:summarizeQuality(rows,window,fetchedAt),logCount:rows.length,fetchedAt};
+          return {rows:rows.filter(row=>row.created_at>=window.start_timestamp && row.created_at<=window.end_timestamp),fetchedAt:Date.now()};
         }
       }
       throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
     }).then(async result=>{this.checkScope(scope);await this.validSecret(scope);return result;});
+  }
+  async tokenUsage(query:DashboardQuery):Promise<TokenUsage>{
+    if(!this.snapshot)return this.scope().tokenUsage(query);
+    const resolved=resolveRange(query),filters=statisticsFilters(query),complete=await this.completeLogs(query,filters.models?.length || filters.tokenIds?.length ? 0 : 2),rows=filterLogs(complete.rows,filters).filter(r=>r.type===2),fetchedAt=complete.fetchedAt;
+    return {points:tokenPoints(rows,resolved),quality:summarizeQuality(rows,resolved,fetchedAt),logCount:rows.length,fetchedAt};
   }
   async usageQuality(query:DashboardQuery):Promise<UsageQuality>{
     if(!this.snapshot)return this.scope().usageQuality(query);
     const scope=this.current(),secret=await this.validSecret(scope);
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
     // Keep today's key stable across minute refreshes; detailed metrics refresh every five minutes.
-    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify(resolveRange(query).range);
+    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify([resolveRange(query).range,statisticsFilters(query)]);
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
@@ -255,34 +263,39 @@ export class NewApiClient {
     if (!this.snapshot) return this.scope().dashboard(query,force);
     if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
     const resolved=resolveRange(query); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp}; const todayWindow=timeRange(1);
+    const filters=statisticsFilters(query),detailed=!!(range.startTime || range.endTime || filters.models?.length || filters.tokenIds?.length);
     const statusTask = this.status();
     if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status:await statusTask,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days };
     const names = ['账户余额', '请求记录', '用量曲线', '消费统计', '模型广场', 'API 令牌', '今日消费'];
     const results = await Promise.allSettled([
       this.request('/api/user/self').then(j => j.data as UserInfo),
-      this.logs({ days, range, page: 1, pageSize: 100 },timestamps),
-      this.usageData(timestamps),
-      this.request('/api/log/self/stat', { query: { ...timestamps, type: 2 } }).then(j => j.data as UsageStat),
+      detailed ? Promise.resolve({items:[],total:0,page:1,pageSize:100}) : this.logs({ days, range, page: 1, pageSize: 100 },timestamps),
+      detailed ? Promise.resolve([]) : this.usageData(timestamps),
+      detailed ? Promise.resolve(null) : this.request('/api/log/self/stat', { query: { ...timestamps, type: 2 } }).then(j => j.data as UsageStat),
       this.catalog(), this.tokens(),
       this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j => j.data as UsageStat),
       this.request('/api/perf-metrics/summary',{query:{hours:24}}).then(j => normalizeHealth(j.data)),
       this.request('/api/data/self',{query:todayWindow}).then(j => j.data as QuotaPoint[]),
       statusTask,
+      detailed ? this.completeLogs(query,0).then(({rows})=>filterLogs(rows,filters)) : Promise.resolve(null),
     ]);
     if(results[9].status==='rejected')throw results[9].reason;
+    if(detailed && results[10].status==='rejected')throw results[10].reason;
     const status=results[9].value as SiteStatus;
     const value = <T>(i: number, fallback: T): T => results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
     const knownTokens = value<ApiToken[]>(5, []);
     const prefs = this.snapshot?.preferences || this.store.preferences;
     const tracked = [...prefs.managedTokens.filter(t => t.siteId === prefs.activeSiteId),...prefs.bindings.filter(b => b.siteId === prefs.activeSiteId && b.tokenName).map(b => ({tool:b.tool,name:b.tokenName}))];
     const bindings = tracked.filter((b,i) => tracked.findIndex(x => x.tool === b.tool && x.name === b.name) === i && knownTokens.filter(t => t.name === b.name).length === 1 && !tracked.some(x => x.tool !== b.tool && x.name === b.name));
-    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:(await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
-    const toolStats = (['codex','claude'] as Tool[]).map(tool => { const rows = toolResults.filter((r,i) => bindings[i].tool === tool && r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value); const failed = toolResults.some((r,i) => bindings[i].tool === tool && r.status === 'rejected'); return {tool,tokenName:rows.map(r => r.tokenName).join(', '),stat:!rows.length || failed ? null : rows.reduce((a,r) => ({quota:a.quota+r.stat.quota,rpm:a.rpm+r.stat.rpm,tpm:a.tpm+r.stat.tpm}),{quota:0,rpm:0,tpm:0})}; });
+    const detailRows=value<UsageLog[] | null>(10,null),detailStat=detailRows ? logStat(detailRows,timestamps) : null;
+    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:detailed ? detailRows ? logStat(detailRows.filter(row=>row.token_id===knownTokens.find(t=>t.name===b.name)?.id),timestamps) : null : (await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
+    const toolStats = (['codex','claude'] as Tool[]).map(tool => { const rows = toolResults.filter((r,i) => bindings[i].tool === tool && r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value); const failed = toolResults.some((r,i) => bindings[i].tool === tool && (r.status === 'rejected' || r.value.stat===null)); return {tool,tokenName:rows.map(r => r.tokenName).join(', '),stat:!rows.length || failed ? null : rows.reduce((a,r) => ({quota:a.quota+r.stat.quota,rpm:a.rpm+r.stat.rpm,tpm:a.tpm+r.stat.tpm}),{quota:0,rpm:0,tpm:0})}; });
     const warnings = results.slice(0,7).flatMap((r, i) => r.status === 'rejected' ? [`${names[i]}：${r.reason.message}`] : []);
     toolResults.forEach((r, i) => { if (r.status === 'rejected') warnings.push(`${bindings[i].tool} 独立消费：${r.reason.message}`); });
     if (results[8].status === 'rejected') warnings.push('今日调用：'+results[8].reason.message);
+    if (results[10].status === 'rejected') warnings.push('筛选统计：'+results[10].reason.message);
     const todayRows=value<QuotaPoint[]>(8,[]).filter(p => p.created_at >= todayWindow.start_timestamp);
-    return { range, today:{quota:value<UsageStat | null>(6,null)?.quota ?? (results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+p.quota,0) : null),requests:results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+(p.count || 0),0) : null},health:value<HealthSummary | null>(7,null),healthError:results[7].status === 'rejected' ? '健康度暂不可用：'+results[7].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series: value(2, []), stat: value(3, null), catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt: Date.now(), days };
+    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, today:{quota:value<UsageStat | null>(6,null)?.quota ?? (results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+p.quota,0) : null),requests:results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+(p.count || 0),0) : null},health:value<HealthSummary | null>(7,null),healthError:results[7].status === 'rejected' ? '健康度暂不可用：'+results[7].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series: detailed ? tokenPoints(detailRows || [],timestamps) : value(2, []), stat: detailed ? detailStat : value(3, null), catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt: Date.now(), days };
   }
   async modelHealth(model: string): Promise<ModelHealthDetails> {
     if (!this.snapshot) return this.scope().modelHealth(model);

@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.18。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.19。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -11,6 +11,7 @@
 | shared/range.ts / utils.ts | 日期范围、动态分组、币种换算与 CSV |
 | shared/trends.ts | 按模型 / 令牌分组、动态时间粒度、空桶补齐与多曲线合计 |
 | shared/usage-quality.ts | 模型缓存命中率、按耗时加权的 Token 速率及有效样本覆盖 |
+| shared/statistics.ts | 模型多选与真实令牌 ID 多选，维度内 OR、维度间 AND |
 | shared/logs.ts / health.ts | 缓存、速度、时间和状态元数据归一化；固定 24 格健康采样 |
 | shared/selections.ts | 按站点保存并合并页面选择 |
 | electron/services/store.ts | 原子串行写入、safeStorage 密钥库、设置迁移和账户隔离 |
@@ -21,10 +22,12 @@
 | electron/services/config.ts | 脱敏预览、加密备份、应用 / 恢复、冲突检查与回滚 |
 | electron/services/codex-direct.ts / codex-sessions.ts | Codex 历史及索引同步、运行状态检查 |
 | electron/services/local-usage.ts | 本机 JSONL 用量元数据提取 |
+| electron/services/tool-runtime.ts | CLI 路径和版本检测、固定厂商安装命令及安装状态 |
+| build/portable.nsi / scripts/portable-build.mjs | 原生启动提示、构建内容缓存及并发解压互斥 |
 | electron/main.ts / preload.ts | 窗口、托盘、通知及参数校验后的有限 IPC |
 | src/components / pages | 账户、请求、模型、工具、令牌与设置界面 |
 
-品牌图标统一在 BrandIcon.tsx，使用本地官方 SVG。主题通过 theme.css 覆盖基础样式，最后加载 updates-trends.css 提供更新栏、分组曲线和焦点样式，使用不透明表面与语义颜色。
+品牌图标统一在 BrandIcon.tsx，使用本地官方 SVG。主题通过 theme.css 覆盖基础样式，最后加载 updates-trends.css 和 filters-tools-motion.css 提供更新栏、分组曲线、筛选、紧凑工具布局及切换动画，使用不透明表面与语义颜色。
 
 ## 配置事务
 
@@ -45,6 +48,12 @@ Claude Code 合并 CLI settings.json 中的 API 配置，保留无关设置；Cl
 按令牌曲线及效率统计复用完整消费分页，返回纯用量点和汇总指标，超过 10,000 条要求缩小时间范围。效率统计在后台读取并缓存 5 分钟；图表沿用动态粒度，超过 8 个分组将其余合并，保留总量并允许任意单项查看。
 
 HTML 内联启动页在主脚本加载前可显示，React 在本机设置初始化时沿用同一界面。`bootstrap` 只返回本机设置与运行环境，工具配置由 `inspectConfigs` 后台读取；首页动态资源提前加载，账户数据与公开状态并行请求。详细效率统计后加载，初始化失败提供重试，无人为等待时间或伪进度。
+
+Windows 便携启动器在解压前显示原生 BMP 提示；完整包内文件和架构的 SHA-256 摘要形成缓存目录身份。互斥保护并发解压，只在完成复制后写完成标记；只在 NSIS 私有临时目录中解压，不删除共享缓存或用户数据。Electron 在读取设置前创建无 preload、无网络的轻量启动窗口，主窗口 ready-to-show 后接替。
+
+统计筛选按站点保存范围、模型数组和令牌 ID 数组。起止时间为本地分钟，结束分钟包含 59 秒，今天上限截断到当前时刻。分钟范围或多选条件需要完整日志，缓存按账户和时间范围共享，不因筛选组合重复分页；10,000 条上限、缺失令牌 ID 或分页变化时停止准确统计。默认日期范围继续使用站点小时统计。切换范围保留旧仪表盘，成功后替换；账户变化才清空。
+
+CLI 检测优先继承 PATH 的实际入口，再补充用户 / 系统 PATH 和常用位置，排除 Windows App Execution Aliases。状态缓存 30 秒，工具页与窗口重新获得焦点时检测。安装 IPC 仅接受 codex / claude 枚举，使用固定官方安装器；npm 更新锚定原前缀。安装输出限长并脱敏，下载失败不执行，结束后重新读取实际版本。测试使用注入执行器，不安装用户本机工具。
 
 默认占位站点没有网络请求。初次配置后的数据来自用户选择的服务器；登录、余额、消费、模型与健康度不使用演示数据。缺失元数据保留“—”或灰色采样条。
 

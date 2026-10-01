@@ -1,0 +1,15 @@
+import {useLayoutEffect,useRef,useState,type ReactNode} from 'react';
+/** Keep the outgoing panel until its exit ends, and preserve height during the handoff. */
+export function MotionSwap({identity,children,className=''}:{identity:string;children:ReactNode;className?:string}) {
+  const [shown,setShown]=useState(identity),[phase,setPhase]=useState(''),[height,setHeight]=useState<number>();
+  const root=useRef<HTMLDivElement>(null),saved=useRef(children),latest=useRef(children);latest.current=children;
+  if(shown===identity)saved.current=children;
+  useLayoutEffect(()=>{
+    if(shown===identity){if(phase==='leaving'){setPhase('');setHeight(undefined);}return;}
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches){saved.current=latest.current;setShown(identity);setPhase('');return;}
+    setHeight(root.current?.getBoundingClientRect().height);setPhase('leaving');
+    const timer=setTimeout(()=>{saved.current=latest.current;setShown(identity);setPhase('entering');},110);
+    return ()=>clearTimeout(timer);
+  },[identity,shown]);
+  return <div ref={root} className={'motion-frame '+className} style={height ? {minHeight:height} : undefined}><div className={'motion-panel '+phase} onAnimationEnd={()=>{if(phase==='entering'){setPhase('');setHeight(undefined);}}}>{shown===identity ? children : saved.current}</div></div>;
+}

@@ -64,7 +64,7 @@ test('site selections merge concurrent unrelated updates, survive reload, suppor
   assert.equal(selectionValue(reload.preferences,'overview.range',7),1);assert.equal(selectionValue(reload.preferences,key,''),'standard');
   assert.equal(selectionValue(reload.preferences,'codex.context',272000),1000000);assert.equal(selectionValue(reload.preferences,'usage.tab','billing'),'logs');
   const range={startDate:'2026-09-01',endDate:'2026-09-02'};await reload.update({selection:{siteId,values:{'overview.range':range}}});
-  assert.deepEqual(selectionValue<DashboardQuery>(reload.preferences,'overview.range',7,v=>typeof v==='object'),range);
+  assert.deepEqual(selectionValue<import('../shared/types').RangeQuery>(reload.preferences,'overview.range',7,v=>typeof v==='object'),range);
   const other=await reload.saveSite({name:'Other',url:'https://other.invalid',allowHttp:false});
   assert.equal(selectionValue(other,key,''),'');await reload.update({selection:{siteId:other.activeSiteId,values:{[key]:'premium'}}});
   await reload.update({activeSiteId:siteId});assert.equal(selectionValue(reload.preferences,key,''),'standard');

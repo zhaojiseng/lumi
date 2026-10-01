@@ -18,7 +18,7 @@ export interface Preferences {
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
   viewSelections: Record<string, Record<string, SelectionValue>>;
 }
-export type SelectionValue = string | number | boolean | DateRange;
+export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
 export type PreferencePatch = Partial<Pick<Preferences, 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns'>> & { selection?: SelectionPatch };
 export interface SiteInput {
@@ -41,9 +41,11 @@ export interface UsageLog {
   prompt_tokens: number; completion_tokens: number; quota: number; use_time: number;
   is_stream: boolean; group: string; channel?: number; channel_name?: string; content?: string; other?: string; request_id?: string; status_code?: number;
 }
-export interface DateRange { startDate: string; endDate: string; }
-export type DashboardQuery = number | DateRange;
-export interface LogQuery { range?: DateRange; days: number; page: number; pageSize: number; model?: string; tokenName?: string; type?: number; }
+export interface DateRange { startDate: string; endDate: string; startTime?: string; endTime?: string; }
+export type RangeQuery = number | DateRange;
+export interface StatisticsQuery { range: RangeQuery; models?: string[]; tokenIds?: number[]; }
+export type DashboardQuery = RangeQuery | StatisticsQuery;
+export interface LogQuery { range?: DateRange; days: number; page: number; pageSize: number; model?: string; tokenName?: string; models?: string[]; tokenIds?: number[]; type?: number; }
 export interface LogPage { items: UsageLog[]; total: number; page: number; pageSize: number; }
 export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; }
 export interface UsageQuality {
@@ -79,6 +81,7 @@ export interface ModelHealth { model_name: string; success_rate: number; avg_lat
 export interface HealthSummary { models: ModelHealth[]; window_start: number; window_end: number; }
 export interface ModelHealthDetails { model_name: string; window_start: number; window_end: number; groups: { group: string; success_rate: number; avg_latency_ms: number; avg_ttft_ms: number; avg_tps: number }[]; }
 export interface Dashboard {
+  query?: DashboardQuery; quality?: UsageQuality; detailed?: boolean;
   range?: DateRange; today?: { quota: number | null; requests: number | null }; health?: HealthSummary | null; healthError?: string;
   status: SiteStatus; user: UserInfo | null; logs: LogPage; series: QuotaPoint[];
   stat: UsageStat | null; toolStats?: { tool: Tool; tokenName: string; stat: UsageStat | null }[]; catalog: ModelCatalog; tokens: ApiToken[];
@@ -87,6 +90,11 @@ export interface Dashboard {
 export interface ToolConfigState {
   tool: Tool; exists: boolean; path: string; model?: string; baseUrl?: string;
   keyConfigured: boolean; error?: string; contextWindow?:number;
+}
+export interface ToolRuntimeState {
+  tool: Tool; installed: boolean; version?: string; path?: string; checkedAt: number;
+  phase: 'idle' | 'checking' | 'installing' | 'error'; message?: string;
+  npmAvailable: boolean; nodeVersion?: string;
 }
 export interface LocalUsageRow {
   tool: Tool; date: string; model: string; inputTokens: number; outputTokens: number;
@@ -115,6 +123,9 @@ export interface UpdateTokenInput extends Omit<CreateTokenInput,'tool'> { id:num
 export interface LumiBridge {
   bootstrap(): Promise<Bootstrap>;
   inspectConfigs(): Promise<ToolConfigState[]>;
+  toolRuntimes(force?: boolean): Promise<ToolRuntimeState[]>;
+  installTool(tool: Tool): Promise<ToolRuntimeState>;
+  onToolRuntime(listener: (state: ToolRuntimeState) => void): () => void;
   saveSite(input: SiteInput): Promise<Preferences>;
   removeSite(id: string): Promise<Preferences>;
   updatePreferences(patch: PreferencePatch): Promise<Preferences>;
@@ -134,7 +145,7 @@ export interface LumiBridge {
   onUpdate(listener: (state: UpdateState) => void): () => void;
   modelHealth(model: string): Promise<ModelHealthDetails>;
   logs(query: LogQuery): Promise<LogPage>;
-  localUsage(days: number): Promise<LocalUsage>;
+  localUsage(query: DashboardQuery): Promise<LocalUsage>;
   previewConfig(input: ConfigRequest): Promise<ConfigPreview>;
   applyConfig(id: string): Promise<ToolConfigState[]>;
   backups(): Promise<BackupInfo[]>;

@@ -10,18 +10,25 @@ import { ConfigService } from './services/config';
 import { LocalUsageService } from './services/local-usage';
 import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
+import {ToolRuntimeService} from './services/tool-runtime';
+import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput } from '../shared/types';
 const root = path.resolve(__dirname, '..');
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
 if (process.env.LUMI_TEST_DATA) app.setPath('userData', path.resolve(process.env.LUMI_TEST_DATA));
-let win: BrowserWindow; let tray: Tray | undefined;
-const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/)}).strict();
+let win: BrowserWindow; let startup:BrowserWindow|undefined;let tray: Tray | undefined;
+const timeSchema=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),startTime:timeSchema.optional(),endTime:timeSchema.optional()}).strict();
 const daySchema = z.number().int().min(1).max(90);
 const toolSchema = z.enum(['codex', 'claude']);
-const logSchema = z.object({ range:dateRangeSchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), model: z.string().max(200).optional(), tokenName: z.string().max(100).optional(), type: z.number().int().min(0).max(10).optional() });
+const modelsSchema=z.array(z.string().min(1).max(200)).max(500);
+const tokenIdsSchema=z.array(z.number().int().positive()).max(500);
+const rangeQuerySchema=z.union([daySchema,dateRangeSchema]);
+const statisticsSchema=z.union([rangeQuerySchema,z.object({range:rangeQuerySchema,models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional()}).strict()]);
+const logSchema = z.object({ range:dateRangeSchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), model: z.string().max(200).optional(), tokenName: z.string().max(100).optional(), models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional(),type: z.number().int().min(0).max(10).optional() }).strict();
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
-const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema])).refine(v=>Object.keys(v).length<=5000)}).strict();
+const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const preferenceSchema = z.object({ activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
@@ -38,6 +45,9 @@ function handle<T extends z.ZodType>(channel: string, schema: T, action: (data: 
   });
 }
 async function start() {
+  startup=new BrowserWindow({width:440,height:240,show:process.env.LUMI_SMOKE!=='1',frame:false,resizable:false,alwaysOnTop:false,title:'Lumi · 正在启动',backgroundColor:'#f5f7f8',webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,devTools:false}});
+  startup.webContents.setWindowOpenHandler(()=>({action:'deny'}));startup.webContents.on('will-navigate',e=>e.preventDefault());
+  await startup.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(startupHtml));
   const data = app.getPath('userData');
   const store = new SettingsStore(data, {
     available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
@@ -46,10 +56,13 @@ async function start() {
   await store.load();
   const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
   const updates=new UpdateService({version:app.getVersion(),directory:path.join(data,'updates'),enabled:app.isPackaged && process.env.LUMI_SMOKE!=='1'});
+  const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
   handle('inspectConfigs',noPayload,()=>configs.inspect());
+  handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
+  handle('installTool',toolSchema,tool=>runtimes.install(tool));
   handle('saveSite', siteSchema, input => store.saveSite(input as SiteInput));
   handle('loginInfo', noPayload, () => api.loginInfo());
   handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => api.login(input));
@@ -60,7 +73,7 @@ async function start() {
   handle('removeSite', z.string().max(100), id => store.removeSite(id));
   handle('preferences', preferenceSchema, patch => store.update(patch));
   handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
-  handle('dashboard', z.object({query:z.union([daySchema,dateRangeSchema]),force:z.boolean().optional()}).strict(), async input => {
+  handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await api.dashboard(input.query,input.force);
     if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
       lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
@@ -68,14 +81,14 @@ async function start() {
     return d;
   });
   handle('logs', logSchema, q => api.logs(q as LogQuery));
-  handle('tokenUsage',z.union([daySchema,dateRangeSchema]),query=>api.tokenUsage(query));
-  handle('usageQuality',z.union([daySchema,dateRangeSchema]),query=>api.usageQuality(query));
+  handle('tokenUsage',statisticsSchema,query=>api.tokenUsage(query));
+  handle('usageQuality',statisticsSchema,query=>api.usageQuality(query));
   handle('updateStatus',noPayload,()=>updates.snapshot());
   handle('checkUpdate',noPayload,()=>updates.check());
   handle('downloadUpdate',noPayload,()=>updates.download());
   handle('cancelUpdate',noPayload,()=>updates.cancel());
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
-  handle('localUsage', daySchema, days => usage.scan(days));
+  handle('localUsage', statisticsSchema, query => usage.scan(query));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
   handle('applyConfig', z.string().uuid(), id => configs.apply(id));
   handle('backups', noPayload, () => configs.backups());
@@ -104,9 +117,10 @@ async function start() {
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   win.webContents.session.setPermissionCheckHandler(() => false);
   const unsubscribeUpdates=updates.subscribe(state=>{if(!win.isDestroyed())win.webContents.send('lumi:updateState',state);});
+  const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.cancel();});
-  win.once('ready-to-show', () => { if (process.env.LUMI_SMOKE !== '1') win.show(); });
+  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.cancel();unsubscribeRuntimes();runtimes.close();});
+  win.once('ready-to-show', () => { if (process.env.LUMI_SMOKE !== '1') win.show();startup?.destroy();startup=undefined; });
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
     tray = new Tray(icon.resize({ width: 20, height: 20 })); tray.setToolTip('Lumi · AI 工作台');
     tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click: () => { win.show(); win.focus(); } }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click', () => { win.show(); win.focus(); });
@@ -119,18 +133,20 @@ async function start() {
         await new Promise(resolve => setTimeout(resolve,1500));
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台')};
+        let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台')};
       })()`);
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));
-      if (!result.desktop || !result.contextIsolation || !result.noDemo || !result.loginVisible || !result.ipcValidation) process.exitCode=1;
+      if(process.env.LUMI_SMOKE_RESULT_PATH)await writeFile(process.env.LUMI_SMOKE_RESULT_PATH,JSON.stringify(result));
+      if (!result.desktop || !result.contextIsolation || !result.noDemo || !result.loginVisible || !result.ipcValidation || !result.toolIpcValidation) process.exitCode=1;
     } catch (e) { console.error('SMOKE_FAILED',String(e));process.exitCode=1; }
     app.exit(Number(process.exitCode) || 0);
   }
 }
 if (!app.requestSingleInstanceLock() && process.env.LUMI_SMOKE !== '1') app.quit();
 else {
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+  app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } else if(startup && !startup.isDestroyed()){startup.show();startup.focus();} });
   app.whenReady().then(start).catch(e => { if (process.env.LUMI_SMOKE === '1') { console.error('LUMI_SMOKE_FAILED', String(e.message || e)); app.exit(1); } else { dialog.showErrorBox('Lumi 启动失败', String(e.message || e)); app.quit(); } });
   app.on('window-all-closed', () => { tray?.destroy(); app.quit(); });
 }

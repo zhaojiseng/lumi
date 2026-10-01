@@ -4,9 +4,10 @@ export function validSelectionValue(value: unknown): value is SelectionValue {
   if (typeof value === 'string') return value.length <= 4000;
   if (typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Array.isArray(value)) return value.length<=500 && value.every(v=>typeof v==='string' && v.length<=200) && new Set(value).size===value.length;
+  if (!value || typeof value !== 'object') return false;
   const range = value as Record<string, unknown>;
-  return Object.keys(range).length === 2 && typeof range.startDate === 'string' && typeof range.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(range.startDate) && /^\d{4}-\d{2}-\d{2}$/.test(range.endDate);
+  return Object.keys(range).every(k=>['startDate','endDate','startTime','endTime'].includes(k)) && typeof range.startDate === 'string' && typeof range.endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(range.startDate) && /^\d{4}-\d{2}-\d{2}$/.test(range.endDate) && ['startTime','endTime'].every(k=>range[k]===undefined || typeof range[k]==='string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(range[k] as string));
 }
 export function normalizeSelections(value: unknown): Preferences['viewSelections'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};

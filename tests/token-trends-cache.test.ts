@@ -93,3 +93,21 @@ test('startup account reads begin while public status is still pending',async()=
     assert.equal(f.seen.filter(r=>r.path==='/api/user/self').length,1);
   }finally{await f.close();}
 });
+test('multi-filter dashboard and paginated logs share complete cached records across different model/token combinations',async()=>{
+  const f=await fixture();try{
+    const q={range:1,models:['model-a'],tokenIds:[1]},a=await f.api.dashboard(q);
+    assert.equal(a.detailed,true);assert.equal(a.logs.total,75);assert.equal(a.series.reduce((s,p)=>s+p.count,0),75);assert.equal(a.stat?.quota,7500);assert.equal(a.quality?.cacheHitRate,.5);
+    const reads=f.seen.filter(r=>r.path==='/api/log/self');assert.equal(reads.length,2);assert.ok(reads.every(r=>r.query.get('type')==='0'));
+    const second=await f.api.dashboard({range:1,models:['model-a','model-b'],tokenIds:[2]});assert.equal(second.logs.total,75);assert.ok(second.series.every(p=>p.token_id===2));
+    const logs=await f.api.logs({days:1,page:2,pageSize:15,models:['model-a'],tokenIds:[1]});assert.equal(logs.total,75);assert.equal(logs.items.length,15);
+    assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,2);
+    assert.equal(f.seen.filter(r=>r.path==='/api/data/self').length,1,'only today summary should use hourly endpoint');
+  }finally{await f.close();}
+});
+test('minute dashboard uses exact log times and oversized detailed filters fail instead of displaying partial zero totals',async()=>{
+  const f=await fixture();try{
+    const range={...resolveRange(1).range,startTime:'00:00',endTime:'00:01'},d=await f.api.dashboard(range);assert.equal(d.series.reduce((s,p)=>s+p.count,0),150);assert.equal(d.logs.total,150);assert.equal(d.quality?.requestCount,150);
+    const read=f.seen.find(r=>r.path==='/api/log/self')!;assert.equal(Number(read.query.get('end_timestamp'))-Number(read.query.get('start_timestamp')),119);
+    f.setTotal(10001);await assert.rejects(f.api.dashboard({range:1,models:['model-a']},true),/缩小日期/);
+  }finally{await f.close();}
+});

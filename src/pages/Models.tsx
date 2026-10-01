@@ -1,3 +1,4 @@
+import {MotionSwap} from '../components/MotionSwap';
 import {useMemo,useState,useRef,useEffect} from 'react';
 import {Search,Star,ArrowUpRight,SlidersHorizontal,Info,Repeat2} from 'lucide-react';
 import {useApp} from '../context';
@@ -55,7 +56,7 @@ export default function Models(){
   return <div className="page"><PageIntro title="发现你的下一份灵感" description="收藏置顶、名称排序，价格与最近 24 小时健康度每分钟更新。" action={<Pill tone="green"><span className="tiny-dot"/>{d.catalog.models.length} 个模型</Pill>}/>
     <div className="surface model-toolbar"><div className="search-input"><Search size={17}/><input ref={searchRef} value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索模型、提供商或能力…" aria-label="搜索模型"/><kbd>/</kbd></div><Select label="筛选模型渠道" value={group} onChange={changeGroup}><option value="">全部渠道</option>{Object.keys(d.catalog.usableGroups).map(g=><option key={g} value={g}>{groupLabel(d.catalog,g)}</option>)}</Select><button className={'favorite-filter '+(favoritesOnly ? 'active' : '')} onClick={()=>setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? 'currentColor' : 'none'}/>收藏</button></div>
     <div className="vendor-tabs"><button className={vendor==='all' ? 'active' : ''} onClick={()=>setVendor('all')}>全部模型<span>{d.catalog.models.length}</span></button>{vendors.map(v=><button key={v} className={vendor===v ? 'active' : ''} onClick={()=>setVendor(v)}>{v}<span>{d.catalog.models.filter(m=>m.vendor===v).length}</span></button>)}<span className="results-label">{models.length} 个结果</span></div>
-    {models.length ? <div className="model-grid">{models.map(m=><ModelCard key={m.model_name} model={m} filterGroup={group} onDetails={setPricingModel}/>)}</div> : <Empty title="没有找到模型" description="尝试调整关键词、提供商或渠道。" action={<Button onClick={reset}>重置筛选</Button>}/>}
+    <MotionSwap identity={JSON.stringify([vendor,group,favoritesOnly,query,models.map(m=>m.model_name)])}>{models.length ? <div className="model-grid">{models.map(m=><ModelCard key={m.model_name} model={m} filterGroup={group} onDetails={setPricingModel}/>)}</div> : <Empty title="没有找到模型" description="尝试调整关键词、提供商或渠道。" action={<Button onClick={reset}>重置筛选</Button>}/>}</MotionSwap>
     <div className="info-note"><Info size={15}/><span>首次显示最低价渠道；手动选择后，价格与工具配置沿用所选渠道并自动保存。右上角按钮切换站点公布的上下文档位，单价包含当前时间倍率，时间规则以橙色显示。健康度为最近 24 小时全部渠道统计，渠道健康度见详细定价。</span></div>
     {pricingModel && <PricingDetailsModal key={pricingModel.model_name} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}
   </div>;

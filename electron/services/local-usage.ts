@@ -3,7 +3,8 @@ import { readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
-import type { LocalUsage, LocalUsageRow, Tool } from '../../shared/types';
+import {resolveRange,statisticsFilters} from '../../shared/range';
+import type { DashboardQuery,LocalUsage, LocalUsageRow, Tool } from '../../shared/types';
 interface Counters { input: number; output: number; cache: number; write: number; }
 const n = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
 function counters(u: any): Counters { return { input: n(u.input_tokens), output: n(u.output_tokens), cache: n(u.cached_input_tokens ?? u.cache_read_input_tokens), write: n(u.cache_creation_input_tokens) }; }
@@ -26,20 +27,22 @@ async function walk(root: string, cutoff: number, warnings: string[], files: str
   }
 }
 export class LocalUsageService {
-  private cache = new Map<number, { at: number; data: LocalUsage }>();
-  private inFlight = new Map<number, Promise<LocalUsage>>();
+  private cache = new Map<string, { at: number; data: LocalUsage }>();
+  private inFlight = new Map<string, Promise<LocalUsage>>();
   private home: string;
   private respectEnvironment: boolean;
   constructor(home?: string) { this.home = home || process.env.LUMI_TEST_HOME || os.homedir(); this.respectEnvironment = !home && !process.env.LUMI_TEST_HOME; }
-  async scan(days: number): Promise<LocalUsage> {
-    const cached = this.cache.get(days); if (cached && Date.now() - cached.at < 60000) return cached.data;
-    if (this.inFlight.has(days)) return this.inFlight.get(days)!;
-    const request = this.read(days); this.inFlight.set(days, request);
-    try { const data = await request; this.cache.set(days, { at: Date.now(), data }); return data; } finally { this.inFlight.delete(days); }
+  async scan(query: DashboardQuery): Promise<LocalUsage> {
+    const key=JSON.stringify([resolveRange(query).range,statisticsFilters(query)]);
+    const cached = this.cache.get(key); if (cached && Date.now() - cached.at < 60000) return cached.data;
+    if (this.inFlight.has(key)) return this.inFlight.get(key)!;
+    const request = this.read(query); this.inFlight.set(key, request);
+    try { const data = await request; this.cache.set(key, { at: Date.now(), data });if(this.cache.size>12)this.cache.delete(this.cache.keys().next().value!);return data; } finally { this.inFlight.delete(key); }
   }
-  private async read(days: number): Promise<LocalUsage> {
-    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() - days + 1);
-    const cutoff = start.getTime(); const warnings: string[] = []; const rows = new Map<string, LocalUsageRow>();
+  private async read(query: DashboardQuery): Promise<LocalUsage> {
+    const window=resolveRange(query),filters=statisticsFilters(query),cutoff=window.start_timestamp*1000;
+    const warnings: string[] = []; const rows = new Map<string, LocalUsageRow>();
+    if(filters.tokenIds?.length)return {rows:[],filesScanned:0,warnings:['本机会话不包含 API 令牌 ID，无法按令牌筛选。清除令牌筛选后查看本地统计。'],scannedAt:Date.now()};
     const sessions = new Map<string, Set<string>>(); const codexSeen = new Set<string>();
     const claudeMessages = new Map<string, { timestamp: number; model: string; count: Counters; session: string }>();
     const codexRoot = this.respectEnvironment && process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(this.home, '.codex');
@@ -48,7 +51,7 @@ export class LocalUsageService {
     await Promise.all([walk(path.join(codexRoot, 'sessions'), cutoff, warnings, codexFiles), walk(path.join(codexRoot, 'archived_sessions'), cutoff, warnings, codexFiles), walk(path.join(claudeRoot, 'projects'), cutoff, warnings, claudeFiles)]);
     if (codexFiles.length >= 2000 || claudeFiles.length >= 2000) warnings.push('本次扫描达到 2000 个文件上限，统计可能不完整。');
     const add = (tool: Tool, timestamp: number, model: string, c: Counters, session: string) => {
-      if (!Number.isFinite(timestamp) || timestamp < cutoff || timestamp > Date.now() || !(c.input + c.output + c.cache + c.write)) return;
+      if (!Number.isFinite(timestamp) || timestamp < cutoff || timestamp > window.end_timestamp*1000+999 || filters.models?.length && !filters.models.includes(model) || !(c.input + c.output + c.cache + c.write)) return;
       const date = new Date(timestamp).toLocaleDateString('sv-SE'); const key = `${tool}|${date}|${model}`;
       const r = rows.get(key) || { tool, date, model, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, requests: 0, sessions: 0 };
       r.inputTokens += c.input; r.outputTokens += c.output; r.cacheReadTokens += c.cache; r.cacheWriteTokens += c.write; r.requests++;

@@ -1,6 +1,6 @@
 import {RecentActivity} from '../components/RecentActivity';
-import {DateRangePicker} from '../components/DateRangePicker';
-import {resolveRange} from '../../shared/range';
+import {StatisticsFilter} from '../components/StatisticsFilter';
+import {rangeLabel} from '../../shared/range';
 import {useSavedSelection} from '../selections';
 import { Wallet, ArrowDownLeft, Layers, Activity, ArrowUpRight, ArrowRight, Clock3, Zap, CircleCheck, ExternalLink, ChevronRight } from 'lucide-react';
 import { useApp } from '../context';
@@ -13,7 +13,7 @@ export default function Overview() {
   const { dashboard: d, preferences, bootstrap, overviewQuery, setOverviewQuery, setPage, toast } = useApp();
   const [metric, setMetric] = useSavedSelection<'cost' | 'tokens' | 'requests'>('overview.metric','cost',v=>['cost','tokens','requests'].includes(v));
   if (!d) return null;
-  const days=d.days; const label=typeof overviewQuery === 'number' ? '最近 '+days+' 天' : d.range?.startDate+' — '+d.range?.endDate;
+  const days=d.days; const label=rangeLabel(d.range);
   const c = currency(d.status); const todayQuota=d.today?.quota;
   const totalTokens = d.series.reduce((s, p) => s + (p.token_used || 0), 0);
   const totalRequests = d.series.reduce((s, p) => s + (p.count || 0), 0);
@@ -24,7 +24,7 @@ export default function Overview() {
   const user = d.user?.display_name || d.user?.username || '开发者';
   return <div className="page overview-page">
     <div className="page-intro"><div><div className="eyebrow"><span className="tiny-dot"/> YOUR AI, IN ONE PLACE</div><h1>{greeting}，{user}<span className="greeting-orb">✳</span></h1><p>让每一次灵感，都有迹可循。这里是你的 AI 工作台。</p></div><Button onClick={() => setPage('tools')}><Zap size={15}/>配置开发工具<ArrowUpRight size={14}/></Button></div>
-    <div className="surface overview-range"><div className="range-presets"><span>统计时间</span><div className="segmented">{[1,7,30].map(n => <button type="button" key={n} className={overviewQuery === n ? 'active' : ''} onClick={() => setOverviewQuery(n)}>{n} 天</button>)}</div></div><DateRangePicker range={d.range || resolveRange(overviewQuery).range} onApply={setOverviewQuery}/><span className="range-refresh"><span className="tiny-dot"/>每分钟自动刷新</span></div>
+    <StatisticsFilter/>
     <div className="stats-grid">
       <div className="stat-card balance-card surface"><div className="stat-top"><span><Wallet size={15}/>账户余额</span><Pill tone="green">{d.user ? '可用' : '未连接'}</Pill></div><div className="stat-number">{d.user ? <><small>{c.symbol}</small>{c.value(d.user.quota).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</> : '—'}</div><div className="stat-bottom"><span>累计消耗 {d.user ? formatMoney(d.user.used_quota, d.status) : '—'}</span><button onClick={() => setPage('settings')} aria-label="查看账户设置"><ArrowUpRight size={17}/></button></div></div>
       <div className="stat-card surface"><div className="stat-top"><span><ArrowDownLeft size={15}/>今日消费</span><span className="stat-symbol mint"><ArrowDownLeft size={16}/></span></div><div className="stat-number"><small>{c.symbol}</small>{todayQuota == null ? '—' : c.value(todayQuota).toFixed(2)}</div><div className="stat-bottom"><span className="subtle-badge"><Clock3 size={11}/>当天 00:00 起</span><span>{d.today?.requests != null ? compact(d.today.requests)+' 次请求' : '暂无今日数据'}</span></div></div>
