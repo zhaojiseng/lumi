@@ -5,6 +5,7 @@ import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {load} from 'js-yaml';
+import {unsignedMachOCode} from './mach-o-code.mjs';
 
 const pkg=JSON.parse(await readFile('package.json','utf8'));
 const releaseDir=process.env.LUMI_RELEASE_DIR ? path.resolve(process.env.LUMI_RELEASE_DIR) : path.resolve('release');
@@ -49,16 +50,15 @@ if(mac){
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleShortVersionString','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.version);
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleIdentifier','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.build.appId);
   for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helper and Electron must all be ARM64');
-  // electron-builder re-signs embedded executables. Compare temporary unsigned copies,
-  // while verifying the real app and embedded helper signatures separately below.
+  // electron-builder re-signs embedded executables and changes LINKEDIT allocation.
+  // Compare all non-signature bytes, then verify actual signatures separately below.
   await mkdir('.test-data',{recursive:true});
   const nativeCheck=await mkdtemp(path.resolve('.test-data/native-verify-'));
   try{
     const normalized=[];
     for(const [index,file] of [path.join(resources,'native/lumi-menu-bar'),'dist-native/lumi-menu-bar'].entries()){
       const copy=path.join(nativeCheck,'helper-'+index);await writeFile(copy,await readFile(file),{mode:0o755});
-      exec('/usr/bin/codesign','--remove-signature',copy);
-      normalized.push(createHash('sha256').update(await readFile(copy)).digest('hex'));
+      normalized.push(createHash('sha256').update(unsignedMachOCode(await readFile(copy))).digest('hex'));
     }
     assert.equal(normalized[0],normalized[1],'Native usage card code must match the current build after normalizing signatures');
   }finally{await rm(nativeCheck,{recursive:true,force:true});}
