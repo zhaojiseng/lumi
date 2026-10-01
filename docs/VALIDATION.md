@@ -23,6 +23,8 @@ Windows 本机 `Lumi-0.4.21-x64.exe` 的 SHA-256：
 
 macOS 原生编译由 [GitHub Actions](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 执行，本机未运行 Mac 应用；构建与发布是否通过以对应运行记录为准。Mac 包使用临时签名，未进行 Apple 公证，更新需下载新版 DMG 替换应用。两平台发布前分别核对校验文件，再合并清单；不合并重复的源码 ZIP 条目。
 
+首次 macOS 构建的图标转换工具因项目 ESM 设置将下载的 CommonJS 脚本误识别为模块而失败；打包脚本已为工具缓存写入独立的 CommonJS 边界，不改变应用模块设置。
+
 界面只使用内置浏览器及本机隔离数据，原生检查隐藏运行；未修改真实账户、工具配置或当前运行应用。截图、测试数据及本机安装包不提交。
 
 ## 0.4.20 · 安装包、重启更新与启动画面

@@ -11,6 +11,9 @@ const pkg = JSON.parse((await readFile('package.json', 'utf8')).replace(/^\uFEFF
 for (const name of ['dist', 'dist-electron', 'public']) await cp(path.join(root, name), path.join(stage, name), { recursive: true });
 await writeFile(path.join(stage, 'package.json'), JSON.stringify({ name: pkg.name, productName: pkg.productName, version: pkg.version, description: pkg.description, author: pkg.author, license: pkg.license, main: pkg.main }, null, 2));
 process.env.ELECTRON_BUILDER_CACHE = path.join(root, '.cache/electron-builder');
+await mkdir(process.env.ELECTRON_BUILDER_CACHE,{recursive:true});
+// Downloaded builder tools use CommonJS .js files; keep them outside the project's ESM scope.
+await writeFile(path.join(process.env.ELECTRON_BUILDER_CACHE,'package.json'),JSON.stringify({private:true,type:'commonjs'})+'\n');
 const { build, Platform } = await import('electron-builder');
 // Electron/preload and renderer dependencies are bundled; exclude source dependency trees.
 const output=process.env.LUMI_RELEASE_DIR ? path.resolve(process.env.LUMI_RELEASE_DIR) : path.join(root,'release');
