@@ -4,7 +4,7 @@ import {lstat} from 'node:fs/promises';
 import type {UpdateState} from '../../shared/types';
 
 const REPOSITORY='zhaojiseng/lumi',MAX_PACKAGE=512*1024*1024;
-export interface NativeUpdateInfo {version:string;tag?:string;files:{url:string;sha512:string;size?:number}[];packages?:unknown;}
+export interface NativeUpdateInfo {version:string;tag?:string;files:{url:string;sha512?:string;sha256?:string;size?:number}[];packages?:unknown;}
 export interface UpdateEngine {
   check():Promise<NativeUpdateInfo|null>;
   download(signal:AbortSignal,progress:(received:number,total:number)=>void):Promise<string>;
@@ -17,25 +17,27 @@ function versionParts(value:string){
   const parts=match.slice(1).map(Number);if(parts.some(n=>!Number.isSafeInteger(n)))throw new Error('更新版本号无效。');return parts;
 }
 export function newerVersion(candidate:string,current:string){const a=versionParts(candidate),b=versionParts(current);for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];return false;}
-export function validateUpdate(info:NativeUpdateInfo){
-  const version=versionParts(info.version).join('.'),name='Lumi-'+version+'-x64.exe';
+export function validateUpdate(info:NativeUpdateInfo,target:'windows'|'mac-arm64'='windows'){
+  const version=versionParts(info.version).join('.'),name='Lumi-'+version+(target==='windows' ? '-x64.exe' : '-arm64.dmg');
   if(info.version!==version || info.tag!==undefined && info.tag!=='v'+version || info.packages || !Array.isArray(info.files) || info.files.length!==1)throw new Error('更新元数据无效。');
   const file=info.files[0],url='https://github.com/'+REPOSITORY+'/releases/download/v'+version+'/'+name;
   const size=file?.size;
-  if(!file || ![name,url].includes(file.url) || typeof size!=='number' || !Number.isSafeInteger(size) || size<=0 || size>MAX_PACKAGE || typeof file.sha512!=='string' || Buffer.from(file.sha512,'base64').length!==64 || Buffer.from(file.sha512,'base64').toString('base64')!==file.sha512)throw new Error('更新附件或校验值无效。');
-  return {version,size,hash:file.sha512,releaseUrl:'https://github.com/'+REPOSITORY+'/releases/tag/v'+version};
+  const hash=target==='windows' ? file?.sha512 : file?.sha256;
+  const validHash=typeof hash==='string' && (target==='windows' ? Buffer.from(hash,'base64').length===64 && Buffer.from(hash,'base64').toString('base64')===hash : /^[a-f0-9]{64}$/.test(hash));
+  if(!file || ![name,url].includes(file.url) || typeof size!=='number' || !Number.isSafeInteger(size) || size<=0 || size>MAX_PACKAGE || !validHash)throw new Error('更新附件或校验值无效。');
+  return {version,size,hash:hash!,algorithm:target==='windows' ? 'sha512' as const : 'sha256' as const,releaseUrl:'https://github.com/'+REPOSITORY+'/releases/tag/v'+version};
 }
-async function verifyFile(file:string,expected:{size:number;hash:string}){
+async function verifyFile(file:string,expected:{size:number;hash:string;algorithm:'sha512'|'sha256'}){
   const stat=await lstat(file);if(!stat.isFile() || stat.isSymbolicLink() || stat.size!==expected.size)throw new Error('更新文件大小不一致，请重新下载。');
-  const hash=createHash('sha512');for await(const chunk of createReadStream(file))hash.update(chunk);
-  if(hash.digest('base64')!==expected.hash)throw new Error('更新文件校验失败，请重新下载。');
+  const hash=createHash(expected.algorithm);for await(const chunk of createReadStream(file))hash.update(chunk);
+  if(hash.digest(expected.algorithm==='sha512' ? 'base64' : 'hex')!==expected.hash)throw new Error('更新文件校验失败，请重新下载。');
 }
 export class UpdateService {
   private state:UpdateState;private release?:ReturnType<typeof validateUpdate>;private ready?:string;
   private checking?:Promise<UpdateState>;private downloading?:Promise<UpdateState>;private installing?:Promise<void>;private controller?:AbortController;
   private listeners=new Set<(state:UpdateState)=>void>();private stopError?:()=>void;
-  constructor(private options:{version:string;enabled:boolean;engine?:UpdateEngine;}){
-    versionParts(options.version);this.state={phase:options.enabled ? 'idle' : 'unsupported',currentVersion:options.version,received:0,total:0};
+  constructor(private options:{version:string;enabled:boolean;engine?:UpdateEngine;target?:'windows'|'mac-arm64';}){
+    versionParts(options.version);this.state={phase:options.enabled ? 'idle' : 'unsupported',currentVersion:options.version,received:0,total:0,installMode:options.target==='mac-arm64' ? 'replace' : 'restart'};
     this.stopError=options.engine?.onError(()=>{if(this.state.phase==='installing')this.set({phase:'error',error:'更新安装未能启动，请重试。'});});
   }
   snapshot(){return structuredClone(this.state);}
@@ -51,7 +53,7 @@ export class UpdateService {
       const info=await this.options.engine!.check();if(!info)throw new Error('更新检查暂不可用。');
       const version=versionParts(info.version).join('.');this.release=undefined;
       if(!newerVersion(version,this.options.version))this.set({phase:'current',version:undefined,received:0,total:0,checkedAt:Date.now()});
-      else{this.release=validateUpdate(info);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,received:0,total:this.release.size,checkedAt:Date.now()});}
+      else{this.release=validateUpdate(info,this.options.target);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,received:0,total:this.release.size,checkedAt:Date.now()});}
     }catch(e){this.set({phase:'error',error:e instanceof Error && /^更新/.test(e.message) ? e.message : '更新检查失败，请检查网络后重试。'});}
     return this.snapshot();
   }
@@ -76,6 +78,7 @@ export class UpdateService {
     try{await verifyFile(this.ready,this.release);return this.ready;}catch{this.ready=undefined;this.set({phase:'error',error:'更新文件已变更，请重新下载。'});throw new Error(this.state.error);}
   }
   restart():Promise<void>{
+    if(this.options.target==='mac-arm64')return Promise.reject(new Error('macOS 更新请打开已下载的 DMG，并替换 Applications 中的 Lumi。'));
     if(this.installing)return this.installing;
     const job=(async()=>{await this.readyFile();this.set({phase:'installing',error:undefined});try{this.options.engine!.install();}catch{this.set({phase:'error',error:'更新安装未能启动，请重试。'});throw new Error(this.state.error);}})();
     this.installing=job;return job.finally(()=>{if(this.installing===job)this.installing=undefined;});

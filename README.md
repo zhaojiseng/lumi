@@ -18,6 +18,8 @@ Lumi 是基于 Electron、React 和 TypeScript 的 New API 桌面客户端，集
 - Codex 上下文提供 272K / 1M，切换时同步本程序管理的旧对话；提示词与默认模型行为交由工具自身管理。
 - API 令牌查看 / 复制、启停、额度、有效期、渠道、模型限制与 IP 白名单控制。
 - 本机 Codex / Claude Code 用量统计；列表列选择、渠道、档位及时间范围按站点保存。
+- macOS 原生窗口按钮、菜单栏和 ⌘ 快捷键，兼容 Homebrew / NVM 等 Node 安装环境；侧栏更新入口在小窗口中保持可见。
+- 设置中的“实时日志”二级页面显示本次启动的运行记录，可筛选、搜索与暂停；敏感字段脱敏，日志仅在内存中保留，退出清空。
 
 Claude 集成面向 Claude Code CLI。价格、渠道及健康度以站点返回的数据为准；部分 New API 版本或部署可能未提供健康统计等扩展接口。
 
@@ -59,7 +61,7 @@ npm run verify:release
 
 Windows 输出 `release/Lumi-<version>-x64.exe` 安装包及软件内更新所需的 `latest.yml`、`.blockmap`；`npm run dist:dir` 生成目录版。发行包目前未签名。构建需下载相应系统的 Electron 运行时。
 
-在 Apple Silicon Mac 上执行同样命令，生成 `release/Lumi-<version>-arm64.dmg`。打开 DMG 后将 Lumi 拖入 Applications；目前 macOS 更新需下载新版替换应用。Mac 包使用临时签名，尚未进行 Apple 公证，首次打开可能需要通过系统“隐私与安全性”允许。
+在 Apple Silicon Mac 上执行同样命令，生成 `release/Lumi-<version>-arm64.dmg`。打开 DMG 后将 Lumi 拖入 Applications。Mac 版会自动检查 GitHub 正式 Release，可在软件内下载并校验新版 DMG；点击“打开安装包”后退出 Lumi，将新应用拖入 Applications 替换。Mac 包使用临时签名，尚未进行 Apple 公证，首次打开可能需要通过系统“隐私与安全性”允许。
 
 安装默认针对当前 Windows 用户，支持选择安装目录；程序文件只在安装和更新时解压。旧便携用户首次迁移需运行新安装包一次，账号与配置继续使用原 Electron 用户数据目录，旧程序缓存不主动删除。软件内更新面向安装版。
 

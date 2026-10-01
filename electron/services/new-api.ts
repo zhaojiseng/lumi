@@ -7,6 +7,7 @@ import { normalizeCatalog, availableGroups } from '../../shared/catalog';
 import {tokenSettings} from './token-controls';
 import {DEFAULT_SITE_URL} from '../../shared/types';
 import {ReadCache} from './read-cache';
+import {appLogs} from './app-logs';
 import {tokenPoints} from '../../shared/trends';
 import {summarizeQuality} from '../../shared/usage-quality';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
@@ -57,12 +58,14 @@ export class NewApiClient {
     }
     if (options.body !== undefined) headers['Content-Type'] = 'application/json';
     if (endpoint.startsWith('/api/user/auth/')) { headers.Origin = new URL(scope.site.url).origin; headers.Referer = scope.site.url + '/login'; if (secret.sessionId) headers['X-Auth-Session'] = secret.sessionId; }
-    let response: Response;
+    let response: Response;const started=performance.now(),requestLabel=(options.method || 'GET')+' '+endpoint;
     try { response = await fetch(url, { method: options.method || 'GET', headers, body: options.body === undefined ? undefined : JSON.stringify(options.body), signal: AbortSignal.timeout(20000), redirect: 'error' }); }
-    catch (e: any) { throw new Error(e.name === 'TimeoutError' ? '站点请求超时（20 秒）。' : '无法连接站点，请检查地址、网络及证书。'); }
+    catch (e: any) { appLogs.write('error','站点请求',requestLabel+' · '+(e.name==='TimeoutError' ? '超时' : '网络连接失败'));throw new Error(e.name === 'TimeoutError' ? '站点请求超时（20 秒）。' : '无法连接站点，请检查地址、网络及证书。'); }
+    appLogs.write(response.ok ? 'debug' : 'warn','站点请求',`${requestLabel} · HTTP ${response.status} · ${Math.round(performance.now()-started)} ms`);
     let json: any; try { json = await response.json(); } catch { throw new ApiError('站点没有返回 JSON（HTTP ' + response.status + '）。请确认地址是 New API 站点。',response.status); }
     if (!response.ok || json.success === false) {
       const message = response.status === 401 ? '登录已过期，请重新登录当前站点。' : response.status === 403 ? '当前账户无权访问此接口。' : String(json.message || json.error?.message || '请求失败：HTTP ' + response.status);
+      appLogs.write('warn','站点请求',requestLabel+' · '+message);
       throw new ApiError(message,response.status,json.code);
     }
     return { json, cookies: this.readCookies(response,secret.cookies) };

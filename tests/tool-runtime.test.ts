@@ -26,7 +26,7 @@ test('Windows npm shims execute by literal PowerShell arguments, update the disc
   const service=new ToolRuntimeService({directory,platform:'win32',latest:async()=>undefined,find:async name=>name==='codex' ? shim : name==='npm' ? path.join(directory,'npm.cmd') : undefined,run:async command=>{seen.push(command);const script=command.args.includes('-EncodedCommand') ? Buffer.from(command.args.at(-1)!,'base64').toString('utf16le') : '';if(script.includes('ConvertTo-Json'))return {code:0,stdout:'[]',stderr:''};if(script.includes("'install'")){assert.ok(script.includes("'--prefix'"));assert.ok(script.includes("'@openai/codex@latest'"));version='2.0.0';}return {code:0,stdout:'codex-cli '+version,stderr:''};}});
   await service.inspect();const installed=await service.install('codex');assert.equal(installed.version,'2.0.0');const probes=seen.filter(c=>Buffer.from(c.args.at(-1)!,'base64').toString('utf16le').includes("'--version'"));assert.ok(probes.some(c=>Buffer.from(c.args.at(-1)!,'base64').toString('utf16le').includes("it''s $(noop) & tool.cmd'")));service.close();
 });
-test('CLI versions preserve prerelease identities and omit unparseable output',()=>{assert.equal(versionFromOutput('codex-cli 1.2.3-beta.2'),'1.2.3-beta.2');assert.equal(versionFromOutput('unknown'),undefined);});
+test('CLI versions preserve prerelease identities and omit unparseable output',()=>{assert.equal(versionFromOutput('codex-cli 1.2.3-beta.2'),'1.2.3-beta.2');assert.equal(versionFromOutput('v24.18.0'),'24.18.0');assert.equal(versionFromOutput('unknown'),undefined);});
 
 test('ChatGPT Store desktop version is separate from Codex CLI and desktop executables are never launched',async()=>{
   const commands:Command[]=[];

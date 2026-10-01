@@ -1,6 +1,6 @@
 # Lumi 架构
 
-当前说明对应 0.4.22。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
+当前说明对应 0.4.23。Electron 主进程负责网络、凭据和本机文件；React 渲染器通过受限 IPC 调用业务服务。
 
 ## 分层
 
@@ -23,6 +23,8 @@
 | electron/services/codex-direct.ts / codex-sessions.ts | Codex 历史及索引同步、运行状态检查 |
 | electron/services/local-usage.ts | 本机 JSONL 用量元数据提取 |
 | electron/services/tool-runtime.ts | CLI 路径和版本检测、固定厂商安装命令及安装状态 |
+| electron/services/app-logs.ts | 启动以来的脱敏内存日志、只读快照和实时事件 |
+| electron/services/mac-updater.ts / window-layout.ts | macOS ARM64 Release 下载与校验、原生窗口布局和系统菜单 |
 | electron/startup.ts / scripts/package.mjs | 同窗口矢量启动画面、当前用户安装包与更新元数据 |
 | electron/main.ts / preload.ts | 窗口、托盘、通知及参数校验后的有限 IPC |
 | src/components / pages | 账户、请求、模型、工具、令牌与设置界面 |
@@ -57,6 +59,12 @@ CLI 检测优先继承 PATH 的实际入口，再补充用户 / 系统 PATH 和�
 
 ChatGPT 桌面版本通过系统安装元数据读取，Windows 兼容已知 OpenAI.Codex / CodexBeta 注册名并核对 ChatGPT.exe，优先正式版。CLI 最新版来自官方 npm 包，Windows ChatGPT 最新版来自 Microsoft Store 正式目录并匹配当前架构；成功缓存 30 分钟、失败缓存 5 分钟，手动重新检测跳过缓存。先发送本机状态，再补充最新版，远程失败不改变安装状态。macOS ChatGPT 最新版暂不可查。
 
+macOS 工具页后台读取登录 Shell 的 PATH，保留原路径优先并补充 Homebrew 与常见版本管理器，Node 所在目录加入执行环境；npm / CLI / 安装器复用同一环境。Shell 检测限时 5 秒，并发任务共享，手动检测会刷新；启动首页不等待 Shell。
+
+macOS 使用隐藏标题栏和原生交通灯按钮，侧栏顶部保留按钮空间，主页面不重复显示 Windows 控件。菜单保留编辑、窗口、显示和退出操作，关闭主窗口时隐藏并通过 Dock 激活重新显示。侧栏导航独立滚动，底部设置 / 更新 / 站点固定。
+
+运行日志从主进程加载时写入内存，记录启动、主进程控制台、界面控制台、IPC 操作耗时、请求状态、工具检测和更新阶段。日志不记录请求体、响应体或认证头，并在写入时脱敏常见密码 / 密钥 / Cookie 字段及 URL 查询；最多 10,000 条，每条 4,000 字符。只读快照与实时订阅均通过受限 preload 提供，界面每 150 ms 合并显示，每页最多 300 条；暂停仅冻结显示，重新进入可读取本次启动的全部保留记录，不写文件。
+
 默认占位站点没有网络请求。初次配置后的数据来自用户选择的服务器；登录、余额、消费、模型与健康度不使用演示数据。缺失元数据保留“—”或灰色采样条。
 
 远程登录窗口无 Node / preload / Lumi IPC，站点权限请求与任意新窗口被拒绝。凭据和原始配置备份由系统加密存储保护，密码不落盘。浏览器预览只提供公开状态，不处理账户凭据。
@@ -64,6 +72,8 @@ ChatGPT 桌面版本通过系统安装元数据读取，Windows 兼容已知 Ope
 GitHub 更新服务独立于账户 API，正式安装包使用 electron-updater 的 GitHub / NSIS Provider。启动后及每 4 小时检查，校验正式版本与固定文件名；下载和重启前验证大小及 SHA-512。发布包含 latest.yml 和 blockmap。点击重启更新后调用 quitAndInstall(true, true)，后台安装并重开；autoInstallOnAppQuit=false，正常退出不自动升级。
 
 更新提示和设置页使用同一状态订阅；隐藏版本号作为全局偏好保存，设置页始终保留查看和恢复入口。GitHub 构建在 Windows x64 与 macOS ARM64 本机分别打包；Mac DMG 使用临时签名并核验应用及 Electron 架构，Electron / Chromium 许可另复制入应用 Resources，发布时合并两平台校验清单。
+
+macOS ARM64 更新读取固定 GitHub 仓库的最新正式 Release，仅接受对应 DMG 名称、大小与 GitHub 的 SHA-256 digest。下载到本机更新目录并清理取消的临时文件，校验后才提供打开入口，打开前再次核验。Mac 未配置自动安装：打开 DMG 后由用户退出并替换 Applications 中的应用。
 
 ## 构建与许可
 

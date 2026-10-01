@@ -40,6 +40,8 @@ jobs:
         run: npm run prepare:release
       - run: npm run setup:electron
       - run: npm run dist
+      - name: Verify hidden desktop startup
+        run: npm run test:desktop
       - run: npm run verify:release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -74,6 +76,8 @@ jobs:
       - run: npm run prepare:release
       - run: npm run setup:electron
       - run: npm run dist
+      - name: Verify hidden macOS window, startup logs and IPC
+        run: npm run test:desktop
       - run: npm run verify:release
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

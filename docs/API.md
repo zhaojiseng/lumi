@@ -75,6 +75,12 @@ Codex 使用站点 /v1 下的 Responses，Claude Code 使用 Anthropic Messages�
 
 `toolRuntimes` 另返回 `tool: chatgpt` 的桌面应用状态。Windows 读取当前用户 MSIX 注册、卸载注册及常见位置的文件版本，macOS 读取应用 Info.plist；不会启动 ChatGPT 来检测版本，也不将 Codex CLI 版本当作桌面版本。未安装或检测失败分别显示。最新 CLI 版本来自对应官方 npm 包的 `latest` 标签；Windows ChatGPT 桌面最新版来自 Microsoft Store 的正式版产品目录。网络查询失败时最新版显示为暂不可查，不影响本机版本检测。
 
+macOS 在工具页后台补充登录 Shell、Homebrew 和常用 Node 版本管理器路径，并将检测到的 Node 目录加入 CLI / npm / 安装器的执行环境。`bootstrap.platform` 返回主机平台，窗口按钮和快捷键据此显示。
+
+## 程序实时日志
+
+`appLogs()` 返回本次启动时间、脱敏日志数组及已释放的旧记录数量；`onAppLog` 订阅后续日志并返回取消订阅函数。此处日志为 Lumi 的运行记录，独立于站点请求明细。只保存在内存，最多 10,000 条、单条 4,000 字符，程序退出后清空；IPC 不接受保存路径或任意日志内容。请求记录仅包括方法、接口路径、状态码和耗时，不记录认证头与请求体。
+
 接口和服务参考：[New API 文档](https://docs.newapi.ai/zh/docs/api)。
 
 ## GitHub 更新
@@ -82,5 +88,7 @@ Codex 使用站点 /v1 下的 Responses，Claude Code 使用 Anthropic Messages�
 正式 Windows x64 安装包启动后及每 4 小时通过 electron-updater 的公开 GitHub Provider 查询 Lumi 仓库正式 Release，读取 `latest.yml` 与对应 NSIS 安装包。更新请求独立于站点，不携带账户凭据。主进程校验版本、标签、固定附件名、大小和 SHA-512；下载及重启前均复核文件。使用标准差量下载、缓存及取消流程，GitHub Actions 同时发布 `.blockmap` 与 `latest.yml`。
 
 受限 IPC 提供 `updateStatus`、`checkUpdate`、`downloadUpdate`、`cancelUpdate`、`showUpdateFile`、`restartUpdate` 及状态订阅；`restartUpdate` 不接收路径或命令。只对已下载并通过校验的文件调用 `quitAndInstall(true, true)`，静默升级后自动重开。普通退出不触发升级，卸载 / 更新配置保留用户数据。浏览器预览与开发运行不自动检查更新。
+
+macOS ARM64 正式包使用固定 GitHub Release API，读取对应 DMG 的名称、大小和 SHA-256 digest，提供检查、下载、取消与进度。`UpdateState.installMode` 为 `replace`，`openUpdateFile()` 再次校验后通过系统打开 DMG；用户退出 Lumi 后替换 Applications 中的应用，`restartUpdate` 在 Mac 上不执行安装。
 
 `dismissedUpdateVersion` 保存用户隐藏的正式版本号，跨站点和重启生效，只隐藏同一版本的左栏提示。设置中的软件更新仍订阅完整状态并提供操作和恢复入口；隐藏不取消下载，也不关闭自动检查，更新版本号变化后重新提醒。

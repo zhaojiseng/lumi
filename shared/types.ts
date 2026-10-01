@@ -60,7 +60,11 @@ export interface UpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error' | 'unsupported';
   currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;
   received: number; total: number; error?: string;
+  installMode?: 'restart' | 'replace';
 }
+export type AppLogLevel = 'debug' | 'info' | 'warn' | 'error';
+export interface AppLogEntry { id:number; timestamp:number; level:AppLogLevel; source:string; message:string; }
+export interface AppLogSnapshot { startedAt:number; entries:AppLogEntry[]; dropped:number; }
 export interface UsageStat { quota: number; rpm: number; tpm: number; }
 export interface ModelInfo {
   model_name: string; description?: string; vendor_id?: number; vendor?: string;
@@ -115,6 +119,7 @@ export interface ConfigPreview {
 export interface BackupInfo { id: string; tool: Tool; createdAt: number; paths: string[]; }
 export interface Bootstrap {
   preferences: Preferences; desktop: boolean; version: string;
+  platform?: 'win32' | 'darwin' | 'linux' | 'browser';
   configs: ToolConfigState[]; secureStorage: boolean;
 }
 export interface CreateTokenInput {
@@ -128,6 +133,8 @@ export interface LumiBridge {
   toolRuntimes(force?: boolean): Promise<ToolRuntimeState[]>;
   installTool(tool: Tool): Promise<ToolRuntimeState>;
   onToolRuntime(listener: (state: ToolRuntimeState) => void): () => void;
+  appLogs(): Promise<AppLogSnapshot>;
+  onAppLog(listener: (entry: AppLogEntry) => void): () => void;
   saveSite(input: SiteInput): Promise<Preferences>;
   removeSite(id: string): Promise<Preferences>;
   updatePreferences(patch: PreferencePatch): Promise<Preferences>;
@@ -144,6 +151,7 @@ export interface LumiBridge {
   downloadUpdate(): Promise<UpdateState>;
   cancelUpdate(): Promise<void>;
   showUpdateFile(): Promise<void>;
+  openUpdateFile(): Promise<void>;
   restartUpdate(): Promise<void>;
   onUpdate(listener: (state: UpdateState) => void): () => void;
   modelHealth(model: string): Promise<ModelHealthDetails>;

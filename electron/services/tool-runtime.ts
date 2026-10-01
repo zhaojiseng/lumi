@@ -1,15 +1,18 @@
 import {spawn} from 'node:child_process';
-import {access,mkdir,readFile,realpath,stat,writeFile,rm} from 'node:fs/promises';
+import {access,mkdir,readFile,realpath,stat,writeFile,rm,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {Tool,ToolRuntimeState} from '../../shared/types';
+import {appLogs} from './app-logs';
+
+export function shellPath(output:string){return output.match(/\x1eLUMI_PATH\x1f([^\x1e]*)\x1e/)?.[1] || '';}
 
 export interface Command {file:string;args:string[];env?:NodeJS.ProcessEnv;timeout?:number;}
 export interface CommandResult {code:number;stdout:string;stderr:string;}
 export type CommandRunner=(command:Command)=>Promise<CommandResult>;
 const packages={codex:'@openai/codex',claude:'@anthropic-ai/claude-code'} as const;
-export function versionFromOutput(text:string){return text.match(/\b\d+\.\d+\.\d+(?:-[\w.-]+)?\b/)?.[0];}
+export function versionFromOutput(text:string){return text.match(/\bv?(\d+\.\d+\.\d+(?:-[\w.-]+)?)\b/)?.[1];}
 const latestVersionPattern=/^\d+\.\d+\.\d+(?:\.\d+)?(?:-[\w.-]+)?$/;
 export function chatGPTStoreVersion(data:unknown,architecture:'x64'|'arm64'=process.arch==='arm64' ? 'arm64' : 'x64'):string|undefined {
   const product=(data as {Product?:{DisplaySkuAvailabilities?:unknown}})?.Product;
@@ -52,7 +55,8 @@ export class ToolRuntimeService {
   private installs=new Map<Tool,Promise<ToolRuntimeState>>();
   private listeners=new Set<(state:ToolRuntimeState)=>void>();private children=new Set<ReturnType<typeof spawn>>();
   private abort=new AbortController();private platform:NodeJS.Platform;private home:string;private env:NodeJS.ProcessEnv;private run:CommandRunner;
-  constructor(private options:RuntimeOptions) {this.platform=options.platform || process.platform;this.home=options.home || os.homedir();this.env={...process.env,...options.env};this.run=options.run || (command=>this.execute(command));}
+  private shellDirs?:Promise<string[]>;private inheritedPath:string;
+  constructor(private options:RuntimeOptions) {this.platform=options.platform || process.platform;this.home=options.home || os.homedir();this.env={...process.env,...options.env};this.inheritedPath=this.env.PATH || this.env.Path || '';this.run=command=>options.run ? options.run(this.platform==='darwin' ? {...command,env:{PATH:this.env.PATH,...command.env}} : command) : this.execute(command);}
   subscribe(listener:(state:ToolRuntimeState)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   private emit(state:ToolRuntimeState){const latest=this.latestCache.get(state.tool);if(latest && state.latestCheckedAt===undefined)state={...state,latestVersion:latest.version,latestCheckedAt:latest.checkedAt};this.states.set(state.tool,state);for(const listener of this.listeners)listener(structuredClone(state));return state;}
   private async execute(command:Command):Promise<CommandResult> {
@@ -76,12 +80,27 @@ export class ToolRuntimeService {
       if(r.code===0)registry=(JSON.parse(r.stdout.replace(/^\uFEFF/,'')) as (string|null)[]).filter((x):x is string=>typeof x==='string');
     } catch { /* Common locations remain available if registry reads are denied. */ }
     const sep=this.platform==='win32' ? ';' : ':';
-    const raw=[this.env.PATH || this.env.Path || '',...registry].join(sep).replace(/%([\w]+)%/g,(all,key)=>this.env[key] || all);
+    const raw=[this.platform==='darwin' ? this.inheritedPath : this.env.PATH || this.env.Path || '',...registry].join(sep).replace(/%([\w]+)%/g,(all,key)=>this.env[key] || all);
     const dirs=raw.split(sep).map(x=>x.trim().replace(/^"|"$/g,'')).filter(x=>x && path.isAbsolute(x));
+    if(this.platform==='darwin'){
+      this.shellDirs ||= (async()=>{try{
+        const file=this.env.SHELL && ['/bin/zsh','/bin/bash','/bin/sh'].includes(this.env.SHELL) ? this.env.SHELL : '/bin/zsh';
+        const result=await this.run({file,args:['-ilc',`printf '\\036LUMI_PATH\\037%s\\036' "$PATH"`],timeout:5000});
+        const value=result.code===0 ? shellPath(result.stdout) : '';
+        if(!value)appLogs.write('warn','工具环境','无法读取登录 Shell 的 PATH，继续检查 Homebrew 和版本管理器。');
+        return value.split(':').filter(x=>path.isAbsolute(x));
+      }catch{appLogs.write('warn','工具环境','登录 Shell 检测失败，使用常见安装路径。');return [];}})();
+      dirs.push(...await this.shellDirs);
+      dirs.push(path.join(this.home,'.volta','bin'),path.join(this.home,'.asdf','shims'),path.join(this.home,'.local','share','mise','shims'),path.join(this.home,'.fnm','aliases','default','bin'),path.join(this.home,'Library','Application Support','fnm','aliases','default','bin'),path.join(this.home,'.n','bin'));
+      for(const directory of [path.join(this.env.NVM_DIR || path.join(this.home,'.nvm'),'versions','node'),path.join(this.home,'.local','share','mise','installs','node')])try{
+        const versions=(await readdir(directory,{withFileTypes:true})).filter(entry=>entry.isDirectory() && /^v?\d+\.\d+\.\d+$/.test(entry.name)).sort((a,b)=>b.name.localeCompare(a.name,undefined,{numeric:true}));
+        dirs.push(...versions.map(entry=>path.join(directory,entry.name,'bin')));
+      }catch{}
+    }
     dirs.push(path.join(this.home,'.local','bin'),path.join(this.home,'.codex','bin'));
     if(this.platform==='win32')dirs.push(path.join(this.env.APPDATA || path.join(this.home,'AppData','Roaming'),'npm'),path.join(this.env.LOCALAPPDATA || path.join(this.home,'AppData','Local'),'Programs','OpenAI','Codex','bin'),path.join(this.env.LOCALAPPDATA || path.join(this.home,'AppData','Local'),'Programs','claude'),path.join(this.env.ProgramFiles || 'C:\\Program Files','nodejs'));
     else dirs.push('/opt/homebrew/bin','/usr/local/bin','/usr/bin',path.join(this.home,'.npm-global','bin'));
-    return [...new Set(dirs)];
+    const unique=[...new Set(dirs)];if(this.platform==='darwin')this.env.PATH=unique.join(':');return unique;
   }
   private async find(name:string,dirs:string[]) {
     if(this.options.find)return this.options.find(name);
@@ -99,11 +118,12 @@ export class ToolRuntimeService {
   }
   private async detect(tool:Tool):Promise<ToolRuntimeState> {
     const dirs=await this.searchDirs();const [file,node,npm]=await Promise.all([this.find(tool,dirs),this.find('node',dirs),this.find('npm',dirs)]);
+    if(this.platform==='darwin' && node)this.env.PATH=[path.dirname(node),...dirs.filter(dir=>dir!==path.dirname(node))].join(':');
     let nodeVersion:string|undefined;if(node)try{const r=await this.run(invocation(node,['--version'],this.platform));if(r.code===0)nodeVersion=versionFromOutput(r.stdout);}catch{}
     const base:ToolRuntimeState={tool,installed:!!file,path:file,checkedAt:Date.now(),npmAvailable:!!npm,nodeVersion,phase:'idle'};
-    if(!file)return this.emit(base);
-    try{const r=await this.run(invocation(file,['--version'],this.platform)),version=r.code===0 ? versionFromOutput(r.stdout || r.stderr) : undefined;if(!version)throw new Error(safeMessage(r.stderr || r.stdout) || '已发现工具，但无法读取版本。');return this.emit({...base,version});}
-    catch(e){return this.emit({...base,phase:'error',message:e instanceof Error ? e.message : '版本检测失败。'});}
+    if(!file){appLogs.write('info','工具检测',tool+' 未安装'+(nodeVersion ? ' · Node '+nodeVersion : ''));return this.emit(base);}
+    try{const r=await this.run(invocation(file,['--version'],this.platform)),version=r.code===0 ? versionFromOutput(r.stdout || r.stderr) : undefined;if(!version)throw new Error(safeMessage(r.stderr || r.stdout) || '已发现工具，但无法读取版本。');appLogs.write('info','工具检测',`${tool} ${version} · ${file}${nodeVersion ? ' · Node '+nodeVersion : ''}`);return this.emit({...base,version});}
+    catch(e){appLogs.write('error','工具检测',tool+'：'+(e instanceof Error ? e.message : '版本检测失败。'));return this.emit({...base,phase:'error',message:e instanceof Error ? e.message : '版本检测失败。'});}
   }
   private async detectChatGPT():Promise<ToolRuntimeState>{
     const base:ToolRuntimeState={tool:'chatgpt',installed:false,checkedAt:Date.now(),npmAvailable:false,phase:'idle'};
@@ -140,11 +160,11 @@ export class ToolRuntimeService {
         const response=await fetch('https://registry.npmjs.org/'+encodeURIComponent(packages[tool])+'/latest',{signal:AbortSignal.timeout(8000)});
         if(response.ok){const data:unknown=await response.json();const value=(data as {version?:unknown})?.version;if(typeof value==='string' && latestVersionPattern.test(value))version=value;}
       }
-    }catch{/* Remote version lookup never changes local installation status. */}
+    }catch{appLogs.write('warn','工具版本',tool+' 最新版查询失败，本机检测结果保留。');}
     const result={version:version && latestVersionPattern.test(version) ? version : undefined,checkedAt:Date.now()};
     this.latestCache.set(tool,result);return result;
   }
-  async inspect(force=false):Promise<ToolRuntimeState[]> {return Promise.all((['codex','claude','chatgpt'] as const).map(tool=>this.inspectOne(tool,force)));}
+  async inspect(force=false):Promise<ToolRuntimeState[]> {if(force)this.shellDirs=undefined;return Promise.all((['codex','claude','chatgpt'] as const).map(tool=>this.inspectOne(tool,force)));}
   private async inspectOne(tool:Tool|'chatgpt',force:boolean) {
     const job=this.pending.get(tool);if(job)return job;
     const cached=this.states.get(tool);if(!force && cached && Date.now()-cached.checkedAt<30000)return structuredClone(cached);

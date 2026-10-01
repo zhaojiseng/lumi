@@ -1,5 +1,5 @@
 import {LOG_COLUMN_IDS} from '../shared/types';
-import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Tray, Menu, nativeImage, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Tray, Menu, nativeImage, clipboard,screen } from 'electron';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -12,10 +12,16 @@ import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
 import {nativeUpdater} from './services/native-updater';
 import {ToolRuntimeService} from './services/tool-runtime';
+import {macUpdater} from './services/mac-updater';
+import {appLogs,captureConsole} from './services/app-logs';
+import {windowLayout,macMenu} from './window-layout';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput } from '../shared/types';
 const root = path.resolve(__dirname, '..');
+captureConsole();
+appLogs.write('info','启动',`Lumi ${app.getVersion()} · ${process.platform}/${process.arch} · Electron ${process.versions.electron}`);
+let quitting=false;app.on('before-quit',()=>{quitting=true;appLogs.write('info','生命周期','程序退出。');});
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
 if (process.env.LUMI_TEST_DATA) app.setPath('userData', path.resolve(process.env.LUMI_TEST_DATA));
 let win: BrowserWindow;let tray: Tray | undefined;
@@ -41,17 +47,23 @@ function trustedFrame(event: Electron.IpcMainInvokeEvent) {
 function handle<T extends z.ZodType>(channel: string, schema: T, action: (data: z.infer<T>) => unknown | Promise<unknown>) {
   ipcMain.handle(`lumi:${channel}`, async (event, payload) => {
     if (!trustedFrame(event)) return { ok: false, error: '请求来源不可信。' };
-    try { return { ok: true, data: await action(schema.parse(payload)) }; }
-    catch (e) { return { ok: false, error: e instanceof z.ZodError ? '输入内容无效，请检查必填项与数值范围。' : e instanceof Error ? e.message : '操作失败。' }; }
+    const started=performance.now();
+    try {const data=await action(schema.parse(payload));if(channel!=='appLogs')appLogs.write('debug','操作',`${channel} 完成 · ${Math.round(performance.now()-started)} ms`);return { ok: true, data }; }
+    catch (e) {const error=e instanceof z.ZodError ? '输入内容无效，请检查必填项与数值范围。' : e instanceof Error ? e.message : '操作失败。';appLogs.write('error','操作',channel+'：'+error);return { ok: false, error }; }
   });
 }
 async function start() {
   const startupStarted=performance.now();
   const icon = nativeImage.createFromPath(path.join(root, 'public/icon.png'));
-  win = new BrowserWindow({ width: 1480, height: 990, minWidth: 1080, minHeight: 740, show: false, frame: false, titleBarStyle: 'hidden', backgroundColor: '#f5f7f8', icon,
+  win = new BrowserWindow({ ...windowLayout(process.platform,screen.getPrimaryDisplay().workAreaSize), show: false, backgroundColor: '#f5f7f8', icon,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
   });
-  Menu.setApplicationMenu(null);
+  Menu.setApplicationMenu(process.platform==='darwin' ? Menu.buildFromTemplate(macMenu()) : null);
+  if(process.platform==='darwin')win.setWindowButtonVisibility(true);
+  win.on('close',event=>{if(process.platform==='darwin' && !quitting && process.env.LUMI_SMOKE!=='1'){event.preventDefault();win.hide();appLogs.write('info','窗口','窗口关闭，点击 Dock 图标可重新打开。');}});
+  win.webContents.on('console-message',details=>appLogs.write(details.level==='warning' ? 'warn' : details.level==='error' ? 'error' : details.level==='debug' ? 'debug' : 'info','界面',details.message));
+  win.webContents.on('did-fail-load',(_event,code,description)=>appLogs.write('error','页面加载',`${code} ${description}`));
+  win.webContents.on('render-process-gone',(_event,details)=>appLogs.write('error','渲染进程',`${details.reason} · ${details.exitCode}`));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', e => e.preventDefault());
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -59,6 +71,7 @@ async function start() {
   win.once('ready-to-show',()=>{if(process.env.LUMI_SMOKE!=='1')win.show();});
   await win.loadURL('data:text/html;charset=utf-8,'+encodeURIComponent(startupHtml));
   const startupPaintMs=Math.round(performance.now()-startupStarted);
+  appLogs.write('info','启动',`启动画面已就绪 · ${startupPaintMs} ms`);
   const data = app.getPath('userData');
   const store = new SettingsStore(data, {
     available: () => safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'),
@@ -66,12 +79,14 @@ async function start() {
   });
   await store.load();
   const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
-  const updateEnabled=app.isPackaged && process.platform==='win32' && process.arch==='x64' && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
-  const updates=new UpdateService({version:app.getVersion(),enabled:updateEnabled,engine:updateEnabled ? await nativeUpdater() : undefined});
+  const macUpdate=process.platform==='darwin' && process.arch==='arm64';
+  const updateEnabled=app.isPackaged && (macUpdate || process.platform==='win32' && process.arch==='x64') && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
+  const updates=new UpdateService({version:app.getVersion(),enabled:updateEnabled,target:macUpdate ? 'mac-arm64' : 'windows',engine:updateEnabled ? macUpdate ? macUpdater(path.join(data,'updates')) : await nativeUpdater() : undefined});
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   let lastNotice = 0;
   const noPayload = z.undefined();
-  handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
+  handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
+  handle('appLogs',noPayload,()=>appLogs.snapshot());
   handle('inspectConfigs',noPayload,()=>configs.inspect());
   handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
   handle('installTool',toolSchema,tool=>runtimes.install(tool));
@@ -100,6 +115,7 @@ async function start() {
   handle('downloadUpdate',noPayload,()=>updates.download());
   handle('cancelUpdate',noPayload,()=>updates.cancel());
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
+  handle('openUpdateFile',noPayload,async()=>{if(!macUpdate)throw new Error('此操作仅适用于 macOS 更新。');const error=await shell.openPath(await updates.readyFile());if(error)throw new Error('无法打开更新安装包，请在下载目录中重试。');});
   handle('restartUpdate',noPayload,()=>updates.restart());
   handle('localUsage', statisticsSchema, query => usage.scan(query));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
@@ -120,15 +136,18 @@ async function start() {
   });
   handle('openExternal', z.string().max(4000), async raw => { const url = new URL(raw); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('不支持此链接。'); await shell.openExternal(url.href); });
   handle('window', z.enum(['minimize', 'maximize', 'close']), action => { if (action === 'minimize') win.minimize(); else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize(); else win.close(); });
-  const unsubscribeUpdates=updates.subscribe(state=>{if(!win.isDestroyed())win.webContents.send('lumi:updateState',state);});
+  let updatePhase='';
+  const unsubscribeUpdates=updates.subscribe(state=>{if(state.phase!==updatePhase){updatePhase=state.phase;appLogs.write(state.phase==='error' ? 'error' : 'info','更新',state.phase+(state.version ? ' · v'+state.version : '')+(state.error ? ' · '+state.error : ''));}if(!win.isDestroyed())win.webContents.send('lumi:updateState',state);});
+  const unsubscribeLogs=appLogs.subscribe(entry=>{if(!win.isDestroyed())win.webContents.send('lumi:appLog',entry);});
   const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();});
+  app.once('before-quit',()=>{clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();});
   if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
     tray = new Tray(icon.resize({ width: 20, height: 20 })); tray.setToolTip('Lumi · AI 工作台');
     tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开 Lumi', click: () => { win.show(); win.focus(); } }, { type: 'separator' }, { label: '退出', click: () => app.quit() }])); tray.on('double-click', () => { win.show(); win.focus(); });
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
+  appLogs.write('info','启动','工作台页面加载完成。');
   if(updateEnabled){const firstUpdate=setTimeout(()=>{void updates.check();},3000);firstUpdate.unref();}
   if (process.env.LUMI_SMOKE === '1') {
     try {
@@ -137,10 +156,12 @@ async function start() {
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台')};
+        const logs=await window.lumi.appLogs();
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
-      const updaterProbe=await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
+      result.nativeMacControls=process.platform!=='darwin' || win.getWindowButtonPosition()?.x===24 && Menu.getApplicationMenu()!==null;
+      const updaterProbe=process.platform==='darwin' ? macUpdater(path.join(data,'updates')) : await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));
       if(process.env.LUMI_SMOKE_RESULT_PATH)await writeFile(process.env.LUMI_SMOKE_RESULT_PATH,JSON.stringify(result));
@@ -152,6 +173,7 @@ async function start() {
 if (!app.requestSingleInstanceLock() && process.env.LUMI_SMOKE !== '1') app.quit();
 else {
   app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
+  app.on('activate',()=>{if(win && !win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}});
   app.whenReady().then(start).catch(e => { if (process.env.LUMI_SMOKE === '1') { console.error('LUMI_SMOKE_FAILED', String(e.message || e)); app.exit(1); } else { dialog.showErrorBox('Lumi 启动失败', String(e.message || e)); app.quit(); } });
-  app.on('window-all-closed', () => { tray?.destroy(); app.quit(); });
+  app.on('window-all-closed', () => {if(process.platform!=='darwin'){tray?.destroy();app.quit();} });
 }

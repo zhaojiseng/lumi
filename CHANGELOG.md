@@ -2,6 +2,13 @@
 
 本文件描述当前可用行为。测试与平台验证见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
+## 0.4.23 · 2026-10-01
+
+- macOS 使用原生左上角关闭 / 最小化 / 全屏按钮、系统菜单和 ⌘ 快捷键，初始窗口适应屏幕可用尺寸；关闭窗口后可从 Dock 或托盘重新打开。
+- 侧栏底部固定显示设置、站点和更新入口，小窗口导航独立滚动；恢复 macOS ARM64 正式版更新检查、下载进度和 SHA-256 校验，下载后可打开 DMG 替换应用。
+- 修复 macOS 图形启动缺少 Node PATH 导致 `env: node: No such file or directory`；读取登录 Shell，并兼容 Homebrew、NVM、fnm、Volta、asdf 和 mise，检测与安装共用环境。
+- 设置增加“常规设置 / 实时日志”二级菜单，展示本次启动以来的运行记录，支持搜索、级别筛选、暂停、跟随最新和查看启动记录。日志只保存在内存，退出即清空，敏感字段脱敏。
+
 ## 0.4.22 · 2026-10-01
 
 - 修复 Windows 上 ChatGPT 桌面应用已安装但未被识别的问题，兼容名称为 OpenAI.Codex / CodexBeta 的注册包，并核对 ChatGPT 可执行文件，优先正式版。
