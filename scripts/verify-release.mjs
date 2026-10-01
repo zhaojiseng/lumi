@@ -29,7 +29,7 @@ for(const directory of ['dist','dist-electron']){
   assert.deepEqual(bundled,local,'Archive must contain the current build only: '+directory);
   for(const file of local){assert.deepEqual(extract(file),await readFile(file),'Stale archive file: '+file);matched++;}
 }
-for(const name of ['Lumi-LICENSE.txt','dependencies-LICENSES.txt','THIRD_PARTY_NOTICES.md','lobe-icons-LICENSE.txt','cc-switch-LICENSE.txt','victory-vendor-LICENSE.txt','electron-builder-LICENSE.txt'])assert.ok(extract('dist/third-party/'+name).length>100,'Missing license notice: '+name);
+for(const name of ['Lumi-LICENSE.txt','dependencies-LICENSES.txt','THIRD_PARTY_NOTICES.md','lobe-icons-LICENSE.txt','cc-switch-LICENSE.txt','codexbar-LICENSE.txt','victory-vendor-LICENSE.txt','electron-builder-LICENSE.txt'])assert.ok(extract('dist/third-party/'+name).length>100,'Missing license notice: '+name);
 for(const name of ['LICENSE.electron.txt','LICENSES.chromium.html'])assert.ok((await readFile(path.join(mac ? path.join(resources,'licenses') : appDirectory,name))).length>100,'Missing runtime license notice: '+name);
 assert.ok(!listing.some(name=>/\/(?:\.test-data|\.research|\.cache|node_modules|tests)(\/|$)/.test(name)),'Local data or source dependencies must not ship');
 const text=(await files('dist')).filter(f=>/\.(?:js|css|html)$/.test(f)).concat(await files('dist-electron')).map(file=>extract(file).toString()).join('\n');
@@ -48,7 +48,8 @@ if(mac){
   const exec=(file,...args)=>execFileSync(file,args,{encoding:'utf8'}).trim();
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleShortVersionString','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.version);
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleIdentifier','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.build.appId);
-  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App and Electron must both be ARM64');
+  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helper and Electron must all be ARM64');
+  assert.deepEqual(await readFile(path.join(resources,'native/lumi-menu-bar')),await readFile('dist-native/lumi-menu-bar'),'Native usage card must match the current build');
   exec('/usr/bin/codesign','--verify','--deep','--strict',path.dirname(appDirectory));
   exec('/usr/bin/hdiutil','verify',path.join(releaseDir,packages[0]));
 }else{

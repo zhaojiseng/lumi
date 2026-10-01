@@ -87,9 +87,23 @@ macOS 在工具页后台补充登录 Shell、Homebrew 和常用 Node 版本管�
 
 ## macOS 菜单栏
 
-主进程 `menuBarUsage()` 读取 `/api/user/self`、当天 `/api/data/self`、`/api/log/self/stat` 和专用令牌的消费汇总，沿用账户隔离的缓存，不读取完整消费明细或模型列表。菜单数据另缓存一分钟，多次点击合并网络任务。余额和今日统计缺失时显示 `—`，失败不伪造零；单击图标立即打开原生菜单，查询完成后更新菜单文字。
+主进程 `menuBarUsage(force, selection)` 读取 `/api/user/self`、选定时间的 `/api/data/self`、`/api/log/self/stat` 和专用令牌的消费汇总，沿用账户隔离的缓存。汇总另缓存一分钟，多次点击合并任务，单击立即打开原生卡片。`selection` 只接受今日 / 7 天 / 30 天与全部 / Codex / Claude，按站点保存为 `menuBar.days` / `menuBar.tool`。
 
-原生系统菜单通过单向 `onNavigate` / `onRefresh` 事件打开页面或刷新，renderer 不可提交菜单模板、命令或访问身份。模板菜单图标和 NSMenu 的材料、对比度、液态玻璃外观由 macOS 系统提供。
+菜单展开后再调用 `menuBarDetails(selection)`，复用最多 10,000 条完整消费日志，按实际令牌 ID 归属工具，计算输入 / 输出 / 缓存、缓存命中率和平均 Token 速率。结果缓存五分钟，工具曲线及模型排行由相同完整记录生成；没有令牌 ID、权限不足、记录超上限或分页不完整时保留汇总并标记明细不可用。汇总曲线使用小时 / 模型聚合，工具 Token 总量仅在详细归属成功后提供。账户余额始终为全账户；消费以站点统计为准，不按模型单价重新计费。
+
+参考 [CodexBar](https://github.com/steipete/CodexBar) 的卡片菜单与 API 用量设计，使用下列接口关系：
+
+| CodexBar 能力 / 接口 | Lumi 当前来源 |
+| --- | --- |
+| `NSStatusBar` / `NSStatusItem`、`NSMenu`、自定义 `NSMenuItem.view`、`NSMenuDelegate` | AppKit 原生图标、卡片、分段控件、悬停图表与菜单开关状态；透明自定义视图保留系统菜单材质 |
+| OpenAI `/v1/organization/costs`、`/v1/organization/usage/completions` | 对应功能使用 New API `/api/log/self/stat`、`/api/data/self`，无需 OpenAI 组织管理员密钥 |
+| OpenRouter `/api/v1/credits`、`/api/v1/activity`、`/api/v1/key`；LLM Proxy `/v1/quota-stats` | 对应余额、活动、令牌归属使用 `/api/user/self`、`/api/data/self`、`/api/token/`，不将其他服务路径拼到 New API 地址 |
+| 本地 Codex / Claude cost scans | 菜单费用以 New API 账单为准，本地工具记录仍保留在主窗口用量分析 |
+| Codex OAuth / `wham/usage`、Claude OAuth / 网页订阅额度 | 当前环境无订阅，不请求这些接口，不显示套餐、5 小时限额、周配额或重置倒计时 |
+
+原生辅助进程 `native/macos/UsageMenuBar.swift` 接收格式化统计及最多 60 个曲线点和 3 个模型；不接收凭据、密钥、邮箱、站点 URL 或请求内容。返回消息仅允许菜单开关、刷新、三个页面导航、合法工具 / 时间选择及退出。主进程处理认证和所有网络请求，不给辅助进程执行命令或配置写入能力。退出 / 标准输入关闭时辅助进程结束，故障时回退到系统文字菜单。
+
+原生系统菜单通过单向 `onNavigate` / `onRefresh` 事件打开页面或刷新，renderer 不可提交菜单模板、命令或访问身份。NSMenu 的材质、对比度、液态玻璃外观由 macOS 系统提供；减少透明度和高对比度使用原生系统行为。
 
 ## GitHub 更新
 

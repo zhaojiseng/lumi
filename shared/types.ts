@@ -70,7 +70,11 @@ export interface MenuBarUsage {
   siteId:string;siteName:string;status:SiteStatus;user:UserInfo|null;
   today:{quota:number|null;tokens:number|null;requests:number|null};
   tools:{tool:Tool;quota:number|null}[];fetchedAt:number;warnings:string[];
+  period?:{selection:MenuBarSelection;quota:number|null;tokens:number|null;requests:number|null;points:QuotaPoint[]|null};
+  details?:MenuBarDetails;
 }
+export interface MenuBarSelection {days:1|7|30;tool:'all'|Tool;}
+export interface MenuBarDetails {points:QuotaPoint[];quality:UsageQuality;inputTokens:number|null;outputTokens:number|null;cacheReadTokens:number|null;cacheWriteTokens:number|null;}
 export interface ModelInfo {
   model_name: string; description?: string; vendor_id?: number; vendor?: string;
   quota_type: number; model_ratio: number; model_price: number; completion_ratio: number;

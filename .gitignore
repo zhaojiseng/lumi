@@ -2,6 +2,7 @@
 node_modules/
 /dist/
 /dist-electron/
+/dist-native/
 /release/
 /.cache/
 /.research/

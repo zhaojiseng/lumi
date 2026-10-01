@@ -11,3 +11,4 @@ const obsolete=path.resolve('dist-electron/vendor/codex-0.159.1');
 if(!obsolete.startsWith(path.resolve('dist-electron')+path.sep))throw new Error('Invalid obsolete asset path.');
 await rm(obsolete,{recursive:true,force:true});
 console.log('Electron main and preload built.');
+await import('./build-native-menu-bar.mjs');

@@ -25,6 +25,8 @@ Lobe Icons 发布的静态包未带 LICENSE 文件，其许可正文保存在 [p
 
 [CC Switch](https://github.com/farion1231/cc-switch) 的配置管理和直连流程是本项目的参考来源。上游 MIT 版权及许可正文随附于 [public/third-party/cc-switch-LICENSE.txt](public/third-party/cc-switch-LICENSE.txt)，保留其归属。
 
+[CodexBar](https://github.com/steipete/CodexBar) 的原生菜单卡片、图表与按需刷新交互是 macOS 用量面板的参考来源。Lumi 使用独立实现的 AppKit 菜单和 New API 数据，不分发其应用或订阅读取代码。上游 MIT 版权及许可正文随附于 [public/third-party/codexbar-LICENSE.txt](public/third-party/codexbar-LICENSE.txt)。
+
 [New API](https://github.com/QuantumNous/new-api) 是通过 HTTP API 对接的外部服务器项目，上游采用 AGPL-3.0。Lumi 不分发其服务器源码；部署、修改或分发 New API 时需遵循其自身许可。本项目的接口说明不构成对上游服务器的重新许可。
 
 Codex / Claude Code 为用户自行安装的工具，Lumi 不分发其二进制、模型目录或提示词资产。OpenAI、Anthropic 与其他品牌名称和商标归各自权利人所有。

@@ -10,11 +10,11 @@ import {normalizeCatalog,availableGroups,groupRatio} from '../shared/catalog';
 import {publishedPriceSections,legacyPrices,compilePrice} from '../shared/pricing';
 import {buildCodex,ConfigService} from '../electron/services/config';
 import {parse} from 'smol-toml';
-import type {ApiToken,ModelInfo} from '../shared/types';
+import type {ApiToken,ModelInfo,UsageLog,QuotaPoint} from '../shared/types';
 const cipher:Cipher={available:() => true,encrypt:s => Buffer.from(s).toString('base64'),decrypt:s => Buffer.from(s,'base64').toString()};
 const status={system_name:'Fixture',quota_per_unit:500000,quota_display_type:'CUSTOM',custom_currency_symbol:'✾',custom_currency_exchange_rate:2,password_login_enabled:true,password_login_encryption_enabled:false,turnstile_check:false};
 const model:ModelInfo={model_name:'model-a',quota_type:0,model_ratio:1.5,model_price:0,completion_ratio:5,cache_ratio:.1,create_cache_ratio:1.25,enable_groups:['standard','premium'],supported_endpoint_types:['openai-response','anthropic']};
-async function workflow(options:{twoFA?:boolean;legacy?:boolean;captcha?:boolean;encryption?:boolean;expires?:boolean;maskKey?:boolean;key404?:boolean;endpointTypes?:string[]}={}) {
+async function workflow(options:{twoFA?:boolean;legacy?:boolean;captcha?:boolean;encryption?:boolean;expires?:boolean;maskKey?:boolean;key404?:boolean;endpointTypes?:string[];logs?:UsageLog[];points?:QuotaPoint[];detailFailure?:boolean;pointFailure?:boolean}={}) {
   await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/workflow-'));const store=new SettingsStore(root,cipher);await store.load();
   const seen:{endpoint:string;method:string;body:any;cookie:string;auth:string;user:string;origin:string}[]=[];let refreshCount=0;let created=0;let legacyPAT=0;const tokens:ApiToken[]=[];let current='session-initial';let suppliedPassword='';const rsa=options.encryption ? generateKeyPairSync('rsa',{modulusLength:2048}) : undefined;
   const server=createServer(async(req,res) => {
@@ -40,8 +40,8 @@ async function workflow(options:{twoFA?:boolean;legacy?:boolean;captcha?:boolean
     if(u.pathname === '/api/token/')return send({items:tokens.map(t => ({...t,key:'must-never-display'})),total:tokens.length});
     if(/^\/api\/token\/\d+\/key$/.test(u.pathname)){if(options.key404){res.statusCode=404;return res.end(JSON.stringify({success:false}));}return send(options.maskKey ? 'sk-******' : 'private-key-'+u.pathname.split('/')[3]);}
     if(/^\/api\/token\/\d+$/.test(u.pathname))return send({key:'legacy-key'});
-    if(u.pathname === '/api/log/self')return send({items:[],total:0});
-    if(u.pathname === '/api/data/self')return send([]);
+    if(u.pathname === '/api/log/self'){if(options.detailFailure){res.statusCode=403;return res.end(JSON.stringify({success:false}));}const rows=(options.logs || []).filter(r=>r.created_at>=Number(u.searchParams.get('start_timestamp')) && r.created_at<=Number(u.searchParams.get('end_timestamp')));const page=Number(u.searchParams.get('p') || 1)-1,size=Number(u.searchParams.get('page_size') || 100);return send({items:rows.slice(page*size,(page+1)*size),total:rows.length});}
+    if(u.pathname === '/api/data/self'){if(options.pointFailure){res.statusCode=403;return res.end(JSON.stringify({success:false}));}return send((options.points || []).filter(p=>p.created_at>=Number(u.searchParams.get('start_timestamp')) && p.created_at<=Number(u.searchParams.get('end_timestamp'))));}
     if(u.pathname === '/api/log/self/stat')return send({quota:10,rpm:1,tpm:2});
     res.statusCode=404;res.end(JSON.stringify({success:false,message:'Unknown endpoint'}));
   });
@@ -105,6 +105,22 @@ test('menu bar fetches only current account and today summaries and shares site 
  const before=f.seen.length;await f.api.menuBarUsage();assert.equal(f.seen.length,before);assert.ok(f.seen.every(r=>!['/api/pricing','/api/log/self','/api/perf-metrics/summary'].includes(r.endpoint)));assert.ok(!JSON.stringify(a).includes('private-key'));
  await f.api.logout(f.store.activeSite().id);assert.equal((await f.api.menuBarUsage()).user,null);
 }finally{await f.close();}});
+
+test('native menu details use real token IDs, keep cache counts distinct and share bounded history',async()=>{
+ const ts=Math.floor(Date.now()/1000)-1,base={created_at:ts,type:2,model_name:'model-a',token_name:'Lumi-Codex',token_id:1,prompt_tokens:1000,completion_tokens:200,quota:100,use_time:2,is_stream:true,group:'standard',other:JSON.stringify({cache_tokens:400,cache_creation_tokens:50})};
+ const f=await workflow({logs:[{...base,id:1},{...base,id:2,token_id:2,token_name:'Lumi-Claude',other:'{}'}],points:[{created_at:ts,quota:200,count:2,token_used:2400,model_name:'model-a'}]});try{
+  await f.api.login({username:'fixture-user',password:'pw'});await f.api.ensureToolToken({tool:'codex',model:'model-a',group:'standard'});await f.api.ensureToolToken({tool:'claude',model:'model-a',group:'standard'});f.seen.length=0;
+  const summary=await f.api.menuBarUsage(false,{days:30,tool:'all'});assert.equal(summary.period?.tokens,2400);assert.ok(!f.seen.some(r=>r.endpoint==='/api/log/self'));
+  const details=await f.api.menuBarDetails({days:30,tool:'codex'});assert.equal(details.points.length,1);assert.equal(details.inputTokens,1000);assert.equal(details.outputTokens,200);assert.equal(details.cacheReadTokens,400);assert.equal(details.cacheWriteTokens,50);assert.equal(details.quality.cacheHitRate,.4);assert.equal(details.quality.averageTokenSpeed,100);assert.ok(!JSON.stringify(details).includes('Lumi-Codex'));assert.ok(!JSON.stringify(details).includes('other'));
+  const pages=f.seen.filter(r=>r.endpoint==='/api/log/self').length;await f.api.menuBarDetails({days:30,tool:'codex'});assert.equal(f.seen.filter(r=>r.endpoint==='/api/log/self').length,pages);
+  const claude=await f.api.menuBarDetails({days:30,tool:'claude'});assert.equal(claude.cacheReadTokens,null);assert.equal(f.seen.filter(r=>r.endpoint==='/api/log/self').length,pages);
+ }finally{await f.close();}
+});
+
+test('unavailable menu history and incomplete tool attribution never become zero usage',async()=>{
+ const f=await workflow({detailFailure:true,pointFailure:true});try{await f.api.login({username:'fixture-user',password:'pw'});const summary=await f.api.menuBarUsage();assert.equal(summary.user?.quota,10000000);assert.equal(summary.period?.quota,10);assert.equal(summary.period?.tokens,null);assert.equal(summary.period?.points,null);await assert.rejects(f.api.menuBarDetails(),/无权/);}finally{await f.close();}
+ const ts=Math.floor(Date.now()/1000)-1,unknown=await workflow({logs:[{id:1,created_at:ts,type:2,model_name:'model-a',token_name:'Lumi-Codex',prompt_tokens:2,completion_tokens:1,quota:1,use_time:1,is_stream:false,group:'standard'}]});try{await unknown.api.login({username:'fixture-user',password:'pw'});await unknown.api.ensureToolToken({tool:'codex',model:'model-a',group:'standard'});await assert.rejects(unknown.api.menuBarDetails({days:1,tool:'codex'}),/令牌 ID/);}finally{await unknown.close();}
+});
 test('catalog accepts modern object groups, effective zero ratios and auto-route membership',() => {const c=normalizeCatalog({data:[model],usable_group:{standard:{desc:'免费组',ratio:0},auto:{desc:'自动路由'}},auto_groups:['standard'],group_ratio:{standard:0}});assert.equal(c.usableGroups.standard,'免费组');assert.equal(groupRatio(c,'standard'),0);assert.equal(groupRatio(c,'auto'),undefined);assert.deepEqual(availableGroups(model,c),['standard','auto']);});
 test('new settings migrate obsolete demo and reasoning fields without keeping fabricated state',async() => {await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/migrate-'));await writeFile(path.join(root,'settings.json'),JSON.stringify({preferences:{demoMode:true,bindings:[{tool:'codex',model:'old',reasoning:'high',tokenName:'Lumi-Codex',siteId:'cyg-default'}]}}));const store=new SettingsStore(root,cipher);await store.load();assert.equal((store.preferences as any).demoMode,undefined);assert.equal((store.preferences.bindings[0] as any).reasoning,undefined);assert.equal(store.preferences.tokenPrefix,'Lumi-');});
 test('Codex configuration defers reasoning to the tool/model and removes an inherited forced value',() => {const r=buildCodex('model_reasoning_effort = "high"',null,{tool:'codex',model:'model-a',group:'standard'},'https://fixture.invalid','sk-fixture');assert.equal((parse(r.config) as any).model_reasoning_effort,undefined);});

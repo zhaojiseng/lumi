@@ -11,8 +11,10 @@ import {appLogs} from './app-logs';
 import {tokenPoints} from '../../shared/trends';
 import {summarizeQuality} from '../../shared/usage-quality';
 import {trackedToolTokenNames} from '../../shared/utils';
+import {logMetrics} from '../../shared/logs';
+import {DEFAULT_MENU_BAR_SELECTION} from '../../shared/menu-bar';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
-import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality,MenuBarUsage } from '../../shared/types';
+import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality,MenuBarUsage,MenuBarSelection,MenuBarDetails } from '../../shared/types';
 export interface ResolvedToolToken { key: string; tokenName: string; tokenId: number; group: string; created: boolean; siteId: string; siteUrl: string; models?:ModelInfo[]; }
 class ApiError extends Error { constructor(message: string, public status: number, public code?: string) { super(message); } }
 interface Scope { site: SiteProfile; secret: SiteSecret; preferences: Preferences; }
@@ -263,12 +265,12 @@ export class NewApiClient {
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
-  async menuBarUsage(force=false):Promise<MenuBarUsage>{
-    if(!this.snapshot)return this.scope().menuBarUsage(force);
+  async menuBarUsage(force=false,selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarUsage>{
+    if(!this.snapshot)return this.scope().menuBarUsage(force,selection);
     const scope=this.current();if(force)this.cache.invalidate(scope.site.id+'\0');
-    const window=timeRange(1),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],fetchedAt:Date.now(),warnings:[]};
+    const todayWindow=timeRange(1),window=timeRange(selection.days),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],period:{selection,quota:null,tokens:null,requests:null,points:null},fetchedAt:Date.now(),warnings:[]};
     if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...empty,status:await statusTask,user:null};
-    const results=await Promise.allSettled([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.usageData(window),this.request('/api/log/self/stat',{query:{...window,type:2}}).then(j=>j.data as UsageStat),this.tokens()]);
+    const results=await Promise.allSettled([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.usageData(window),this.request('/api/log/self/stat',{query:{...window,type:2}}).then(j=>j.data as UsageStat),this.tokens(),this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j=>j.data as UsageStat)]);
     if(results[0].status==='rejected')throw results[0].reason;
     if(results[1].status==='rejected')throw results[1].reason;
     const points=results[2].status==='fulfilled' ? results[2].value.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp) : null;
@@ -277,7 +279,26 @@ export class NewApiClient {
     const toolResults=await Promise.allSettled(names.map(async b=>({tool:b.tool,quota:((await this.request('/api/log/self/stat',{query:{...window,type:2,token_name:b.name}})).data as UsageStat).quota})));
     const tools=(['codex','claude'] as const).map(tool=>{const rows=toolResults.filter((_,i)=>names[i].tool===tool);return {tool,quota:!rows.length || rows.some(r=>r.status==='rejected') ? null : rows.reduce((sum,r)=>sum+(r as PromiseFulfilledResult<{quota:number}>).value.quota,0)};});
     this.checkScope(scope);await this.validSecret(scope);
-    return {...empty,status:results[0].value,user:results[1].value,today:{quota:results[3].status==='fulfilled' ? results[3].value.quota : points?.reduce((s,p)=>s+p.quota,0) ?? null,tokens:points?.reduce((s,p)=>s+(p.token_used || 0),0) ?? null,requests:points?.reduce((s,p)=>s+(p.count || 0),0) ?? null},tools,fetchedAt:Date.now(),warnings:[...results.slice(2).filter(r=>r.status==='rejected').map(()=> '部分今日统计不可用'),...toolResults.filter(r=>r.status==='rejected').map(()=> '工具统计不可用')]};
+    const today=points?.filter(p=>p.created_at>=todayWindow.start_timestamp) ?? null;
+    return {...empty,status:results[0].value,user:results[1].value,today:{quota:results[5].status==='fulfilled' ? results[5].value.quota : today?.reduce((s,p)=>s+p.quota,0) ?? null,tokens:today?.reduce((s,p)=>s+(p.token_used || 0),0) ?? null,requests:today?.reduce((s,p)=>s+(p.count || 0),0) ?? null},tools,
+      period:{selection,quota:selection.tool==='all' ? results[3].status==='fulfilled' ? results[3].value.quota : points?.reduce((s,p)=>s+p.quota,0) ?? null : tools.find(t=>t.tool===selection.tool)?.quota ?? null,tokens:selection.tool==='all' ? points?.reduce((s,p)=>s+(p.token_used || 0),0) ?? null : null,requests:selection.tool==='all' ? points?.reduce((s,p)=>s+(p.count || 0),0) ?? null : null,points:selection.tool==='all' ? points : null},
+      fetchedAt:Date.now(),warnings:[...results.slice(2).filter(r=>r.status==='rejected').map(()=> '部分统计不可用'),...toolResults.filter(r=>r.status==='rejected').map(()=> '工具统计不可用')]};
+  }
+  async menuBarDetails(selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarDetails>{
+    if(!this.snapshot)return this.scope().menuBarDetails(selection);
+    const scope=this.current(),secret=await this.validSecret(scope),window=timeRange(selection.days);
+    const key=scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex')+':menuDetails:'+JSON.stringify([resolveRange(selection.days).range,selection.tool,scope.preferences.managedTokens,scope.preferences.bindings]);
+    const details=await this.cache.get(key,300000,async()=>{
+      const [complete,tokens]=await Promise.all([this.completeLogs(selection.days,2),selection.tool==='all' ? Promise.resolve([]) : this.tokens()]);
+      const tracked=trackedToolTokenNames(scope.preferences,scope.site.id,tokens).filter(t=>t.tool===selection.tool);
+      if(selection.tool!=='all' && !tracked.length)throw new Error('尚未配置此工具的专用令牌。');
+      const ids=new Set(tracked.map(t=>t.id));
+      const rows=complete.rows.filter(r=>r.type===2 && (selection.tool==='all' || ids.has(r.token_id)));
+      if(selection.tool!=='all' && complete.rows.some(r=>r.token_id===undefined))throw new Error('站点未提供令牌 ID，无法确认工具用量。');
+      const sum=(values:(number|null|undefined)[])=>values.some(v=>typeof v!=='number' || !Number.isFinite(v) || v<0) ? null : (values as number[]).reduce((a,b)=>a+b,0);
+      return {points:tokenPoints(rows,window).map(({token_name,token_id,...point})=>point),quality:summarizeQuality(rows,window,complete.fetchedAt),inputTokens:sum(rows.map(r=>r.prompt_tokens)),outputTokens:sum(rows.map(r=>r.completion_tokens)),cacheReadTokens:sum(rows.map(r=>logMetrics(r).cacheRead)),cacheWriteTokens:sum(rows.map(r=>logMetrics(r).cacheWrite))};
+    });
+    this.checkScope(scope);await this.validSecret(scope);return details;
   }
   async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
     if (!this.snapshot) return this.scope().dashboard(query,force);

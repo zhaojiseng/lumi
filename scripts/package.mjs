@@ -26,6 +26,7 @@ if(process.platform==='darwin'){
   config.extraResources=[
     {from:path.join(config.electronDist,'LICENSE'),to:'licenses/LICENSE.electron.txt'},
     {from:path.join(config.electronDist,'LICENSES.chromium.html'),to:'licenses/LICENSES.chromium.html'},
+    {from:path.join(root,'dist-native/lumi-menu-bar'),to:'native/lumi-menu-bar'},
   ];
 }
 const directory = process.argv.includes('--dir');
