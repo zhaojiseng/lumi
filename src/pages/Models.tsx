@@ -40,10 +40,19 @@ function CatalogChanges({state,persisted,catalogReady,onRead}:{state:CatalogChan
       <div className="catalog-monitor-copy"><strong aria-live="polite">{pending ? `发现 ${pending} 项目录变动` : '本地变动监控'}</strong><span>{!catalogReady ? '等待有效目录，保留上次基线与变动记录' : !state ? '等待完整目录，首次读取仅建立基线' : pending ? `${unread.length} 次更新未读 · 模型增删与计价规则变动` : events.length ? '变动已读，将继续比较后续目录' : '已建立基线，后续模型增删与计价规则变动会在这里提示'}{!persisted && ' · 本地存储不可用，仅本次打开有效'}</span></div>
       <div className="catalog-monitor-actions"><Button variant="ghost" disabled={!events.length} onClick={()=>setOpen(true)}><History size={14}/>查看明细{events.length>0 && <span>{events.length}</span>}</Button>{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部已读</Button>}</div>
     </section>
-    {open && <Modal className="catalog-changes-modal" title="模型目录变动" subtitle="只在本机保存规则指纹和字段变动摘要，保留最近 20 次变动。" onClose={()=>setOpen(false)}>
+    {open && <Modal className="catalog-changes-modal" title="模型目录变动" subtitle="仅在本机保存有限的公共计价规则和价格变动，保留最近 20 次变动。" onClose={()=>setOpen(false)}>
+      <p className="catalog-change-price-note">单价为模型基础价，未乘渠道倍率；渠道倍率单独比较。</p>
       <div className="catalog-change-history">{events.map(event=><section className="catalog-change-event" key={event.id}>
         <div className="catalog-change-event-heading"><time dateTime={new Date(event.detectedAt).toISOString()}>{new Date(event.detectedAt).toLocaleString('zh-CN',{hour12:false})}</time><Pill tone={event.read ? 'muted' : 'orange'}>{event.read ? '已读' : '未读'}</Pill>{!event.read && <button className="text-link" onClick={()=>onRead([event.id])}>标为已读</button>}</div>
-        <ul>{event.changes.map((change,index)=><li key={index}><div><strong>{change.modelName || '站点价格规则'}</strong><Pill tone={change.kind==='added' ? 'green' : change.kind==='removed' ? 'red' : 'orange'}>{change.kind==='added' ? '新增模型' : change.kind==='removed' ? '移除模型' : change.kind==='pricing' ? '计价变动' : '站点规则变动'}</Pill></div>{change.fields.length>0 && <p>{change.fields.map(field=><span key={field}>{CATALOG_CHANGE_LABELS[field]} <code>{field}</code></span>)}</p>}</li>)}</ul>
+        <ul>{event.changes.map((change,index)=><li key={index}>
+          <div><strong>{change.modelName || '站点价格规则'}</strong><Pill tone={change.kind==='added' ? 'green' : change.kind==='removed' ? 'red' : 'orange'}>{change.kind==='added' ? '新增模型' : change.kind==='removed' ? '移除模型' : change.kind==='pricing' ? '计价变动' : '站点规则变动'}</Pill></div>
+          {change.details?.length ? <dl className="catalog-change-details">{change.details.map((detail,detailIndex)=><div className="catalog-change-detail" key={detailIndex}>
+            <dt>{detail.label}</dt>
+            {(detail.before!==undefined || detail.after!==undefined) && <dd className="catalog-change-values"><span className="catalog-change-before">{detail.before ?? '未公布 / 已移除'}</span><span aria-label="变更为">→</span><span className="catalog-change-after">{detail.after ?? '未公布 / 已移除'}</span></dd>}
+            {detail.note && <dd className="catalog-change-note">{detail.note}</dd>}
+            {detail.formula && <dd><details className="catalog-change-formula"><summary>展开公式与条件对比</summary><div><span>原规则</span><code>{detail.formula.before ?? '未公布 / 已移除'}</code></div><div><span>新规则</span><code>{detail.formula.after ?? '未公布 / 已移除'}</code></div></details></dd>}
+          </div>)}</dl> : change.fields.length>0 && <p className="catalog-change-legacy"><span>{change.fields.map(field=>CATALOG_CHANGE_LABELS[field]).join('、')}已变更。</span><span>此历史记录未保存价格值，无法还原旧价。</span></p>}
+        </li>)}</ul>
       </section>)}</div>
       <div className="modal-actions">{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部标为已读</Button>}<Button onClick={()=>setOpen(false)}>关闭</Button></div>
     </Modal>}

@@ -50,3 +50,23 @@ test('skipped, hidden or already reviewed versions do not reprompt, while the ne
   const state={phase:'available' as const,currentVersion:'0.4.20',version,received:0,total:100};
   assert.ok(shouldPromptUpdate(state,'','',''));assert.ok(!shouldPromptUpdate(state,version,'',''));assert.ok(!shouldPromptUpdate(state,'',version,''));assert.ok(!shouldPromptUpdate(state,'','',version));assert.ok(shouldPromptUpdate({...state,version:'0.4.22'},version,'',version));assert.ok(!shouldPromptUpdate({...state,phase:'downloading'},'','',''));
 });
+test('differential transfer bytes remain separate from verified installer size, including full-download fallback',async()=>{
+  const root=await mkdtemp(path.resolve('.test-data/differential-update-')),file=path.join(root,name),observed:{phase:string;received:number;total:number;packageSize?:number}[]=[];
+  const engine:UpdateEngine={check:async()=>info(),download:async(_signal,progress)=>{progress(2,10);progress(10,10);await writeFile(file,bytes);return file;},install:()=>{},onError:()=>()=>{}};
+  const service=new UpdateService({version:'0.4.20',enabled:true,engine});service.subscribe(s=>observed.push(s));await service.check();await service.download();
+  assert.ok(observed.some(s=>s.phase==='downloading' && s.received===2 && s.total===10 && s.packageSize===bytes.length));
+  assert.ok(observed.some(s=>s.phase==='verifying' && s.received===10 && s.total===10));assert.equal(service.snapshot().packageSize,bytes.length);assert.equal(service.snapshot().phase,'ready');
+  engine.download=async(_signal,progress)=>{progress(4,8);progress(5,bytes.length);progress(bytes.length,bytes.length);await writeFile(file,bytes);return file;};
+  const fallback=new UpdateService({version:'0.4.20',enabled:true,engine});await fallback.check();await fallback.download();assert.equal(fallback.snapshot().received,bytes.length);assert.equal(fallback.snapshot().total,bytes.length);
+  engine.download=async(_signal,progress)=>{progress(bytes.length+10,bytes.length+10);await writeFile(file,bytes);return file;};
+  const overhead=new UpdateService({version:'0.4.20',enabled:true,engine});await overhead.check();await overhead.download();assert.equal(overhead.snapshot().received,bytes.length+10);assert.equal(overhead.snapshot().total,bytes.length+10);assert.equal(overhead.snapshot().packageSize,bytes.length,'network transfer must not be clamped to installer size');
+});
+test('cache maintenance blocks new update operations and exposes in-flight/ready package protection',async()=>{
+  const f=await fixture();await f.service.check();let release!:()=>void;
+  const maintenance=f.service.withCacheMaintenance(()=>new Promise<void>(resolve=>{release=resolve;}));
+  assert.equal((await f.service.check()).phase,'available');await assert.rejects(f.service.download(),/缓存/);await assert.rejects(f.service.restart(),/缓存/);
+  release();await maintenance;await f.service.download();assert.deepEqual(f.service.cacheProtection().files,[f.file]);
+  await f.service.withCacheMaintenance(async()=>{await assert.rejects(f.service.restart(),/缓存/);});
+  await f.service.restart();assert.equal(f.service.cacheProtection().busy,true);f.service.close();
+  const downloading=await fixture({blocking:true});await downloading.service.check();const job=downloading.service.download();assert.equal(downloading.service.cacheProtection().busy,true);downloading.service.cancel();await job;
+});

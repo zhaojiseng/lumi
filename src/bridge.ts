@@ -11,9 +11,10 @@ function save() { localStorage.setItem('lumi-ui-preferences',JSON.stringify({the
 const desktopOnly = async (): Promise<never> => { throw new Error('此操作需要在 Lumi Electron 桌面应用中完成。'); };
 async function publicStatus() { const site=preferences.sites.find(s => s.id === preferences.activeSiteId)!;if(site.url===DEFAULT_SITE_URL)return {system_name:'New API',quota_per_unit:0,password_login_enabled:false};const r=await fetch('/_lumi/public-status?site='+encodeURIComponent(site.url),{cache:'no-store'});if (!r.ok) throw new Error('站点信息加载失败，请在桌面应用中连接。');const j=await r.json();if (!j.success) throw new Error(j.message);return j.data; }
 const browserBridge: LumiBridge = {
-  bootstrap:async () => ({preferences:structuredClone(preferences),desktop:false,platform:'browser',version:'0.4.27',secureStorage:false,configs:[]}),
+  bootstrap:async () => ({preferences:structuredClone(preferences),desktop:false,platform:'browser',version:'0.4.28',secureStorage:false,configs:[]}),
   inspectConfigs:async()=>[],
   appLogs:async()=>({startedAt:Date.now(),entries:[],dropped:0}),onAppLog:()=>()=>{},onNavigate:()=>()=>{},onRefresh:()=>()=>{},
+  appCache:desktopOnly,clearAppCache:desktopOnly,
   toolRuntimes:async()=>[],installTool:desktopOnly,onToolRuntime:()=>()=>{},
   saveSite:async (input: SiteInput) => { if (input.accessToken || input.apiKey) return desktopOnly();const u=new URL(input.url);if (!['http:','https:'].includes(u.protocol) || u.username || u.password || u.search || u.hash) throw new Error('请输入有效站点地址。');const id=input.id || crypto.randomUUID();const site={id,name:input.name,url:u.href.replace(/\/$/,''),allowHttp:input.allowHttp,accessTokenConfigured:false,apiKeyConfigured:false};preferences.sites=input.id ? preferences.sites.map(s => s.id === id ? site : s) : [...preferences.sites,site];preferences.activeSiteId=id;return save(); },
   removeSite:async id => { if (preferences.sites.length < 2) throw new Error('请至少保留一个站点。');preferences.sites=preferences.sites.filter(s => s.id !== id);if (preferences.activeSiteId === id) preferences.activeSiteId=preferences.sites[0].id;return save(); },
@@ -21,7 +22,7 @@ const browserBridge: LumiBridge = {
   loginInfo:async () => {const s=await publicStatus();return {enabled:s.password_login_enabled !== false,turnstile:!!s.turnstile_check,encryption:!!s.password_login_encryption_enabled,siteName:s.system_name};},login:desktopOnly,verifyLogin:desktopOnly,browserLogin:desktopOnly,logout:desktopOnly,
   modelHealth:desktopOnly, dashboard:async query => ({status:await publicStatus(),user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days:resolveRange(query).days,range:resolveRange(query).range} satisfies Dashboard),
   logs:desktopOnly,localUsage:desktopOnly,previewConfig:desktopOnly,applyConfig:desktopOnly,backups:async () => [],restoreBackup:desktopOnly,createToken:desktopOnly,toggleToken:desktopOnly,updateToken:desktopOnly,getTokenKey:desktopOnly,copyTokenKey:desktopOnly,exportLogs:desktopOnly,
-  tokenUsage:desktopOnly,usageQuality:desktopOnly,updateStatus:async()=>({phase:'unsupported',currentVersion:'0.4.27',received:0,total:0}),checkUpdate:desktopOnly,downloadUpdate:desktopOnly,cancelUpdate:desktopOnly,showUpdateFile:desktopOnly,openUpdateFile:desktopOnly,restartUpdate:desktopOnly,onUpdate:()=>()=>{},onReviewUpdate:()=>()=>{},
+  tokenUsage:desktopOnly,usageQuality:desktopOnly,updateStatus:async()=>({phase:'unsupported',currentVersion:'0.4.28',received:0,total:0}),checkUpdate:desktopOnly,downloadUpdate:desktopOnly,cancelUpdate:desktopOnly,showUpdateFile:desktopOnly,openUpdateFile:desktopOnly,restartUpdate:desktopOnly,onUpdate:()=>()=>{},onReviewUpdate:()=>()=>{},
   openExternal:async url => {const u=new URL(url);if (!['http:','https:'].includes(u.protocol)) throw new Error('不支持此链接。');window.open(u.href,'_blank','noopener,noreferrer');},windowControl:async () => {},
 };
 export const bridge=window.lumi || browserBridge;

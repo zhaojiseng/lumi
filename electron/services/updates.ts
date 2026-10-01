@@ -36,40 +36,52 @@ async function verifyFile(file:string,expected:{size:number;hash:string;algorith
 export class UpdateService {
   private state:UpdateState;private release?:ReturnType<typeof validateUpdate>;private ready?:string;
   private checking?:Promise<UpdateState>;private downloading?:Promise<UpdateState>;private installing?:Promise<void>;private controller?:AbortController;
+  private maintenance=false;
   private listeners=new Set<(state:UpdateState)=>void>();private stopError?:()=>void;
   constructor(private options:{version:string;enabled:boolean;engine?:UpdateEngine;target?:'windows'|'mac-arm64';}){
     versionParts(options.version);this.state={phase:options.enabled ? 'idle' : 'unsupported',currentVersion:options.version,received:0,total:0,installMode:options.target==='mac-arm64' ? 'replace' : 'restart'};
     this.stopError=options.engine?.onError(()=>{if(this.state.phase==='installing')this.set({phase:'error',error:'更新安装未能启动，请重试。'});});
   }
   snapshot(){return structuredClone(this.state);}
+  cacheProtection(){return {busy:!!this.checking || !!this.downloading || ['downloading','verifying','installing'].includes(this.state.phase),files:this.ready ? [this.ready] : []};}
+  /** Do not let a new update start midway through a cache scan/delete transaction. Existing downloads are protected. */
+  async withCacheMaintenance<T>(work:()=>Promise<T>):Promise<T>{
+    if(this.maintenance)throw new Error('缓存正在清理，请稍后重试。');
+    this.maintenance=true;try{return await work();}finally{this.maintenance=false;}
+  }
   subscribe(listener:(state:UpdateState)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   private set(patch:Partial<UpdateState>){this.state={...this.state,...patch};for(const listener of this.listeners)listener(this.snapshot());}
   check():Promise<UpdateState>{
-    if(!this.options.enabled || this.downloading || this.state.phase==='ready' || this.state.phase==='installing')return Promise.resolve(this.snapshot());
+    if(this.maintenance || !this.options.enabled || this.downloading || this.state.phase==='ready' || this.state.phase==='installing')return Promise.resolve(this.snapshot());
     if(this.checking)return this.checking;const job=this.performCheck();this.checking=job;return job.finally(()=>{if(this.checking===job)this.checking=undefined;});
   }
   private async performCheck(){
-    this.release=undefined;this.set({phase:'checking',error:undefined,version:undefined,releaseUrl:undefined,releaseNotes:undefined,received:0,total:0});
+    this.release=undefined;this.set({phase:'checking',error:undefined,version:undefined,releaseUrl:undefined,releaseNotes:undefined,packageSize:undefined,received:0,total:0});
     try{
       const info=await this.options.engine!.check();if(!info)throw new Error('更新检查暂不可用。');
       const version=versionParts(info.version).join('.');this.release=undefined;
       if(!newerVersion(version,this.options.version))this.set({phase:'current',version:undefined,received:0,total:0,checkedAt:Date.now()});
-      else{this.release=validateUpdate(info,this.options.target);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,releaseNotes:releaseNotesText(info.releaseNotes,version),received:0,total:this.release.size,checkedAt:Date.now()});}
+      else{this.release=validateUpdate(info,this.options.target);this.set({phase:'available',version:this.release.version,releaseUrl:this.release.releaseUrl,releaseNotes:releaseNotesText(info.releaseNotes,version),packageSize:this.release.size,received:0,total:this.release.size,checkedAt:Date.now()});}
     }catch(e){this.set({phase:'error',error:e instanceof Error && /^更新/.test(e.message) ? e.message : '更新检查失败，请检查网络后重试。'});}
     return this.snapshot();
   }
   download():Promise<UpdateState>{
+    if(this.maintenance)return Promise.reject(new Error('缓存正在清理，请稍后更新。'));
     if(this.downloading)return this.downloading;
     if(!this.release || !['available','error'].includes(this.state.phase))return Promise.reject(new Error('请先检查可用更新。'));
     this.controller=new AbortController();const job=this.performDownload(this.controller);this.downloading=job;return job.finally(()=>{if(this.downloading===job){this.downloading=undefined;this.controller=undefined;}});
   }
   private async performDownload(controller:AbortController){
-    const release=this.release!;this.ready=undefined;this.set({phase:'downloading',received:0,total:release.size,error:undefined});
+    const release=this.release!;this.ready=undefined;this.set({phase:'downloading',received:0,total:0,error:undefined});
     try{
-      const file=await this.options.engine!.download(controller.signal,(received,_total)=>{if(!controller.signal.aborted && Number.isFinite(received) && received>=0)this.set({received:Math.min(received,release.size),total:release.size});});
-      controller.signal.throwIfAborted();this.set({phase:'verifying',received:release.size});await verifyFile(file,release);controller.signal.throwIfAborted();
+      const file=await this.options.engine!.download(controller.signal,(received,total)=>{
+        if(controller.signal.aborted || !Number.isFinite(received) || received<0)return;
+        const transferTotal=Number.isFinite(total) && total>0 ? total : 0;
+        this.set({received,total:transferTotal});
+      });
+      controller.signal.throwIfAborted();this.set({phase:'verifying'});await verifyFile(file,release);controller.signal.throwIfAborted();
       this.ready=file;this.set({phase:'ready'});
-    }catch(e){this.set(controller.signal.aborted ? {phase:'available',received:0,error:undefined} : {phase:'error',error:e instanceof Error && /^更新/.test(e.message) ? e.message : '更新下载失败，请检查网络后重试。'});}
+    }catch(e){this.set(controller.signal.aborted ? {phase:'available',received:0,total:release.size,error:undefined} : {phase:'error',error:e instanceof Error && /^更新/.test(e.message) ? e.message : '更新下载失败，请检查网络后重试。'});}
     return this.snapshot();
   }
   cancel(){this.controller?.abort();}
@@ -80,12 +92,14 @@ export class UpdateService {
   }
   /** Open the verified DMG before quitting; a Finder failure must keep Lumi running. */
   openMacInstaller(open:(file:string)=>Promise<string>,quit:()=>void):Promise<void>{
+    if(this.maintenance)return Promise.reject(new Error('缓存正在清理，请稍后更新。'));
     if(this.options.target!=='mac-arm64')return Promise.reject(new Error('此操作仅适用于 macOS 更新。'));
     if(this.installing)return this.installing;
     const job=(async()=>{const file=await this.readyFile();this.set({phase:'installing',error:undefined});try{const error=await open(file);if(error)throw new Error(error);quit();}catch{this.set({phase:'ready',error:'无法打开更新安装包，请重试。'});throw new Error(this.state.error);}})();
     this.installing=job;return job.finally(()=>{if(this.installing===job)this.installing=undefined;});
   }
   restart():Promise<void>{
+    if(this.maintenance)return Promise.reject(new Error('缓存正在清理，请稍后更新。'));
     if(this.options.target==='mac-arm64')return Promise.reject(new Error('macOS 更新请打开已下载的 DMG，并替换 Applications 中的 Lumi。'));
     if(this.installing)return this.installing;
     const job=(async()=>{await this.readyFile();this.set({phase:'installing',error:undefined});try{this.options.engine!.install();}catch{this.set({phase:'error',error:'更新安装未能启动，请重试。'});throw new Error(this.state.error);}})();

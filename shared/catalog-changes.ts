@@ -1,4 +1,5 @@
 import type {ModelCatalog,ModelInfo,SiteStatus} from './types';
+import {catalogPricingDetails,modelPricingDetails,publicCatalogPricing,publicModelPricing,readCatalogChangeDetails,readPublicCatalogPricing,readPublicModelPricing,type CatalogChangeDetail,type PublicCatalogPricing,type PublicModelPricing} from './catalog-change-details';
 
 export const CATALOG_CHANGES_KEY = 'lumi.models.catalog-changes.v1';
 export const CATALOG_CHANGES_EVENT = 'lumi:catalog-changes';
@@ -19,16 +20,20 @@ const catalogFields = ['groupRatio','usableGroups','autoGroups','quota_per_unit'
 type Fingerprints = Partial<Record<CatalogChangeField,string>>;
 export interface CatalogSnapshot {
   fingerprint:string;
-  models:{name:string;fingerprint:string;fields:Fingerprints}[];
+  models:{name:string;fingerprint:string;fields:Fingerprints;pricing?:PublicModelPricing;pricingHash?:string}[];
   fields:Fingerprints;
+  pricing?:PublicCatalogPricing;
+  pricingHash?:string;
 }
 export interface CatalogChange {
   kind:'added'|'removed'|'pricing'|'catalog';
   modelName?:string;
   fields:CatalogChangeField[];
+  details?:CatalogChangeDetail[];
+  detailsHash?:string;
 }
 export interface CatalogChangeEvent {id:string;detectedAt:number;read:boolean;changes:CatalogChange[];}
-export interface CatalogChangeState {version:1;revision:number;baseline:CatalogSnapshot;events:CatalogChangeEvent[];}
+export interface CatalogChangeState {version:1|2;revision:number;baseline:CatalogSnapshot;events:CatalogChangeEvent[];}
 export interface CatalogChangeStorage {getItem(key:string):string|null;setItem(key:string,value:string):void;}
 export interface CatalogChangeSite {id:string;url:string;}
 export interface CatalogChangeView {key:string;state:CatalogChangeState|null;persisted:boolean;pendingCount:number;}
@@ -93,8 +98,8 @@ function snapshotFingerprint(models:CatalogSnapshot['models'],fields:Fingerprint
 /** Compare published rules only: never evaluate a time-dependent expression here. */
 export function createCatalogSnapshot(catalog:ModelCatalog,status:SiteStatus):CatalogSnapshot {
   const models=catalog.models.map(model=>{
-    const fields=fieldFingerprints(modelValues(model),modelFields);
-    return {name:model.model_name,fingerprint:modelFingerprint(model.model_name,fields),fields};
+    const fields=fieldFingerprints(modelValues(model),modelFields),pricing=publicModelPricing(model);
+    return {name:model.model_name,fingerprint:modelFingerprint(model.model_name,fields),fields,pricing,pricingHash:fingerprint(pricing)};
   }).sort((a,b)=>a.name.localeCompare(b.name));
   const type=status.quota_display_type || 'USD';
   const fields=fieldFingerprints({
@@ -103,32 +108,39 @@ export function createCatalogSnapshot(catalog:ModelCatalog,status:SiteStatus):Ca
     currency:[type,type==='CUSTOM' ? scalar(status.custom_currency_exchange_rate ?? 1) : type==='CNY' ? scalar(status.usd_exchange_rate ?? 1) : 1,
       type==='CUSTOM' ? status.custom_currency_symbol || '¤' : null],
   },catalogFields);
-  return {fingerprint:snapshotFingerprint(models,fields),models,fields};
+  const pricing=publicCatalogPricing(catalog,status);
+  return {fingerprint:snapshotFingerprint(models,fields),models,fields,pricing,pricingHash:fingerprint(pricing)};
 }
 function changedFields(before:Fingerprints,after:Fingerprints,keys:readonly CatalogChangeField[]):CatalogChangeField[] {
   return keys.filter(key=>before[key]!==after[key]);
 }
-export function diffCatalogSnapshots(before:CatalogSnapshot,after:CatalogSnapshot):CatalogChange[] {
+export function diffCatalogSnapshots(before:CatalogSnapshot,after:CatalogSnapshot,detectedAt=Date.now()):CatalogChange[] {
   if(before.fingerprint===after.fingerprint)return [];
   const previous=new Map(before.models.map(model=>[model.name,model])),next=new Map(after.models.map(model=>[model.name,model]));
   const changes:CatalogChange[]=[];
   for(const model of after.models) {
     const old=previous.get(model.name);
     if(!old)changes.push({kind:'added',modelName:model.name,fields:[]});
-    else if(old.fingerprint!==model.fingerprint)changes.push({kind:'pricing',modelName:model.name,fields:changedFields(old.fields,model.fields,modelFields)});
+    else if(old.fingerprint!==model.fingerprint){
+      const details=old.pricing && model.pricing && before.pricing && after.pricing ? modelPricingDetails(old.pricing,model.pricing,before.pricing,after.pricing,detectedAt) : undefined;
+      changes.push({kind:'pricing',modelName:model.name,fields:changedFields(old.fields,model.fields,modelFields),...(details ? {details,detailsHash:fingerprint(details)} : {})});
+    }
   }
   for(const model of before.models)if(!next.has(model.name))changes.push({kind:'removed',modelName:model.name,fields:[]});
   const fields=changedFields(before.fields,after.fields,catalogFields);
-  if(fields.length)changes.push({kind:'catalog',fields});
+  if(fields.length){const details=before.pricing && after.pricing ? catalogPricingDetails(before.pricing,after.pricing) : undefined;changes.push({kind:'catalog',fields,...(details ? {details,detailsHash:fingerprint(details)} : {})});}
   return changes;
 }
 export function advanceCatalogChanges(state:CatalogChangeState|null,snapshot:CatalogSnapshot,detectedAt=Date.now()):CatalogChangeState {
-  if(!state)return {version:1,revision:0,baseline:snapshot,events:[]};
-  const changes=diffCatalogSnapshots(state.baseline,snapshot);
-  if(!changes.length)return state;
+  if(!state)return {version:2,revision:0,baseline:snapshot,events:[]};
+  // v1 hashes still confirm real changes, but cannot reconstruct any old public values.
+  const upgrading=state.version===1 || !state.baseline.pricing || state.baseline.models.some(model=>!model.pricing);
+  const diff=diffCatalogSnapshots(state.baseline,snapshot,detectedAt);
+  const changes=upgrading ? diff.map(({details,detailsHash,...change})=>change) : diff;
+  if(!changes.length)return upgrading ? {version:2,revision:state.revision,baseline:snapshot,events:state.events} : state;
   const revision=state.revision+1;
   const event:CatalogChangeEvent={id:revision+':'+snapshot.fingerprint,detectedAt,read:false,changes};
-  return {version:1,revision,baseline:snapshot,events:[event,...state.events].slice(0,MAX_EVENTS)};
+  return {version:2,revision,baseline:snapshot,events:[event,...state.events].slice(0,MAX_EVENTS)};
 }
 export function markCatalogChangesRead(state:CatalogChangeState,eventIds=state.events.map(event=>event.id)):CatalogChangeState {
   const ids=new Set(eventIds);
@@ -146,23 +158,27 @@ function readFields(value:unknown,keys:readonly CatalogChangeField[]):Fingerprin
   if(!record(value) || Object.keys(value).length!==keys.length || !keys.every(key=>hash(value[key])))return null;
   return Object.fromEntries(keys.map(key=>[key,value[key]]));
 }
-function readSnapshot(value:unknown):CatalogSnapshot|null {
+function readSnapshot(value:unknown,withPricing:boolean):CatalogSnapshot|null {
   if(!record(value) || !hash(value.fingerprint) || !Array.isArray(value.models) || value.models.length>MAX_MODELS)return null;
   const fields=readFields(value.fields,catalogFields);
   if(!fields)return null;
+  const pricing=withPricing ? readPublicCatalogPricing(value.pricing) : null;
+  if(withPricing && (!pricing || value.pricingHash!==fingerprint(pricing)))return null;
   const models:CatalogSnapshot['models']=[],names=new Set<string>();
   for(const model of value.models) {
     if(!record(model) || typeof model.name!=='string' || !model.name || model.name.length>500 || names.has(model.name))return null;
     const rules=readFields(model.fields,modelFields);
     if(!rules || model.fingerprint!==modelFingerprint(model.name,rules))return null;
-    names.add(model.name);models.push({name:model.name,fingerprint:model.fingerprint as string,fields:rules});
+    const modelPricing=withPricing ? readPublicModelPricing(model.pricing) : null;
+    if(withPricing && (!modelPricing || model.pricingHash!==fingerprint(modelPricing)))return null;
+    names.add(model.name);models.push({name:model.name,fingerprint:model.fingerprint as string,fields:rules,...(modelPricing ? {pricing:modelPricing,pricingHash:fingerprint(modelPricing)} : {})});
   }
   models.sort((a,b)=>a.name.localeCompare(b.name));
-  return value.fingerprint===snapshotFingerprint(models,fields) ? {fingerprint:value.fingerprint,models,fields} : null;
+  return value.fingerprint===snapshotFingerprint(models,fields) ? {fingerprint:value.fingerprint,models,fields,...(pricing ? {pricing,pricingHash:fingerprint(pricing)} : {})} : null;
 }
 function readState(value:unknown):CatalogChangeState|null {
-  if(!record(value) || value.version!==1 || !Number.isSafeInteger(value.revision) || (value.revision as number)<0 || !Array.isArray(value.events) || value.events.length>MAX_EVENTS)return null;
-  const baseline=readSnapshot(value.baseline);
+  if(!record(value) || (value.version!==1 && value.version!==2) || !Number.isSafeInteger(value.revision) || (value.revision as number)<0 || !Array.isArray(value.events) || value.events.length>MAX_EVENTS)return null;
+  const baseline=readSnapshot(value.baseline,value.version===2);
   if(!baseline)return null;
   const events:CatalogChangeEvent[]=[],ids=new Set<string>();
   for(const event of value.events) {
@@ -178,17 +194,20 @@ function readState(value:unknown):CatalogChangeState|null {
       if(change.fields.some(key=>!(keys as readonly unknown[]).includes(key)) || new Set(change.fields).size!==change.fields.length)return null;
       if((kind==='added' || kind==='removed') ? change.fields.length!==0 : change.fields.length===0)return null;
       if(kind!=='catalog' && (typeof change.modelName!=='string' || !change.modelName || change.modelName.length>500))return null;
-      changes.push({kind,...(kind==='catalog' ? {} : {modelName:change.modelName as string}),fields:change.fields as CatalogChangeField[]});
+      const details=value.version===2 && change.details!==undefined ? readCatalogChangeDetails(change.details) : undefined;
+      if(details===null || details && (kind==='added' || kind==='removed' || change.detailsHash!==fingerprint(details)))return null;
+      if(value.version===2 && change.details===undefined && change.detailsHash!==undefined)return null;
+      changes.push({kind,...(kind==='catalog' ? {} : {modelName:change.modelName as string}),fields:change.fields as CatalogChangeField[],...(details ? {details,detailsHash:fingerprint(details)} : {})});
     }
     ids.add(event.id);events.push({id:event.id,detectedAt:event.detectedAt,read:event.read,changes});
   }
   // Reconstruct only our schema, dropping unexpected persisted properties.
-  return {version:1,revision:value.revision as number,baseline,events};
+  return {version:value.version,revision:value.revision as number,baseline,events};
 }
 export function readCatalogChanges(storage:CatalogChangeStorage|null,key:string):CatalogChangeState|null {
   try {
     const raw=storage?.getItem(key);
-    return raw && raw.length<=MAX_BYTES ? readState(JSON.parse(raw)) : null;
+    return raw && raw.length<=MAX_BYTES && new TextEncoder().encode(raw).byteLength<=MAX_BYTES ? readState(JSON.parse(raw)) : null;
   } catch {return null;}
 }
 export function writeCatalogChanges(storage:CatalogChangeStorage|null,key:string,state:CatalogChangeState):boolean {
@@ -197,7 +216,7 @@ export function writeCatalogChanges(storage:CatalogChangeStorage|null,key:string
     const safe=readState(state);
     if(!safe)return false;
     const raw=JSON.stringify(safe);
-    if(raw.length>MAX_BYTES)return false;
+    if(new TextEncoder().encode(raw).byteLength>MAX_BYTES)return false;
     storage.setItem(key,raw);return true;
   } catch {return false;}
 }

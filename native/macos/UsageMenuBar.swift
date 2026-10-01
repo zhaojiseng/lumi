@@ -31,6 +31,7 @@ final class SpendChart: NSView {
     private var heights: [CGFloat] = []
     private var targetHeights: [CGFloat] = []
     private var animation: Timer?
+    var animatesChanges = false { didSet { if !animatesChanges { cancelAnimation() } } }
     private var hover: Int? { didSet { needsDisplay = true; detail?(hover.flatMap { points?[$0] }) } }
     var detail: ((ChartPoint?) -> Void)?
     private var tracking: NSTrackingArea?
@@ -41,7 +42,7 @@ final class SpendChart: NSView {
         let target = points?.map { $0.value > 0 ? max(2, (bounds.height - 4) * CGFloat($0.value / maximum)) : 2 } ?? []
         if target == targetHeights { return }; targetHeights = target
         animation?.invalidate(); animation = nil
-        guard window != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !target.isEmpty else { heights = target; return }
+        guard animatesChanges, window?.isVisible == true, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !target.isEmpty else { heights = target; return }
         let from = heights.count == target.count ? heights : Array(repeating: CGFloat(2), count: target.count)
         let started = CACurrentMediaTime()
         let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
@@ -52,6 +53,10 @@ final class SpendChart: NSView {
             if progress >= 1 { timer.invalidate(); self.animation = nil }
         }
         animation = timer; RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+    func cancelAnimation() {
+        animation?.invalidate(); animation = nil
+        heights = targetHeights; needsDisplay = true
     }
     deinit { animation?.invalidate() }
     override func updateTrackingAreas() {
@@ -105,9 +110,11 @@ final class UsageCard: NSView {
     private var sectionViews: [MenuBarSection: [(NSView, NSRect)]] = [:]
     private var buildingSection: MenuBarSection?
     private var state: UsageState?
-    private var pendingSelectionDirection: CGFloat?
+    private var displayedModelCount = 0
+    private var isMenuTracking = false
     private var pendingSelectionSections = Set<MenuBarSection>()
-    private var transitionViews: [(NSView, NSRect)] = []
+    private var transitionViews: [NSView] = []
+    private var transitionGeneration: UInt64 = 0
     private var suppressValueAnimations = false
     private var accessibilityObserver: NSObjectProtocol?
     var selected: ((Int, String) -> Void)?
@@ -146,6 +153,7 @@ final class UsageCard: NSView {
         field(speed, x: 196, y: 241, width: 166, size: 14, weight: .medium)
         buildingSection = .chart
         field(chartTitle, x: 18, y: 270, width: 344, size: 11, weight: .medium)
+        chart.wantsLayer = true
         chart.frame = NSRect(x: 18, y: 289, width: 344, height: 53); addSubview(chart)
         sectionViews[.chart, default: []].append((chart, chart.frame))
         chart.detail = { [weak self] point in
@@ -165,7 +173,7 @@ final class UsageCard: NSView {
         reflow(MenuBarSection.allCases, modelCount: 0)
         setAccessibilityLabel("Lumi 用量面板")
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { self?.cancelSelectionTransition() }
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { self?.cancelSelectionTransition(); self?.chart.cancelAnimation() }
         }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unavailable") }
@@ -174,12 +182,14 @@ final class UsageCard: NSView {
     }
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { cancelSelectionTransition() }
+        if window == nil { setMenuTracking(false) }
     }
     private func label(_ text: String, x: CGFloat, y: CGFloat, width: CGFloat, size: CGFloat, weight: NSFont.Weight = .regular, muted: Bool = false) {
         field(NSTextField(labelWithString: text), x: x, y: y, width: width, size: size, weight: weight, muted: muted)
     }
     private func field(_ field: NSTextField, x: CGFloat, y: CGFloat, width: CGFloat, size: CGFloat, weight: NSFont.Weight = .regular, muted: Bool = false) {
+        // Create backing layers before any hidden-row parking or later menu reflow.
+        field.wantsLayer = true
         field.frame = NSRect(x: x, y: y, width: width, height: size + 7)
         field.font = NSFont.systemFont(ofSize: size, weight: weight)
         field.textColor = muted ? .secondaryLabelColor : .labelColor
@@ -188,6 +198,9 @@ final class UsageCard: NSView {
         if let buildingSection { sectionViews[buildingSection, default: []].append((field, field.frame)) }
     }
     private func reflow(_ contents: [MenuBarSection], modelCount: Int) {
+        withoutAnimations { reflowImmediately(contents, modelCount: modelCount); layoutSubtreeIfNeeded() }
+    }
+    private func reflowImmediately(_ contents: [MenuBarSection], modelCount: Int) {
         let visible = Set(contents)
         let rows = max(1, min(3, modelCount))
         var y: CGFloat = 122
@@ -212,7 +225,7 @@ final class UsageCard: NSView {
     func apply(_ state: UsageState) {
         let previous = self.state
         restoreSelectionContent()
-        if let previous {
+        if isMenuTracking, window?.isVisible == true, let previous {
             let oldTool = previous.tool == "codex" ? 1 : previous.tool == "claude" ? 2 : 0
             let newTool = state.tool == "codex" ? 1 : state.tool == "claude" ? 2 : 0
             let oldDays = previous.days == 7 ? 1 : previous.days == 30 ? 2 : 0
@@ -224,11 +237,11 @@ final class UsageCard: NSView {
             if oldTool != newTool || chartChanged { sections.insert(.chart) }
             if !sections.isEmpty {
                 pendingSelectionSections.formUnion(sections)
-                let delta = oldTool != newTool ? newTool - oldTool : newDays - oldDays
-                pendingSelectionDirection = delta == 0 ? 0 : delta > 0 ? 1 : -1
             }
+        } else {
+            pendingSelectionSections.removeAll()
         }
-        suppressValueAnimations = pendingSelectionDirection != nil
+        suppressValueAnimations = !pendingSelectionSections.isEmpty
         defer { suppressValueAnimations = false }
         self.state = state
         let toolSegment = state.tool == "codex" ? 1 : state.tool == "claude" ? 2 : 0
@@ -237,10 +250,12 @@ final class UsageCard: NSView {
         if tools.selectedSegment != toolSegment { tools.selectedSegment = toolSegment }
         if days.selectedSegment != daySegment { days.selectedSegment = daySegment }
         if ["idle", "loading"].contains(state.phase), let previous, let key = previous.viewKey, key == state.viewKey {
-            reflow(state.contents ?? MenuBarSection.allCases, modelCount: previous.models.count)
+            // Loading snapshots contain no model rows; preserve the last rendered geometry.
+            reflow(state.contents ?? MenuBarSection.allCases, modelCount: displayedModelCount)
             footer.stringValue = "正在刷新用量…"; return
         }
         reflow(state.contents ?? MenuBarSection.allCases, modelCount: state.models.count)
+        displayedModelCount = state.models.count
         title.stringValue = state.siteName; account.stringValue = state.accountLabel
         totalsTitle.stringValue = state.totalsCaption.map { $0 + "消费" } ?? "本期消费"; totalsTitle.toolTip = totalsTitle.stringValue
         setValue(balance, state.balance); setValue(cost, state.cost); setValue(tokens, state.tokens); setValue(requests, state.requests)
@@ -256,61 +271,75 @@ final class UsageCard: NSView {
         }
         footer.stringValue = state.message + " · " + state.updatedLabel; footer.toolTip = footer.stringValue
         // Wait for the selected data, so loading packets do not restart the content animation.
-        if !["idle", "loading"].contains(state.phase), let direction = pendingSelectionDirection {
+        if !["idle", "loading"].contains(state.phase), !pendingSelectionSections.isEmpty {
             let sections = pendingSelectionSections
-            pendingSelectionDirection = nil
             pendingSelectionSections.removeAll()
-            animateSelectionContent(direction: direction, sections: sections)
+            animateSelectionContent(sections: sections)
         }
         needsDisplay = true
     }
+    private func withoutAnimations(_ changes: () -> Void) {
+        NSAnimationContext.beginGrouping()
+        let context = NSAnimationContext.current
+        context.duration = 0; context.allowsImplicitAnimation = false
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        changes()
+        CATransaction.commit()
+        NSAnimationContext.endGrouping()
+    }
     private func restoreSelectionContent() {
-        guard !transitionViews.isEmpty else { return }
-        // Replace in-flight animations through AppKit, which owns the backing layers.
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0
-            for (view, frame) in transitionViews {
-                view.animator().frame = frame; view.animator().alphaValue = 1
-            }
-        }
+        transitionGeneration &+= 1
+        let views = transitionViews
         transitionViews.removeAll()
+        guard !views.isEmpty else { return }
+        // Cancel only opacity. Never replay frames captured before the latest reflow.
+        withoutAnimations {
+            for view in views { view.animator().alphaValue = 1; view.alphaValue = 1 }
+        }
     }
     func cancelSelectionTransition() {
-        pendingSelectionDirection = nil
         pendingSelectionSections.removeAll()
         restoreSelectionContent()
     }
-    private func animateSelectionContent(direction: CGFloat, sections: Set<MenuBarSection>) {
-        guard window?.isVisible == true, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
-        // Animate only content. NSMenu and NSSegmentedControl retain their system materials.
-        transitionViews = MenuBarSection.allCases.filter { sections.contains($0) }.flatMap { sectionViews[$0] ?? [] }.compactMap { view, _ in
-            view.isHidden ? nil : (view, view.frame)
+    func setMenuTracking(_ tracking: Bool) {
+        isMenuTracking = tracking
+        cancelSelectionTransition()
+        chart.animatesChanges = tracking
+    }
+    private func animateSelectionContent(sections: Set<MenuBarSection>) {
+        let views = MenuBarSection.allCases.filter { sections.contains($0) }.flatMap { sectionViews[$0] ?? [] }.compactMap { view, _ in
+            view.isHidden ? nil : view
         }
-        for (view, frame) in transitionViews {
-            // Transparent backing layers let AppKit animate frame/opacity during menu tracking.
-            view.wantsLayer = true
-            view.frame = frame.offsetBy(dx: direction * 6, dy: 0); view.alphaValue = 0.72
+        fadeContent(views, duration: 0.20)
+    }
+    private func fadeContent(_ views: [NSView], duration: TimeInterval) {
+        guard isMenuTracking, window?.isVisible == true, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, !views.isEmpty else { return }
+        let generation = transitionGeneration
+        transitionViews.append(contentsOf: views)
+        // Geometry and backing layers are settled before opacity changes; no frame animator.
+        withoutAnimations {
+            layoutSubtreeIfNeeded()
+            for view in views { view.alphaValue = 0.72 }
         }
         // https://developer.apple.com/documentation/appkit/nsanimationcontext
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.20; context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            for (view, frame) in transitionViews {
-                view.animator().frame = frame; view.animator().alphaValue = 1
-            }
-        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration; context.allowsImplicitAnimation = false
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            for view in views { view.animator().alphaValue = 1 }
+        }, completionHandler: { [weak self] in
+            guard let self, self.transitionGeneration == generation else { return }
+            self.transitionViews.removeAll { view in views.contains { $0 === view } }
+        })
     }
     private func setValue(_ field: NSTextField, _ value: String) {
         guard field.stringValue != value else { return }
         field.stringValue = value
-        guard !suppressValueAnimations, window != nil, !field.isHidden, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { field.alphaValue = 1; return }
-        field.alphaValue = 0.7
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18; context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            field.animator().alphaValue = 1
-        }
+        guard !suppressValueAnimations, !field.isHidden else { field.alphaValue = 1; return }
+        fadeContent([field], duration: 0.18)
     }
     @objc private func changeSelection() {
         guard (0..<3).contains(days.selectedSegment), (0..<3).contains(tools.selectedSegment) else { return }
+        restoreSelectionContent()
         selected?([1, 7, 30][days.selectedSegment], ["all", "codex", "claude"][tools.selectedSegment])
     }
 }
@@ -368,8 +397,8 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ["overview", "usage", "settings"].contains(action) { emit(["type": "navigate", "page": action]) }
         else { emit(["type": action]) }
     }
-    func menuWillOpen(_ menu: NSMenu) { menu.appearance = NSApp.effectiveAppearance; emit(["type": "opened"]) }
-    func menuDidClose(_ menu: NSMenu) { card.cancelSelectionTransition(); emit(["type": "closed"]) }
+    func menuWillOpen(_ menu: NSMenu) { card.setMenuTracking(true); menu.appearance = NSApp.effectiveAppearance; emit(["type": "opened"]) }
+    func menuDidClose(_ menu: NSMenu) { card.setMenuTracking(false); emit(["type": "closed"]) }
     private func readInput() {
         var buffer = [UInt8](repeating: 0, count: 16384)
         let count = read(STDIN_FILENO, &buffer, buffer.count)

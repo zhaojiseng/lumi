@@ -4,6 +4,7 @@ import {bridge} from '../bridge';
 import {useApp} from '../context';
 import {Button,Logo,Modal} from './ui';
 import {shouldPromptUpdate} from '../../shared/updates';
+import {updateDownloadDisplay} from '../../shared/bytes';
 import type {UpdateState} from '../../shared/types';
 
 const UpdateContext=createContext<{state:UpdateState|null;review():Promise<void>}|null>(null);
@@ -46,14 +47,21 @@ export function UpdateDialogProvider({children}:{children:ReactNode}){
     }catch(e){setError(e instanceof Error ? e.message : '更新失败，请重试。');}
     finally{running.current=false;setOperating(false);}
   };
-  const busy=operating || !!state && ['downloading','verifying','installing'].includes(state.phase),progress=state?.total ? Math.min(100,state.received/state.total*100) : 0;
-  const progressLabel=state?.phase==='downloading' ? `正在下载 ${Math.floor(progress)}%` : state?.phase==='verifying' ? '正在校验安装包' : state?.phase==='installing' ? state.installMode==='replace' ? '正在打开 Finder…' : '正在重启更新…' : '准备更新…';
+  const busy=operating || !!state && ['downloading','verifying','installing'].includes(state.phase);
+  const display=state ? updateDownloadDisplay(state) : null,progress=display?.percent ?? null;
+  const progressLabel=state?.phase==='downloading' ? '正在下载'+(progress===null ? '' : ` ${Math.floor(progress)}%`) : state?.phase==='verifying' ? '正在校验安装包' : state?.phase==='installing' ? state.installMode==='replace' ? '正在打开 Finder…' : '正在重启更新…' : '准备更新…';
   return <UpdateContext.Provider value={{state,review}}>{children}{open && state?.version && <Modal title="Lumi 有新版本" subtitle={'v'+state.currentVersion+' → v'+state.version} onClose={close} className="update-release-modal">
     <div className="release-summary"><Logo small/><div><strong>Lumi {state.version}</strong><span>{state.installMode==='replace' ? '下载后自动退出，并打开 Finder 安装窗口' : '下载后自动重启，完成更新'}</span></div></div>
     <div className="release-notes-scroll" tabIndex={0} aria-label="更新内容"><ReleaseNotes notes={state.releaseNotes || ''}/></div>
     {state.releaseUrl && <button className="text-link release-github" onClick={()=>void bridge.openExternal(state.releaseUrl!).catch(e=>setError(e.message))}>在 GitHub 查看完整说明<ExternalLink size={13}/></button>}
     {(error || state.error) && <p className="release-error" role="alert">{error || state.error}</p>}
-    {busy && <div className="release-download" role="status"><span><Loader2 size={14} className="spin"/>{progressLabel}</span><div className="update-progress" role="progressbar" aria-label="更新下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.floor(progress)}><i style={{width:progress+'%'}}/></div>{state.phase==='downloading' && <button className="text-link" onClick={()=>void bridge.cancelUpdate().catch(e=>setError(e.message))}>取消下载</button>}</div>}
+    {display && <div className="release-download" role={busy ? 'status' : undefined}>
+      {busy && <span><Loader2 size={14} className="spin"/>{progressLabel}</span>}
+      {state.phase==='ready' && !operating && <span>安装包已校验</span>}
+      {state.phase==='downloading' && <div className={'update-progress'+(progress===null ? ' indeterminate' : '')} role="progressbar" aria-label="更新下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress===null ? undefined : Math.floor(progress)} aria-valuetext={display.downloadLabel}><i style={progress===null ? undefined : {width:progress+'%'}}/></div>}
+      <div className="release-download-details">{display.showTransfer && <span>{display.downloadLabel}</span>}<span>{display.packageLabel}</span></div>
+      {state.phase==='downloading' && <button className="text-link" onClick={()=>void bridge.cancelUpdate().catch(e=>setError(e.message))}>取消下载</button>}
+    </div>}
     <div className="modal-actions"><Button disabled={busy} onClick={()=>void skip()}>跳过该版本</Button><Button variant="primary" disabled={busy} onClick={()=>void install()}><ArrowDownToLine size={15}/>立即更新</Button></div>
   </Modal>}</UpdateContext.Provider>;
 }

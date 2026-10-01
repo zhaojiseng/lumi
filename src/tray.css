@@ -5,7 +5,9 @@
 .tray-card[data-visibility=visible] { opacity:1; transform:translateY(0); pointer-events:auto; }
 .tray-card[data-visibility=closing] { transition-duration:.15s; transition-timing-function:ease-in; }
 .tray-header,.tray-selectors,.tray-footer { flex-shrink:0; }
-.tray-sections { display:grid; gap:12px; flex:1; min-height:0; margin-top:14px; overflow-y:auto; scrollbar-width:thin; align-content:start; }
+.tray-sections { display:grid; gap:12px; flex:1; min-height:0; margin-top:14px; overflow-y:auto; scrollbar-width:none; overscroll-behavior:contain; align-content:start; }
+/* Keep content width stable while native window height interpolates; wheel/keyboard scrolling still works. */
+.tray-sections::-webkit-scrollbar { width:0; height:0; }
 .tray-spacer { flex:1; min-height:0; }
 .tray-sections>*,.tray-sections>dl { min-width:0; margin:0; }
 .tray-sections { grid-auto-rows:max-content; }

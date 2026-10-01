@@ -63,6 +63,7 @@
 
 .modal.catalog-changes-modal { width: min(680px, calc(100vw - 36px)); padding: 20px; }
 .catalog-changes-modal .catalog-change-history { display: grid; gap: 16px; }
+.catalog-changes-modal .catalog-change-price-note { margin-bottom: 16px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
 .catalog-changes-modal .catalog-change-event-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); }
 .catalog-changes-modal .catalog-change-event-heading .text-link { margin-left: auto; font-size: 11px; }
 .catalog-changes-modal .catalog-change-event ul { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -71,6 +72,19 @@
 .catalog-changes-modal .catalog-change-event li strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .catalog-changes-modal .catalog-change-event li p { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
 .catalog-changes-modal .catalog-change-event code { color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
+.catalog-changes-modal .catalog-change-details { display: grid; gap: 8px; margin: 10px 0 0; min-width: 0; }
+.catalog-changes-modal .catalog-change-detail { min-width: 0; padding: 10px 12px; border-radius: 8px; background: var(--panel-soft); }
+.catalog-changes-modal .catalog-change-detail dt { color: var(--text); font-size: 11px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; }
+.catalog-changes-modal .catalog-change-detail dd { margin: 5px 0 0; min-width: 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.catalog-changes-modal .catalog-change-values { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 9px; font-variant-numeric: tabular-nums; }
+.catalog-changes-modal .catalog-change-before { color: var(--text-secondary); }
+.catalog-changes-modal .catalog-change-after { color: var(--accent); font-weight: 600; }
+.catalog-changes-modal .catalog-change-detail .catalog-change-note { color: var(--text-muted); font-size: 11px; }
+.catalog-changes-modal .catalog-change-formula { min-width: 0; color: var(--text-secondary); font-size: 11px; }
+.catalog-changes-modal .catalog-change-formula summary { cursor: pointer; color: var(--accent); }
+.catalog-changes-modal .catalog-change-formula > div { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 8px; margin-top: 8px; }
+.catalog-changes-modal .catalog-change-formula code { color: var(--text-secondary); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.catalog-changes-modal .catalog-change-event li .catalog-change-legacy { display: grid; gap: 3px; }
 
 @media (min-width: 1500px) { .models-market .model-market-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 @media (max-width: 1120px) { .models-market .model-market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

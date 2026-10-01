@@ -10,7 +10,10 @@
 .update-cancel { padding: 4px; border-radius: 5px; color: var(--text-muted); }
 .update-progress { height: 3px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 3px 4px 4px; }
 .update-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .15s linear; }
+.update-progress.indeterminate i { width: 30%; animation: update-indeterminate 1.4s ease-in-out infinite; }
+@keyframes update-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(334%); } }
 .update-detail { display: block; margin: 1px 4px; color: var(--text-muted); font-size: 10px; line-height: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.update-download-details .update-detail { white-space: normal; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .sidebar-site { margin-top: 0; }
 .modal.update-release-modal { width: min(530px,calc(100vw - 36px)); padding: 24px; }
 .release-summary { display:flex; align-items:center; gap:12px; margin:4px 0 18px; }
@@ -30,10 +33,11 @@
 .release-download { margin-top:16px; font-size:12px; color:var(--text-secondary); }
 .release-download>span { display:flex; align-items:center; gap:7px; }
 .release-download .update-progress { height:5px; margin:9px 0; }
+.release-download-details { display:grid; gap:4px; margin:8px 0; color:var(--text-muted); line-height:1.5; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .update-release-modal .modal-actions { margin-top:18px; padding-top:16px; }
 .update-release-modal { animation:release-appear .18s ease-out; }
 @keyframes release-appear { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
-@media(prefers-reduced-motion:reduce) { .update-release-modal { animation:none; } .update-progress i { transition:none; } }
+@media(prefers-reduced-motion:reduce) { .update-release-modal { animation:none; } .update-progress i { transition:none; } .update-progress.indeterminate i { animation:none; margin-left:35%; } }
 .trend-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin: 8px 0 4px; }
 .trend-controls .segmented { flex-shrink: 0; }
 .trend-controls .segmented button { font-size: 12px; padding: 7px 11px; }

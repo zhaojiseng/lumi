@@ -65,9 +65,15 @@ export interface UpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error' | 'unsupported';
   currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;
   received: number; total: number; error?: string;
+  /** Complete verified installer size; received/total describe network transfer, including differential downloads. */
+  packageSize?:number;
   installMode?: 'restart' | 'replace';
   releaseNotes?: string;
 }
+export interface AppCacheInfo {
+  totalBytes:number;browserBytes:number;updateBytes:number;protectedBytes:number;scannedAt:number;warnings:string[];
+}
+export interface AppCacheClearResult {cache:AppCacheInfo;freedBytes:number;}
 export type AppLogLevel = 'debug' | 'info' | 'warn' | 'error';
 export interface AppLogEntry { id:number; timestamp:number; level:AppLogLevel; source:string; message:string; }
 export interface AppLogSnapshot { startedAt:number; entries:AppLogEntry[]; dropped:number; }
@@ -151,6 +157,8 @@ export interface LumiBridge {
   installTool(tool: Tool): Promise<ToolRuntimeState>;
   onToolRuntime(listener: (state: ToolRuntimeState) => void): () => void;
   appLogs(): Promise<AppLogSnapshot>;
+  appCache():Promise<AppCacheInfo>;
+  clearAppCache():Promise<AppCacheClearResult>;
   onAppLog(listener: (entry: AppLogEntry) => void): () => void;
   onNavigate(listener: (page:Page) => void): () => void;
   onRefresh(listener:()=>void):()=>void;

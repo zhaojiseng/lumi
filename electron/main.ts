@@ -13,6 +13,7 @@ import { ConfigService } from './services/config';
 import { LocalUsageService } from './services/local-usage';
 import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
+import {AppCacheService,isolateLumiDataPaths,lumiBrowserCacheRoots,lumiUpdateCacheRoots} from './services/app-cache';
 import {nativeUpdater} from './services/native-updater';
 import {ToolRuntimeService} from './services/tool-runtime';
 import {macUpdater} from './services/mac-updater';
@@ -30,7 +31,7 @@ captureConsole();
 appLogs.write('info','启动',`Lumi ${app.getVersion()} · ${process.platform}/${process.arch} · Electron ${process.versions.electron}`);
 let quitting=false;app.on('before-quit',()=>{quitting=true;appLogs.write('info','生命周期','程序退出。');});
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
-if (process.env.LUMI_TEST_DATA) app.setPath('userData', path.resolve(process.env.LUMI_TEST_DATA));
+const isolatedData=isolateLumiDataPaths(app);
 let win: BrowserWindow;let tray: Tray | undefined;
 function trayImage(){
   if(process.platform!=='darwin')return nativeImage.createFromPath(path.join(root,'public/icon.png')).resize({width:20,height:20});
@@ -98,8 +99,21 @@ async function start() {
   await store.load();
   const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
   const macUpdate=process.platform==='darwin' && process.arch==='arm64';
-  const updateEnabled=app.isPackaged && (macUpdate || process.platform==='win32' && process.arch==='x64') && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
+  const updateEnabled=app.isPackaged && !isolatedData && (macUpdate || process.platform==='win32' && process.arch==='x64') && process.env.LUMI_SMOKE!=='1' && !process.env.PORTABLE_EXECUTABLE_FILE;
   const updates=new UpdateService({version:app.getVersion(),enabled:updateEnabled,target:macUpdate ? 'mac-arm64' : 'windows',engine:updateEnabled ? macUpdate ? macUpdater(path.join(data,'updates')) : await nativeUpdater() : undefined});
+  const macMounted=macUpdate && app.getPath('exe').startsWith('/Volumes/');
+  const appCache=new AppCacheService({version:app.getVersion(),browserRoots:lumiBrowserCacheRoots(app.getPath('sessionData')),updateRoots:lumiUpdateCacheRoots(data,process.platform,process.env,undefined,isolatedData),protection:()=>({...updates.cacheProtection(),busy:updates.cacheProtection().busy || macMounted}),clearBrowser:async()=>{
+    const current=win.webContents.session;const result=await Promise.allSettled([current.clearCache(),current.clearCodeCaches({})]);
+    if(result.some(r=>r.status==='rejected'))throw new Error('网页缓存未能全部清理。');
+  }});
+  let cacheRetry:ReturnType<typeof setTimeout>|undefined;
+  const cleanInstalledPackages=async(retries=2)=>{
+    try{const result=await updates.withCacheMaintenance(()=>appCache.cleanupInstalled());if(result.freedBytes)appLogs.write('info','缓存',`已清理历史更新安装包 · ${result.freedBytes} bytes`);
+      if(result.warnings.length){appLogs.write('warn','缓存',result.warnings.join(' '));if(retries && !quitting){cacheRetry=setTimeout(()=>{void cleanInstalledPackages(retries-1);},30000);cacheRetry.unref();}}
+    }catch{appLogs.write('warn','缓存','历史更新缓存暂未能清理，将在下次启动时重试。');}
+  };
+  // Run after startup paint, without delaying settings/account initialization or scanning browser caches.
+  const initialCacheCleanup=updateEnabled && !macMounted ? cleanInstalledPackages() : Promise.resolve();
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
   const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
@@ -125,6 +139,8 @@ async function start() {
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
   handle('appLogs',noPayload,()=>appLogs.snapshot());
+  handle('appCache',noPayload,()=>appCache.snapshot());
+  handle('clearAppCache',noPayload,()=>updates.withCacheMaintenance(()=>appCache.clear()));
   handle('inspectConfigs',noPayload,()=>configs.inspect());
   handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
   handle('installTool',toolSchema,tool=>runtimes.install(tool));
@@ -188,7 +204,7 @@ async function start() {
   }
   scheduleMenuRefresh();
   const systemThemeChanged=()=>trayPanel?.update();nativeTheme.on('updated',systemThemeChanged);
-  app.once('before-quit',()=>{clearInterval(updateInterval);clearInterval(menuInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();nativeBar?.close();trayPanel?.close();tray?.destroy();nativeTheme.removeListener('updated',systemThemeChanged);});
+  app.once('before-quit',()=>{clearTimeout(cacheRetry);clearInterval(updateInterval);clearInterval(menuInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();nativeBar?.close();trayPanel?.close();tray?.destroy();nativeTheme.removeListener('updated',systemThemeChanged);});
   const fallbackTray=()=>{
     if(tray || quitting || process.env.LUMI_SMOKE==='1')return;
     tray=new Tray(trayImage());tray.setToolTip('Lumi · 余额与今日用量');tray.setIgnoreDoubleClickEvents(true);
@@ -210,7 +226,7 @@ async function start() {
   }
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
   appLogs.write('info','启动','工作台页面加载完成。');
-  if(updateEnabled){const firstUpdate=setTimeout(()=>{void updates.check();},3000);firstUpdate.unref();}
+  if(updateEnabled){const firstUpdate=setTimeout(()=>{void initialCacheCleanup.then(()=>updates.check());},3000);firstUpdate.unref();}
   if (process.env.LUMI_SMOKE === '1') {
     try {
       const result = await win.webContents.executeJavaScript(String.raw`(async () => {
@@ -218,10 +234,12 @@ async function start() {
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
+        const cacheBefore=await window.lumi.appCache(),cleared=await window.lumi.clearAppCache();
+        const appCacheValid=Number.isFinite(cacheBefore.totalBytes) && cleared.freedBytes>=0 && Array.isArray(cleared.cache.warnings);
         const logs=await window.lumi.appLogs();
         const header=document.querySelector('.titlebar'),sidebar=document.querySelector('.sidebar'),rect=header?.getBoundingClientRect();
         const titlebarGeometry=!!rect && rect.x===0 && rect.y===0 && Math.abs(rect.width-innerWidth)<1 && header.parentElement.classList.contains('desktop-shell') && sidebar.getBoundingClientRect().top>=rect.bottom && getComputedStyle(header).getPropertyValue('-webkit-app-region')==='drag' && getComputedStyle(document.querySelector('.titlebar-actions')).getPropertyValue('-webkit-app-region')==='no-drag';
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
       const buttons=process.platform==='darwin' ? win.getWindowButtonPosition() : null;
