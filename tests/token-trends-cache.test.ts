@@ -38,12 +38,14 @@ async function fixture(){
   await store.saveSite(site);const api=new NewApiClient(store);
   return {api,seen,store,site,setTotal:(n:number)=>{total=n;},setLegacy:()=>{legacy=true;},holdStatus:()=>{statusWait=new Promise<void>(resolve=>{releaseStatus=resolve;});},close:()=>new Promise<void>(resolve=>{releaseStatus?.();server.close(()=>resolve());})};
 }
-test('token curves read every page at a fixed range, share concurrent reads and return only usage metadata',async()=>{
+test('token curves read every page at a fixed range, share concurrent reads and return only usage metadata',async(t)=>{
   const f=await fixture();try{
+    t.mock.timers.enable({apis:['Date'],now:Math.floor(Date.now()/60000)*60000+10000});
     const [a,b]=await Promise.all([f.api.tokenUsage(1),f.api.tokenUsage(1)]);
     assert.equal(a.logCount,150);assert.equal(b.logCount,150);assert.equal(a.points.reduce((n,p)=>n+p.count,0),150);assert.equal(a.points.reduce((n,p)=>n+p.token_used,0),2250);
     const reads=f.seen.filter(r=>r.path==='/api/log/self');assert.equal(reads.length,2);assert.deepEqual(reads.map(r=>r.query.get('p')),['1','2']);assert.ok(reads.every(r=>r.query.get('type')==='2'));assert.equal(reads[0].query.get('end_timestamp'),reads[1].query.get('end_timestamp'));
     assert.ok(!JSON.stringify(a).includes('Content must not'));assert.ok(!JSON.stringify(a).includes('Private metadata'));
+    t.mock.timers.tick(1000);
     await f.api.tokenUsage(1);assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,2);
   }finally{await f.close();}
 });

@@ -229,7 +229,7 @@ export class NewApiClient {
   }
   private async completeLogs(query:DashboardQuery,type=2,fixedWindow?:{start_timestamp:number;end_timestamp:number}):Promise<{rows:UsageLog[];fetchedAt:number}>{
     const scope=this.current(),secret=await this.validSecret(scope);
-    const resolved=resolveRange(query),window=fixedWindow || {start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
+    const resolved=fixedWindow || resolveRange(query),window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
     const cacheWindow={...window,...(isRollingRange(query) ? {start_timestamp:Math.floor(window.start_timestamp/60)*60} : {}),end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
     return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':completeLogs:'+type+':'+JSON.stringify(cacheWindow),60000,async()=>{
