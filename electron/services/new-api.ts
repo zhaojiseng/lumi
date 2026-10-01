@@ -268,12 +268,13 @@ export class NewApiClient {
   async menuBarUsage(force=false,selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarUsage>{
     if(!this.snapshot)return this.scope().menuBarUsage(force,selection);
     const scope=this.current();if(force)this.cache.invalidate(scope.site.id+'\0');
-    const todayWindow=timeRange(1),window=timeRange(selection.days),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],period:{selection,quota:null,tokens:null,requests:null,points:null},fetchedAt:Date.now(),warnings:[]};
+    const todayWindow=timeRange(1),window=timeRange(selection.range || selection.days),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],period:{selection,quota:null,tokens:null,requests:null,points:null},fetchedAt:Date.now(),warnings:[]};
     if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...empty,status:await statusTask,user:null};
     const results=await Promise.allSettled([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.usageData(window),this.request('/api/log/self/stat',{query:{...window,type:2}}).then(j=>j.data as UsageStat),this.tokens(),this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j=>j.data as UsageStat)]);
     if(results[0].status==='rejected')throw results[0].reason;
     if(results[1].status==='rejected')throw results[1].reason;
-    const points=results[2].status==='fulfilled' ? results[2].value.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp) : null;
+    let points=results[2].status==='fulfilled' ? results[2].value.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp) : null;
+    if(selection.range==='24h')points=(await this.menuBarDetails(selection).catch(()=>null))?.points ?? null;
     const known=results[4].status==='fulfilled' ? results[4].value : [];
     const names=trackedToolTokenNames(scope.preferences,scope.site.id,known);
     const toolResults=await Promise.allSettled(names.map(async b=>({tool:b.tool,quota:((await this.request('/api/log/self/stat',{query:{...window,type:2,token_name:b.name}})).data as UsageStat).quota})));
@@ -286,10 +287,10 @@ export class NewApiClient {
   }
   async menuBarDetails(selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarDetails>{
     if(!this.snapshot)return this.scope().menuBarDetails(selection);
-    const scope=this.current(),secret=await this.validSecret(scope),window=timeRange(selection.days);
-    const key=scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex')+':menuDetails:'+JSON.stringify([resolveRange(selection.days).range,selection.tool,scope.preferences.managedTokens,scope.preferences.bindings]);
+    const scope=this.current(),secret=await this.validSecret(scope),window=timeRange(selection.range || selection.days);
+    const key=scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex')+':menuDetails:'+JSON.stringify([selection.range==='24h' ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(selection.range || selection.days).range,selection.tool,scope.preferences.managedTokens,scope.preferences.bindings]);
     const details=await this.cache.get(key,300000,async()=>{
-      const [complete,tokens]=await Promise.all([this.completeLogs(selection.days,2),selection.tool==='all' ? Promise.resolve([]) : this.tokens()]);
+      const [complete,tokens]=await Promise.all([this.completeLogs(selection.range || selection.days,2,window),selection.tool==='all' ? Promise.resolve([]) : this.tokens()]);
       const tracked=trackedToolTokenNames(scope.preferences,scope.site.id,tokens).filter(t=>t.tool===selection.tool);
       if(selection.tool!=='all' && !tracked.length)throw new Error('尚未配置此工具的专用令牌。');
       const ids=new Set(tracked.map(t=>t.id));
@@ -303,39 +304,38 @@ export class NewApiClient {
   async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
     if (!this.snapshot) return this.scope().dashboard(query,force);
     if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
-    const fetchedAt=Date.now(),resolved=resolveRange(query,new Date(fetchedAt)); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp}; const todayWindow=timeRange(1);
+    const fetchedAt=Date.now(),resolved=resolveRange(query,new Date(fetchedAt)); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
     const filters=statisticsFilters(query),detailed=!!(range.startTime || range.endTime || filters.models?.length || filters.tokenIds?.length);
     const statusTask = this.status();
     if (!this.snapshot.secret.accessToken && !this.snapshot.secret.cookies?.length) return { range,status:await statusTask,user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,toolStats:[],catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt,days };
-    const names = ['账户余额', '请求记录', '用量曲线', '消费统计', '模型广场', 'API 令牌', '今日消费'];
+    const names = ['账户余额', '请求记录', '用量曲线', '消费统计', '模型广场', 'API 令牌'];
     const results = await Promise.allSettled([
       this.request('/api/user/self').then(j => j.data as UserInfo),
       detailed ? Promise.resolve({items:[],total:0,page:1,pageSize:100}) : this.logs({ days, range, page: 1, pageSize: 100 },timestamps),
       detailed ? Promise.resolve([]) : this.usageData(timestamps),
       detailed ? Promise.resolve(null) : this.request('/api/log/self/stat', { query: { ...timestamps, type: 2 } }).then(j => j.data as UsageStat),
       this.catalog(), this.tokens(),
-      this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j => j.data as UsageStat),
       this.request('/api/perf-metrics/summary',{query:{hours:24}}).then(j => normalizeHealth(j.data)),
-      this.request('/api/data/self',{query:todayWindow}).then(j => j.data as QuotaPoint[]),
       statusTask,
       detailed ? this.completeLogs(query,0,timestamps).then(({rows})=>filterLogs(rows,filters)) : Promise.resolve(null),
     ]);
-    if(results[9].status==='rejected')throw results[9].reason;
-    if(detailed && results[10].status==='rejected')throw results[10].reason;
-    const status=results[9].value as SiteStatus;
+    if(results[7].status==='rejected')throw results[7].reason;
+    if(detailed && results[8].status==='rejected')throw results[8].reason;
+    const status=results[7].value as SiteStatus;
     const value = <T>(i: number, fallback: T): T => results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback;
     const knownTokens = value<ApiToken[]>(5, []);
     const prefs = this.snapshot?.preferences || this.store.preferences;
     const toolNames=trackedToolTokenNames(prefs,prefs.activeSiteId,knownTokens),bindings=detailed ? toolNames.filter((b,i)=>toolNames.findIndex(x=>x.tool===b.tool && x.id===b.id)===i) : toolNames;
-    const detailRows=value<UsageLog[] | null>(10,null),detailStat=detailRows ? logStat(detailRows,timestamps) : null;
-    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:detailed ? detailRows ? logStat(detailRows.filter(row=>row.token_id===b.id),timestamps) : null : (await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
+    const detailRows=value<UsageLog[] | null>(8,null),detailStat=detailRows ? logStat(detailRows,timestamps) : null;
+    const toolResults = await Promise.allSettled(bindings.map(async b => ({tool:b.tool,tokenName:b.name,stat:detailed ? detailRows && !detailRows.some(row=>row.type===2 && row.token_id===undefined) ? logStat(detailRows.filter(row=>row.token_id===b.id),timestamps) : null : (await this.request('/api/log/self/stat',{query:{...timestamps,type:2,token_name:b.name}})).data as UsageStat})));
     const toolStats = (['codex','claude'] as Tool[]).map(tool => { const rows = toolResults.filter((r,i) => bindings[i].tool === tool && r.status === 'fulfilled').map(r => (r as PromiseFulfilledResult<any>).value); const failed = toolResults.some((r,i) => bindings[i].tool === tool && (r.status === 'rejected' || r.value.stat===null)); return {tool,tokenName:rows.map(r => r.tokenName).join(', '),stat:!rows.length || failed ? null : rows.reduce((a,r) => ({quota:a.quota+r.stat.quota,rpm:a.rpm+r.stat.rpm,tpm:a.tpm+r.stat.tpm}),{quota:0,rpm:0,tpm:0})}; });
-    const warnings = results.slice(0,7).flatMap((r, i) => r.status === 'rejected' ? [`${names[i]}：${r.reason.message}`] : []);
+    const warnings = results.slice(0,6).flatMap((r, i) => r.status === 'rejected' ? [`${names[i]}：${r.reason.message}`] : []);
     toolResults.forEach((r, i) => { if (r.status === 'rejected') warnings.push(`${bindings[i].tool} 独立消费：${r.reason.message}`); });
-    if (results[8].status === 'rejected') warnings.push('今日调用：'+results[8].reason.message);
-    if (results[10].status === 'rejected') warnings.push('筛选统计：'+results[10].reason.message);
-    const todayRows=value<QuotaPoint[]>(8,[]).filter(p => p.created_at >= todayWindow.start_timestamp);
-    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, today:{quota:value<UsageStat | null>(6,null)?.quota ?? (results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+p.quota,0) : null),requests:results[8].status === 'fulfilled' ? todayRows.reduce((s,p) => s+(p.count || 0),0) : null},health:value<HealthSummary | null>(7,null),healthError:results[7].status === 'rejected' ? '健康度暂不可用：'+results[7].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series: detailed ? tokenPoints(detailRows || [],timestamps) : value(2, []), stat: detailed ? detailStat : value(3, null), catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt, days };
+    if (results[8].status === 'rejected') warnings.push('筛选统计：'+results[8].reason.message);
+    const series=detailed ? tokenPoints(detailRows || [],timestamps) : value<QuotaPoint[]>(2,[]).filter(p=>p.created_at>=timestamps.start_timestamp && p.created_at<=timestamps.end_timestamp),stat=detailed ? detailStat : value<UsageStat|null>(3,null);
+    const seriesAvailable=detailed ? detailRows!==null : results[2].status==='fulfilled';
+    const interval={quota:stat?.quota ?? (seriesAvailable ? series.reduce((s,p)=>s+p.quota,0) : null),tokens:seriesAvailable ? series.reduce((s,p)=>s+(p.token_used || 0),0) : null,requests:seriesAvailable ? series.reduce((s,p)=>s+(p.count || 0),0) : null};
+    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, interval,health:value<HealthSummary | null>(6,null),healthError:results[6].status === 'rejected' ? '健康度暂不可用：'+results[6].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series, stat, catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt, days };
   }
   async modelHealth(model: string): Promise<ModelHealthDetails> {
     if (!this.snapshot) return this.scope().modelHealth(model);

@@ -33,7 +33,7 @@ test('health normalization preserves real zero rates and excludes missing or inv
  const groups=normalizeHealthDetails({groups:[{group:'free',success_rate:100,avg_ttft_ms:0},{group:'bad',success_rate:NaN}]}).groups;assert.equal(groups.length,1);assert.equal(groups[0].avg_ttft_ms,0);
  assert.throws(() => normalizeHealth({}));assert.throws(() => normalizeHealthDetails({}));
 });
-test('dashboard uses one custom window for charts, stats and logs, but keeps today separate and authenticates health',async() => {
+test('dashboard uses one custom window for all usage summaries and authenticates health',async() => {
  const seen:{path:string;query:URLSearchParams;auth:string}[]=[];let healthStatus=200;
  const server=createServer((req,res) => {const u=new URL(req.url!,'http://localhost');seen.push({path:u.pathname,query:u.searchParams,auth:req.headers.authorization || ''});res.setHeader('Content-Type','application/json');let data:any={};
  if(u.pathname === '/api/status')data={system_name:'Fixture',quota_per_unit:500000};
@@ -52,7 +52,8 @@ test('dashboard uses one custom window for charts, stats and logs, but keeps tod
  res.end(JSON.stringify({success:true,data}));});
  await new Promise<void>(r => server.listen(0,'127.0.0.1',r));const port=(server.address() as {port:number}).port;
  try {await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/explorer-'));const store=new SettingsStore(root,{available:() => true,encrypt:s => Buffer.from(s).toString('base64'),decrypt:s => Buffer.from(s,'base64').toString()});await store.load();await store.saveSite({id:store.activeSite().id,name:'Fixture',url:'http://127.0.0.1:'+port,allowHttp:true,accessToken:'fixture-account',userId:42});const api=new NewApiClient(store);
- const d=await api.dashboard({startDate:'2026-09-01',endDate:'2026-09-03'});const range=resolveRange({startDate:'2026-09-01',endDate:'2026-09-03'});assert.equal(d.days,3);assert.equal(d.stat?.quota,100);assert.equal(d.today?.quota,20);assert.equal(d.health?.models[0].success_rate,98.5);
+ const d=await api.dashboard({startDate:'2026-09-01',endDate:'2026-09-03'});const range=resolveRange({startDate:'2026-09-01',endDate:'2026-09-03'});assert.equal(d.days,3);assert.equal(d.stat?.quota,100);assert.deepEqual(d.interval,{quota:100,tokens:2,requests:1});assert.equal(d.health?.models[0].success_rate,98.5);
+ assert.equal(seen.filter(x=>x.path==='/api/data/self').length,1);assert.equal(seen.filter(x=>x.path==='/api/log/self/stat').length,1);
  for(const endpoint of ['/api/data/self','/api/log/self','/api/log/self/stat']){const r=seen.find(x => x.path === endpoint && x.query.get('start_timestamp') === String(range.start_timestamp));assert.ok(r,endpoint);assert.equal(r.query.get('end_timestamp'),String(range.end_timestamp));}
  const beforeLong=seen.length,earliestEnd=resolveRange(90).end_timestamp;const long=await api.dashboard(90);
  const dataWindows=seen.slice(beforeLong).filter(x=>x.path==='/api/data/self' && x.query.get('start_timestamp')!==String(resolveRange(1).start_timestamp));

@@ -53,13 +53,13 @@ test('refresh controls preserve disabled intervals, accept configured intervals 
 
 test('rolling dashboard and log filters use request timestamps rather than partial hourly aggregates',async()=>{
   const now=Math.floor(Date.now()/1000),seen:URL[]=[];
-  const logs=[now-90000,now-82800,now-5].map((created_at,i)=>({id:i+1,created_at,type:2,model_name:'model-a',token_name:'Fixture',token_id:1,prompt_tokens:100,completion_tokens:20,quota:100,use_time:2,is_stream:true,group:'default',other:'{"cache_tokens":50}'}));
+  const logs=[now-90000,now-82800,now-5].map((created_at,i)=>({id:i+1,created_at,type:2,model_name:i===2 ? 'model-b' : 'model-a',token_name:'Fixture',token_id:i===2 ? 2 : 1,prompt_tokens:100,completion_tokens:20,quota:100,use_time:2,is_stream:true,group:'default',other:'{"cache_tokens":50}'}));
   const server=createServer((req,res)=>{
     const url=new URL(req.url!,'http://fixture.invalid');seen.push(url);let data:unknown={};
     if(url.pathname==='/api/status')data={system_name:'Fixture',quota_per_unit:100};
     if(url.pathname==='/api/user/self')data={id:42,username:'Fixture',quota:1000};
     if(url.pathname==='/api/pricing')data=[];
-    if(url.pathname==='/api/token/')data={items:[],total:0};
+    if(url.pathname==='/api/token/')data={items:[{id:1,name:'Lumi-Codex'},{id:2,name:'Lumi-Claude'}],total:2};
     if(url.pathname==='/api/data/self')data=[{created_at:now-90000,model_name:'model-a',quota:99999,count:999,token_used:999}];
     if(url.pathname==='/api/log/self/stat')data={quota:99999,rpm:0,tpm:0};
     if(url.pathname==='/api/log/self'){
@@ -74,17 +74,27 @@ test('rolling dashboard and log filters use request timestamps rather than parti
     const root=await mkdtemp(path.resolve('.test-data/rolling-refresh-'));
     const store=new SettingsStore(root,{available:()=>true,encrypt:s=>s,decrypt:s=>s});await store.load();
     await store.saveSite({id:store.activeSite().id,name:'Fixture',url:'http://127.0.0.1:'+(server.address() as {port:number}).port,allowHttp:true,userId:42,accessToken:'fixture-credential'});
-    await store.update({menuBarContents:[],refreshInterval:300,menuBarRefreshInterval:120});
+    store.preferences.managedTokens=[{id:1,name:'Lumi-Codex',tool:'codex',siteId:store.activeSite().id,group:'default'},{id:2,name:'Lumi-Claude',tool:'claude',siteId:store.activeSite().id,group:'default'}];
+    await store.update({menuBarContents:[],refreshInterval:300,menuBarRefreshInterval:120,menuBarTotalsRange:7,menuBarChartRange:'24h'});
     const restored=new SettingsStore(root,store.cipher);await restored.load();
     assert.deepEqual(restored.preferences.menuBarContents,[]);assert.equal(restored.preferences.refreshInterval,300);assert.equal(restored.preferences.menuBarRefreshInterval,120);
+    assert.equal(restored.preferences.menuBarTotalsRange,7);assert.equal(restored.preferences.menuBarChartRange,'24h');
     const api=new NewApiClient(store),[dashboard,other]=await Promise.all([api.dashboard('24h'),api.dashboard('24h')]);
     assert.equal(dashboard.detailed,true);assert.equal(dashboard.stat?.quota,200);
+    assert.deepEqual(dashboard.interval,{quota:200,tokens:240,requests:2});
     assert.equal(dashboard.logs.total,2);assert.deepEqual(dashboard.logs.items.map(r=>r.id),[2,3]);
     assert.equal(other.series.reduce((n,p)=>n+p.token_used,0),240);
     const requests=seen.filter(url=>url.pathname==='/api/log/self');assert.equal(requests.length,1);
     assert.equal(Number(requests[0].searchParams.get('end_timestamp'))-Number(requests[0].searchParams.get('start_timestamp')),86400);
     const detail=await api.logs({range:'24h',days:2,page:1,pageSize:15,models:['model-a']});
-    assert.equal(detail.total,2);assert.equal(seen.filter(url=>url.pathname==='/api/log/self').length,1);
+    assert.equal(detail.total,1);assert.equal(seen.filter(url=>url.pathname==='/api/log/self').length,1);
     assert.equal(usageSeries(dashboard.series,2,dashboard.status,'24h',new Date(dashboard.fetchedAt)).length,24);
+    const filtered=await api.dashboard({range:'24h',models:['absent-model'],tokenIds:[1]});
+    assert.deepEqual(filtered.interval,{quota:0,tokens:0,requests:0});assert.equal(filtered.logs.total,0);assert.equal(filtered.series.length,0);
+    const matched=await api.dashboard({range:'24h',models:['model-b'],tokenIds:[2]});
+    assert.deepEqual(matched.interval,{quota:100,tokens:120,requests:1});assert.deepEqual(matched.logs.items.map(r=>r.id),[3]);
+    assert.equal(matched.toolStats?.find(t=>t.tool==='claude')?.stat?.quota,100);assert.equal(matched.toolStats?.find(t=>t.tool==='codex')?.stat?.quota,0);
+    const intersection=await api.dashboard({range:'24h',models:['model-b'],tokenIds:[1]});assert.equal(intersection.interval?.quota,0);
+    assert.ok(!seen.filter(url=>url.pathname==='/api/data/self' || url.pathname==='/api/log/self/stat').length,'Detailed filtered dashboard does not fetch unrelated today summaries');
   } finally {await new Promise<void>(r=>server.close(()=>r()));}
 });

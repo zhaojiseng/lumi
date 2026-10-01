@@ -1,0 +1,82 @@
+/* Scoped to the model marketplace; shared theme and other model lists keep their styles. */
+.models-market .catalog-monitor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+}
+.models-market .catalog-monitor.has-changes { border-color: var(--orange); }
+.models-market .catalog-monitor-icon { display: grid; place-items: center; color: var(--text-muted); flex: none; }
+.models-market .has-changes .catalog-monitor-icon { color: var(--orange); }
+.models-market .catalog-monitor-copy { display: grid; gap: 3px; min-width: 0; }
+.models-market .catalog-monitor-copy strong { font-size: 12px; font-weight: 600; color: var(--text); }
+.models-market .catalog-monitor-copy > span { font-size: 11px; line-height: 1.5; color: var(--text-secondary); }
+.models-market .catalog-monitor-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-left: auto; flex: none; }
+.models-market .catalog-monitor-actions .button { min-height: 30px; padding: 5px 8px; font-size: 11px; }
+.models-market .catalog-monitor-actions .button > span { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+
+/* Measured shortest-column placement keeps the existing DOM and keyboard order. */
+.models-market .model-market-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-flow: row;
+  grid-auto-rows: 4px;
+  align-items: start;
+  gap: 12px;
+}
+.models-market .model-market-item { min-width: 0; align-self: start; }
+.models-market .model-card { padding: 13px 13px 0; border-radius: 12px; }
+.models-market .model-card-top { align-items: flex-start; gap: 9px; }
+.models-market .model-card .vendor-icon { width: 42px; height: 42px; border-radius: 9px; }
+.models-market .model-card-heading { flex: 1; min-width: 0; padding-top: 1px; }
+.models-market .model-card-heading h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.3;
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.models-market .model-card-heading > span { display: block; margin-top: 3px; font-size: 10px; line-height: 1.4; color: var(--text-muted); }
+.models-market .model-card-actions { margin-left: 0; flex: none; flex-direction: column; align-items: flex-end; gap: 2px; max-width: 108px; }
+.models-market .model-card .star-button { width: 26px; height: 28px; }
+.models-market .model-card .star-button.starred { color: var(--accent); }
+.models-market .model-card .model-description { height: auto; max-height: 30px; margin-top: 8px; line-height: 1.5; -webkit-line-clamp: 2; }
+.models-market .model-tags { height: auto; min-height: 0; margin-top: 6px; flex-wrap: wrap; }
+.models-market .model-tags .pill { padding: 2px 5px; font-size: 10px; }
+.models-market .model-health { margin: 8px 0 3px; gap: 5px 7px; }
+.models-market .model-channel-control { margin-top: 7px; gap: 6px; }
+.models-market .model-channel-select select { min-height: 30px; font-size: 11px; }
+.models-market .model-card .price-table { margin: 3px 0; gap: 2px 10px; }
+.models-market .model-card .price-table > div { padding: 3px 0; }
+.models-market .model-card .price-table > div > span { font-size: 10px; }
+.models-market .model-card .price-table strong { min-width: 0; font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
+.models-market .model-card .price-table small { font-size: 9px; margin-top: 2px; }
+.models-market .model-card-price-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 5px; margin: 6px 0 8px; }
+.models-market .model-card .model-price-action { margin: 0; font-size: 11px; }
+.models-market .model-card-actions .pricing-state-button { min-height: 25px; padding: 3px 6px; font-size: 10px; white-space: normal; text-align: left; }
+.models-market .pricing-time-info { margin-bottom: 8px; font-size: 10px; line-height: 1.45; }
+.models-market .model-card .model-card-bottom { margin: 8px -13px 0; padding: 7px 13px; border-radius: 0 0 12px 12px; }
+.models-market .model-card-bottom > span { font-size: 10px; }
+
+.modal.catalog-changes-modal { width: min(680px, calc(100vw - 36px)); padding: 20px; }
+.catalog-changes-modal .catalog-change-history { display: grid; gap: 16px; }
+.catalog-changes-modal .catalog-change-event-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); }
+.catalog-changes-modal .catalog-change-event-heading .text-link { margin-left: auto; font-size: 11px; }
+.catalog-changes-modal .catalog-change-event ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.catalog-changes-modal .catalog-change-event li { padding: 10px 0; border-top: 1px solid var(--line); }
+.catalog-changes-modal .catalog-change-event li > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.catalog-changes-modal .catalog-change-event li strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.catalog-changes-modal .catalog-change-event li p { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
+.catalog-changes-modal .catalog-change-event code { color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
+
+@media (min-width: 1500px) { .models-market .model-market-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1120px) { .models-market .model-market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .models-market .model-market-grid { grid-template-columns: minmax(0, 1fr); }
+  .models-market .catalog-monitor { flex-wrap: wrap; }
+  .models-market .catalog-monitor-copy { flex: 1; }
+  .models-market .catalog-monitor-actions { width: 100%; justify-content: flex-end; }
+}

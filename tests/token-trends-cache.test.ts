@@ -101,7 +101,7 @@ test('multi-filter dashboard and paginated logs share complete cached records ac
     const second=await f.api.dashboard({range:1,models:['model-a','model-b'],tokenIds:[2]});assert.equal(second.logs.total,75);assert.ok(second.series.every(p=>p.token_id===2));
     const logs=await f.api.logs({days:1,page:2,pageSize:15,models:['model-a'],tokenIds:[1]});assert.equal(logs.total,75);assert.equal(logs.items.length,15);
     assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,2);
-    assert.equal(f.seen.filter(r=>r.path==='/api/data/self').length,1,'only today summary should use hourly endpoint');
+    assert.equal(f.seen.filter(r=>r.path==='/api/data/self').length,0,'filtered summaries use their complete logs without an unrelated today query');
   }finally{await f.close();}
 });
 test('minute dashboard uses exact log times and oversized detailed filters fail instead of displaying partial zero totals',async()=>{

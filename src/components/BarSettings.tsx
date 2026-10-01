@@ -3,6 +3,7 @@ import {Check,Monitor} from 'lucide-react';
 import {useApp} from '../context';
 import {Button,SectionHeading,Select} from './ui';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
+import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {MENU_BAR_SECTION_IDS,type MenuBarSectionId,type PreferencePatch} from '../../shared/types';
 
 const sections:Record<MenuBarSectionId,{label:string;description:string}>={
@@ -35,6 +36,14 @@ export default function BarSettings(){
         </div>)}
       </div>
       <div className="info-note"><Monitor size={15}/><span>面板始终保留站点信息、工具与时间选择、刷新和导航操作。隐藏全部区块后也可正常使用。</span></div>
+    </section>
+    <section className="surface panel" aria-label="菜单栏与托盘时间筛选">
+      <SectionHeading title="时间筛选" sub="本期用量和消费趋势可以使用不同的统计范围"/>
+      {(['totals','chart'] as const).map(section=>{
+        const field=section==='totals' ? 'menuBarTotalsRange' : 'menuBarChartRange';
+        return <div className="setting-control" key={section}><div><strong>{section==='totals' ? '本期用量' : '消费趋势'}</strong><p>{section==='totals' ? '消费、Tokens、请求数及用量明细使用此范围。' : '仅控制消费趋势的时间范围。'}</p></div><Select label={(section==='totals' ? '本期用量' : '消费趋势')+'统计时间'} disabled={busy} value={normalizeMenuBarRange(preferences[field])} onChange={value=>void save({[field]:value==='follow' || value==='24h' ? value : Number(value)})}><option value="follow">跟随面板</option><option value="1">今日 · 00:00 起</option><option value="24h">最近 24 小时</option><option value="7">最近 7 天</option><option value="30">最近 30 天</option></Select></div>;
+      })}
+      <div className="info-note"><Monitor size={15}/><span>工具筛选始终生效。选择“跟随面板”后，弹窗中的今日、7 天、30 天切换会同步更新该区块。</span></div>
     </section>
     <section className="surface panel" aria-label="菜单栏与托盘刷新设置">
       <SectionHeading title="自动刷新" sub="单独设置菜单栏与托盘用量面板的刷新频率"/>

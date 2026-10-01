@@ -5,7 +5,7 @@ import {DEFAULT_MENU_BAR_SELECTION,nativeMenuBarState,normalizeMenuBarContents} 
 export interface MenuBarSnapshot {phase:'idle'|'loading'|'ready'|'error';usage?:MenuBarUsage;error?:string;detailsLoading?:boolean;detailsError?:string;}
 function withDetails(usage:MenuBarUsage,details:MenuBarDetails):MenuBarUsage {
   const period=usage.period;
-  return {...usage,details,...(period && period.selection.tool!=='all' ? {period:{...period,points:details.points,tokens:details.points.reduce((s,p)=>s+p.token_used,0),requests:details.points.reduce((s,p)=>s+p.count,0)}} : {})};
+  return {...usage,details,...(period && (period.selection.tool!=='all' || period.selection.range==='24h') ? {period:{...period,points:details.points,tokens:details.points.reduce((s,p)=>s+p.token_used,0),requests:details.points.reduce((s,p)=>s+p.count,0)}} : {}),...(usage.chartPeriod && (usage.chartPeriod.selection.tool!=='all' || usage.chartPeriod.selection.range==='24h') ? {chartPeriod:{...usage.chartPeriod,points:details.chartPoints ?? null}} : {})};
 }
 /** On-demand, account-isolated cache. The native NSMenu supplies the system material. */
 export class MenuBarService {
@@ -39,8 +39,9 @@ export function menuBarTemplate(state:MenuBarSnapshot,actions:{navigate(page:Pag
   const row=(label:string):MenuItemConstructorOptions=>({label,enabled:false});
   const data=state.usage,money=(value:number|null)=>value===null ? '—' : formatMoney(value,data!.status);
   const items:MenuItemConstructorOptions[]=[row('Lumi · '+(data?.siteName || 'AI 工作台'))];
-  const period=data?.period,range=period?.selection.days===7 ? '7 天' : period?.selection.days===30 ? '30 天' : '今日';
+  const period=data?.period;
   const visible=normalizeMenuBarContents(contents),formatted=nativeMenuBarState(state,period?.selection ?? DEFAULT_MENU_BAR_SELECTION,visible);
+  const range=formatted.totalsCaption || '本期';
   const section=(labels:string[])=>{if(labels.length)items.push({type:'separator'},...labels.map(row));};
   if(visible.includes('balance'))section(['账户余额　'+formatted.balance]);
   if(visible.includes('totals'))section([range+'消费　'+formatted.cost,range+'请求　'+formatted.requests,range+' Tokens　'+formatted.tokens,...(['codex','claude'] as const).map(tool=>(tool==='codex' ? 'Codex' : 'Claude Code')+' '+range+'　'+(data?.user ? money(data.tools.find(t=>t.tool===tool)?.quota ?? null) : '—'))]);

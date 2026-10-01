@@ -10,6 +10,7 @@ import { bridge } from './bridge';
 import {applyPreferencePatch, selectionValue} from '../shared/selections';
 import {resolveRange} from '../shared/range';
 import {refreshSeconds} from '../shared/refresh';
+import {catalogChangesStorageKey,getCatalogChanges,observeCatalogChanges,subscribeCatalogChanges} from '../shared/catalog-changes';
 import { DEFAULT_PREFERENCES, type Bootstrap, type Dashboard, type RangeQuery, type StatisticsQuery, type Page, type Preferences, type PreferencePatch } from '../shared/types';
 import { Logo, Modal, Button, Pill, Skeleton, Select } from './components/ui';
 const loadOverview = () => import('./pages/Overview');
@@ -27,7 +28,7 @@ const nav = [
   { id: 'tokens', label: 'API 令牌', icon: KeyRound, hint: '管理访问与额度' },
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手' },
 ] as const;
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.26', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.27', configs: [], secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -48,6 +49,7 @@ export default function App() {
   const activeSite=preferences.sites.find(s=>s.id===preferences.activeSiteId);
   const accountKey=JSON.stringify([preferences.activeSiteId,activeSite?.url,activeSite?.userId,activeSite?.username,activeSite?.accessTokenConfigured,activeSite?.sessionAuth]);
   const [loginOpen,setLoginOpen]=useState(false);
+  const [catalogNotice,setCatalogNotice]=useState({key:'',count:0});
   const [ready, setReady] = useState(false); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   const [notice, setNotice] = useState<{ text: string; kind: 'success' | 'error' | 'info'; id: number } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false); const [query, setQuery] = useState(''); const [announcements, setAnnouncements] = useState(false);
@@ -71,6 +73,19 @@ export default function App() {
   }, [dashboardQuery, accountKey]);
   useEffect(()=>bridge.onRefresh(()=>{void refresh(true);}),[refresh]);
   useEffect(()=>{setDashboard(null);requestVersion.current++;},[accountKey]);
+  useEffect(()=>{
+    if(!activeSite)return;
+    const scope={id:activeSite.id,url:activeSite.url},key=catalogChangesStorageKey(scope);
+    const update=()=>setCatalogNotice({key,count:getCatalogChanges(scope).pendingCount});
+    const unsubscribe=subscribeCatalogChanges(scope,update);update();return unsubscribe;
+  },[preferences.activeSiteId,activeSite?.url]);
+  useEffect(()=>{
+    if(!activeSite || !dashboard?.user || loading || error)return;
+    const scope={id:activeSite.id,url:activeSite.url};
+    // Defer one turn so a site switch clears the previous site's dashboard first.
+    const timer=setTimeout(()=>observeCatalogChanges(scope,dashboard.catalog,dashboard.status,{warnings:dashboard.warnings,detectedAt:dashboard.fetchedAt}),0);
+    return()=>clearTimeout(timer);
+  },[dashboard,accountKey,loading,error]);
   useEffect(() => { if (!ready) return; void refresh(); }, [ready, refresh]);
   useEffect(() => { const seconds=refreshSeconds(preferences.refreshInterval); if (!ready || !seconds) return; let pending=false; const interval=setInterval(async () => { if (document.visibilityState !== 'visible' || pending) return; pending=true; try { await refresh(); } finally { pending=false; } },Math.max(15,seconds)*1000); return () => clearInterval(interval); },[ready,page,preferences.refreshInterval,refresh]);
   useEffect(() => { const query = matchMedia('(prefers-color-scheme: dark)'); const update = () => { document.documentElement.dataset.theme = preferences.theme === 'system' ? query.matches ? 'dark' : 'light' : preferences.theme; }; update(); query.addEventListener('change', update); return () => query.removeEventListener('change', update); }, [preferences.theme]);
@@ -92,6 +107,7 @@ export default function App() {
   }, [preferences.activeSiteId, updatePreferences, toast]);
   const site = preferences.sites.find(s => s.id === preferences.activeSiteId) || preferences.sites[0];
   const activeNav = nav.find(n => n.id === page)!;
+  const catalogPending=activeSite && catalogNotice.key===catalogChangesStorageKey(activeSite) ? catalogNotice.count : 0;
   const status = loading ? '正在同步' : error ? '连接异常' : dashboard?.user ? '站点已连接' : '等待登录';
   const pages: Record<Page, ReactNode> = { overview: <Overview key={preferences.activeSiteId}/>, usage: <Usage key={preferences.activeSiteId}/>, models: <Models key={preferences.activeSiteId}/>, tools: <Tools key={preferences.activeSiteId}/>, tokens: <Tokens key={preferences.activeSiteId}/>, settings: <SettingsPage key={preferences.activeSiteId}/> };
   const filteredActions = nav.filter(n => `${n.label} ${n.hint}`.toLowerCase().includes(query.toLowerCase()));
@@ -99,7 +115,7 @@ export default function App() {
   const mac=bootstrap.platform==='darwin',shortcut=mac ? '⌘' : 'Ctrl';
   if(!ready)return <StartupScreen error={error} retry={()=>{setError('');void reloadBootstrap().then(()=>setReady(true)).catch(e=>setError(e.message));}}/>;
   return <AppContext.Provider value={{ openLogin:() => setLoginOpen(true),bootstrap, preferences, dashboard, page, setPage, days, setDays, overviewQuery,setOverviewQuery, statisticsQuery:dashboardQuery, loading, error, refresh, updatePreferences, setPreferences, reloadBootstrap, toast, configureModel }}><UpdateDialogProvider><div className={'desktop-shell platform-'+(bootstrap.platform || 'browser')}><header className="titlebar"><div className="breadcrumb"><span>我的空间</span><ChevronRight size={12}/><strong>{activeNav.label}</strong></div><div className="titlebar-actions"><button className="global-search" onClick={() => { setQuery(''); setSearchOpen(true); }}><Search size={15}/><span>搜索工作台</span><kbd>{shortcut} K</kbd></button><span className="header-divider"/><button className={`icon-button refresh-button ${loading ? 'spin' : ''}`} onClick={()=>void refresh(true)} disabled={loading} aria-label="刷新站点数据" title="刷新数据"><RefreshCw size={17}/></button><button className="icon-button notification-button" onClick={() => setAnnouncements(true)} aria-label="查看站点公告" title="站点公告"><Bell size={17}/>{dashboard?.status.announcements?.length ? <i/> : null}</button><button className="avatar" onClick={() => dashboard?.user ? setPage('settings') : setLoginOpen(true)} title="账户与设置" aria-label="账户设置">{(dashboard?.user?.display_name || dashboard?.user?.username || 'L').slice(0, 1).toUpperCase()}</button>{bootstrap.desktop && !mac && <div className="window-controls"><button aria-label="最小化" onClick={() => bridge.windowControl('minimize')}><Minus size={13}/></button><button aria-label="最大化或恢复" onClick={() => bridge.windowControl('maximize')}><Square size={11}/></button><button className="window-close" aria-label="关闭窗口" onClick={() => bridge.windowControl('close')}><X size={15}/></button></div>}</div></header>
-    <aside className="sidebar surface"><div className="sidebar-navigation"><div className="brand-row"><Logo/><div><strong>Lumi<span>●</span></strong><p>你的 AI，尽在一处</p></div></div><div className="sidebar-divider"/><div className="sidebar-caption">WORKSPACE</div><nav aria-label="主导航">{nav.slice(0, 3).map(n => <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><n.icon size={18} strokeWidth={1.7}/><span>{n.label}</span>{page === n.id ? <span className="nav-active-dot"/> : n.id === 'models' && dashboard?.catalog.models.length ? <span className="nav-count">{dashboard.catalog.models.length}</span> : null}</button>)}</nav><div className="sidebar-caption tools-caption">DEVELOPER TOOLS</div><nav aria-label="工具导航">{nav.slice(3, 5).map(n => <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><n.icon size={18} strokeWidth={1.7}/><span>{n.label}</span>{page === n.id && <span className="nav-active-dot"/>}</button>)}</nav></div><div className="sidebar-footer"><button className={`nav-item settings-nav ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}><Settings size={18} strokeWidth={1.7}/><span>设置</span><span className="nav-shortcut">{shortcut} ,</span></button><div className="sidebar-divider"/><UpdateNotice/><div className="sidebar-site"><div className="site-icon"><Globe2 size={19}/></div><div><Select label="切换当前站点" className="site-switch" value={preferences.activeSiteId} onChange={value => updatePreferences({ activeSiteId: value }).catch(e => toast(e.message, 'error'))}>{preferences.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></div></div><div className="sidebar-status"><span className={`tiny-dot ${error ? 'red' : !dashboard?.user ? 'amber' : ''}`}/>{status}<span>v{bootstrap.version}</span></div></div></aside>
+    <aside className="sidebar surface"><div className="sidebar-navigation"><div className="brand-row"><Logo/><div><strong>Lumi<span>●</span></strong><p>你的 AI，尽在一处</p></div></div><div className="sidebar-divider"/><div className="sidebar-caption">WORKSPACE</div><nav aria-label="主导航">{nav.slice(0, 3).map(n => <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><n.icon size={18} strokeWidth={1.7}/><span>{n.label}</span>{page === n.id ? <span className="nav-active-dot"/> : n.id === 'models' && catalogPending ? <span className="nav-count" style={{background:'var(--orange-soft)',color:'var(--orange)'}} title={catalogPending+' 项模型目录变动未读'}>{catalogPending}</span> : n.id === 'models' && dashboard?.catalog.models.length ? <span className="nav-count">{dashboard.catalog.models.length}</span> : null}</button>)}</nav><div className="sidebar-caption tools-caption">DEVELOPER TOOLS</div><nav aria-label="工具导航">{nav.slice(3, 5).map(n => <button key={n.id} className={`nav-item ${page === n.id ? 'active' : ''}`} onClick={() => setPage(n.id)}><n.icon size={18} strokeWidth={1.7}/><span>{n.label}</span>{page === n.id && <span className="nav-active-dot"/>}</button>)}</nav></div><div className="sidebar-footer"><button className={`nav-item settings-nav ${page === 'settings' ? 'active' : ''}`} onClick={() => setPage('settings')}><Settings size={18} strokeWidth={1.7}/><span>设置</span><span className="nav-shortcut">{shortcut} ,</span></button><div className="sidebar-divider"/><UpdateNotice/><div className="sidebar-site"><div className="site-icon"><Globe2 size={19}/></div><div><Select label="切换当前站点" className="site-switch" value={preferences.activeSiteId} onChange={value => updatePreferences({ activeSiteId: value }).catch(e => toast(e.message, 'error'))}>{preferences.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</Select></div></div><div className="sidebar-status"><span className={`tiny-dot ${error ? 'red' : !dashboard?.user ? 'amber' : ''}`}/>{status}<span>v{bootstrap.version}</span></div></div></aside>
     <main className="main-area">
       <div className="content-scroll" ref={contentRef}><div className="content-container">{error && <div className="warning-banner error-banner"><AlertCircle size={16}/><span>{error}</span><button onClick={()=>void refresh(true)}>重试</button></div>}{dashboard?.warnings.length ? <details className="sync-warnings"><summary><AlertCircle size={14}/>{dashboard.warnings.length} 项数据未能同步，点击查看</summary>{dashboard.warnings.map((w, i) => <p key={i}>{w}</p>)}</details> : null}
         <ErrorBoundary><MotionSwap identity={page}><Suspense fallback={<Skeleton/>}>{page === 'settings' || page === 'tools' || page === 'usage' ? pages[page] : dashboard?.user ? pages[page] : loading ? <Skeleton/> : <Welcome onLogin={() => setLoginOpen(true)}/>}</Suspense></MotionSwap></ErrorBoundary>

@@ -1,6 +1,7 @@
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
 import {applyPreferencePatch, normalizeSelections} from '../../shared/selections';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
+import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -41,6 +42,8 @@ export class SettingsStore {
     this.preferences.logColumns = migrateLogColumns(this.preferences.logColumns);
     this.preferences.viewSelections = normalizeSelections(this.preferences.viewSelections);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
+    this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
+    this.preferences.menuBarChartRange=normalizeMenuBarRange(this.preferences.menuBarChartRange);
     this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
     this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
     for(const field of ['dismissedUpdateVersion','skippedUpdateVersion'] as const)if (typeof this.preferences[field] !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences[field]) || this.preferences[field].length>30) this.preferences[field] = '';
@@ -109,6 +112,8 @@ export class SettingsStore {
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     this.preferences = applyPreferencePatch(this.preferences, patch);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
+    this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
+    this.preferences.menuBarChartRange=normalizeMenuBarRange(this.preferences.menuBarChartRange);
     this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
     this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);

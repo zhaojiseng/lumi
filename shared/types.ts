@@ -14,9 +14,10 @@ export type LogColumnId = typeof LOG_COLUMN_IDS[number];
 export const DEFAULT_LOG_COLUMNS: LogColumnId[] = ['time','model','reasoning','token','input','output','cacheRead','cost','duration','speed','channel','status'];
 export const MENU_BAR_SECTION_IDS = ['balance','totals','tokenDetail','efficiency','chart','models'] as const;
 export type MenuBarSectionId = typeof MENU_BAR_SECTION_IDS[number];
+export type MenuBarRange = 'follow' | '24h' | 1 | 7 | 30;
 export interface Preferences {
   sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
-  refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; lowBalanceThreshold: number; favoriteModels: string[];
+  refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
   viewSelections: Record<string, Record<string, SelectionValue>>;
   dismissedUpdateVersion: string;
@@ -24,7 +25,7 @@ export interface Preferences {
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
+export type PreferencePatch = Partial<Pick<Preferences, 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -76,10 +77,11 @@ export interface MenuBarUsage {
   today:{quota:number|null;tokens:number|null;requests:number|null};
   tools:{tool:Tool;quota:number|null}[];fetchedAt:number;warnings:string[];
   period?:{selection:MenuBarSelection;quota:number|null;tokens:number|null;requests:number|null;points:QuotaPoint[]|null};
+  chartPeriod?:{selection:MenuBarSelection;points:QuotaPoint[]|null};
   details?:MenuBarDetails;
 }
-export interface MenuBarSelection {days:1|7|30;tool:'all'|Tool;}
-export interface MenuBarDetails {points:QuotaPoint[];quality:UsageQuality;inputTokens:number|null;outputTokens:number|null;cacheReadTokens:number|null;cacheWriteTokens:number|null;}
+export interface MenuBarSelection {days:1|7|30;tool:'all'|Tool;range?:1|7|30|'24h';}
+export interface MenuBarDetails {points:QuotaPoint[];chartPoints?:QuotaPoint[]|null;quality:UsageQuality;inputTokens:number|null;outputTokens:number|null;cacheReadTokens:number|null;cacheWriteTokens:number|null;}
 export interface ModelInfo {
   model_name: string; description?: string; vendor_id?: number; vendor?: string;
   quota_type: number; model_ratio: number; model_price: number; completion_ratio: number;
@@ -100,6 +102,7 @@ export interface ModelHealth { model_name: string; success_rate: number; avg_lat
 export interface HealthSummary { models: ModelHealth[]; window_start: number; window_end: number; }
 export interface ModelHealthDetails { model_name: string; window_start: number; window_end: number; groups: { group: string; success_rate: number; avg_latency_ms: number; avg_ttft_ms: number; avg_tps: number }[]; }
 export interface Dashboard {
+  interval?:{quota:number|null;tokens:number|null;requests:number|null};
   query?: DashboardQuery; quality?: UsageQuality; detailed?: boolean;
   range?: DateRange; today?: { quota: number | null; requests: number | null }; health?: HealthSummary | null; healthError?: string;
   status: SiteStatus; user: UserInfo | null; logs: LogPage; series: QuotaPoint[];
@@ -191,7 +194,7 @@ export const DEFAULT_SITE_ID = 'cyg-default';
 export const DEFAULT_SITE_URL = 'https://api.example.com';
 export const DEFAULT_PREFERENCES: Preferences = {
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
-  activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], dismissedUpdateVersion: '', skippedUpdateVersion: '',
+  activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
   logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, bindings: [
     { tool: 'codex', model: '', group: '', tokenName: 'Lumi-Codex', siteId: DEFAULT_SITE_ID },
     { tool: 'claude', model: '', group: '', tokenName: 'Lumi-Claude', siteId: DEFAULT_SITE_ID },
