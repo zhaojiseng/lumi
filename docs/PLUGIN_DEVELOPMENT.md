@@ -497,11 +497,42 @@ extension.author.layout/
 | --- | --- |
 | 外壳 | `:scope`、`--sidebar-width`、`--shell-inset` |
 | 平台 | `:scope.platform-win32`、`:scope.platform-darwin` |
+| Lumi 当前主题 | `:scope[data-theme="light"]`、`:scope[data-theme="dark"]`（新构建）；颜色可使用 `light-dark(浅色, 深色)`，兼容原有 v1 构建 |
 | 标题栏 | `:scope > .titlebar`、`.titlebar-actions`、`.breadcrumb` |
 | 侧栏 | `:scope > .sidebar`、`.sidebar-navigation`、`.sidebar-footer`、`.nav-item` |
 | 内容 | `.main-area`、`.content-scroll`、`.content-container` |
 | 状态栏 | `.app-statusbar` |
 | 强调色 | `--accent`、`--accent-soft`、`--accent-hover` |
+
+### 主题与样式覆盖
+
+`@media (prefers-color-scheme: dark)` 读取操作系统主题，不能代表 Lumi 手动选择的主题。界面颜色推荐使用 `light-dark()`，它读取宿主已解析的 `color-scheme`，所以“浅色 / 深色 / 跟随系统”三种设置都能正确切换。新构建还会在外壳同步 `data-theme`，可用于需要分别布局的主题分支。
+
+修改背景时同步语义颜色；只设置 `--accent` 或容器 `color` 不会改变卡片、表格和输入框自己的颜色。可把以下规则加入第 7 节的 `interface.css`，其它文件不变：
+
+```css
+:scope {
+  --canvas: light-dark(#f4f0ff, #181430);
+  --panel: light-dark(#fdfaff, #231c3e);
+  --panel-strong: light-dark(#ffffff, #30264e);
+  --panel-soft: light-dark(#efe8fa, #30264b);
+  --text: light-dark(#3e315d, #f1eaff);
+  --text-secondary: light-dark(#645278, #d2c4e9);
+  --text-muted: light-dark(#78658b, #b8a6d0);
+  --border: light-dark(#dcd0ec, #514269);
+  --line: light-dark(#e6ddf1, #44365b);
+  --input: light-dark(#fdfaff, #2b2244);
+  --hover: light-dark(#eee5fa, #3a2d56);
+  --hover-strong: light-dark(#e2d3f5, #4b396e);
+  --chart-grid: light-dark(#ded3eb, #514269);
+  --chart-fill: light-dark(#ece0fa, #3c2b59);
+  --tooltip-bg: light-dark(#ffffff, #30264e);
+  color: var(--text);
+  background: var(--canvas);
+}
+```
+
+CSS 按标准优先级叠加，`@scope` 不会自动提高选择器权重。外壳几何使用 `:scope > .sidebar`；原有 v1 构建的 Windows 圆角可使用 `:scope.platform-win32 > .sidebar` 覆盖。默认导航和部分文字声明带有 `!important`，应优先修改上述语义变量；需要为选中项单独指定文字颜色时，使用 `.nav-item.active { color: #fff !important; }`，同时选择有足够对比度的选中背景。不要给全部规则加 `!important`。
 
 继承默认浅/深色语义变量，保持窗口控制可点击、内容可滚动和侧栏位于标题栏下方。CSS 文件最多 64 KiB / 1000 条规则，支持普通/嵌套样式、`@media`、`@supports`。拒绝 `@import`、`@font-face`、url/image-set 资源、app-region 拖动区域属性，以及高于 1000 或非数值的 z-index（允许 auto）。不要添加自己的外层 `@scope`、keyframes 或其它 at-rule。
 
@@ -573,6 +604,9 @@ LUMI_TEST_HOME="$TMPDIR/lumi-plugin-development/home" \
 | 网络读取失败 | 公共 HTTPS、允许请求头、密钥配置、超时/大小及重定向 |
 | 旧视图调用被拒绝 | 包/子开关已停用、扫描换代或站点范围变化；重新初始化并读取 |
 | 界面回到默认并提示错误 | 受限 CSS 规则、资源引用、拖动属性或 z-index；使用恢复入口 |
+| 背景变化但文字/卡片颜色混搭 | 同步 `--text`、`--panel`、`--input` 等语义变量；容器 `color` 不覆盖子控件的显式颜色 |
+| Lumi 浅色却显示深色插件 | 将系统主题 media 查询改为 `light-dark()` 或新构建的外壳 `data-theme` 条件 |
+| 圆角或选中项颜色未生效 | 检查选择器优先级与宿主 `!important`；按第 7 节的覆盖说明处理 |
 
 ## 10. 提交到仓库与分发
 

@@ -24,7 +24,7 @@ async function documentExamples(t:test.TestContext){
   const definitions=[
     {manifest:manifests[0],assets:{'index.html':html[0],'app.js':js[0],'style.css':css[0]}},
     {manifest:manifests[1],assets:{'index.html':html[1],'app.js':js[1],'style.css':css[0]}},
-    {manifest:manifests[2],assets:{'interface.css':css[1]}},
+    {manifest:manifests[2],assets:{'interface.css':css[1]+'\n'+css[2]}},
     {manifest:{...manifests[0],id:'extension.author.balance',permissions:['workbench.read']},assets:{'index.html':html[0],'app.js':js[2],'style.css':css[0]}},
   ];
   for(const {manifest,assets} of definitions){const folder=path.join(packages,manifest.id);await mkdir(folder,{recursive:true});
@@ -80,6 +80,7 @@ app.whenReady().then(async()=>{
  const balance=frame('balance');await until(()=>balance.executeJavaScript("document.querySelector('#status').textContent.includes('¥ 12.00')"));
  const isolated=await notes.executeJavaScript("(()=>{let denied=false;try{void parent.document.body}catch{denied=true}return denied && typeof require==='undefined' && typeof lumi==='undefined'})()");if(!isolated)throw new Error('Example escaped sandbox');
  const layout=await win.webContents.executeJavaScript("document.fixtureSheetReady && getComputedStyle(document.querySelector('.sidebar')).width==='164px' && getComputedStyle(document.querySelector('#outside')).color==='rgb(0, 0, 0)'");if(!layout)throw new Error('Document interface sample failed');
+ const palette=await win.webContents.executeJavaScript("(()=>{const shell=document.querySelector('.desktop-shell');document.documentElement.style.colorScheme='dark';const dark=getComputedStyle(shell).color==='rgb(241, 234, 255)';document.documentElement.style.colorScheme='light';return dark && getComputedStyle(shell).color==='rgb(62, 49, 93)';})()");if(!palette)throw new Error('Document interface theme sample failed');
  console.log('DOCUMENT_EXAMPLES_RESULT '+JSON.stringify({notes:true,connection:true,balance:true,isolated:true,layout:true}));win.destroy();host.dispose();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1)});
 `},bundle:true,platform:'node',format:'cjs',write:false,external:['electron'],logLevel:'silent'})).outputFiles[0].contents;
