@@ -47,32 +47,62 @@ app.disableHardwareAcceleration();
 app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:1000,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});
   await win.loadFile(path.join(__dirname,'fixture.html'));
-  const audit='('+async function audit(){
-    const until=async predicate=>{const deadline=performance.now()+3000;while(!predicate()){if(performance.now()>deadline)throw new Error('Layout did not settle');await new Promise(r=>setTimeout(r,10));}};
-    await until(()=>document.querySelector('.recharts-pie-sector'));
+  win.webContents.debugger.attach('1.3');
+  const audit=async function audit(expectedWidth){
+    const pause=()=>new Promise(r=>setTimeout(r,16));
+    const until=async predicate=>{const deadline=performance.now()+3000;while(!predicate()){if(performance.now()>deadline)throw new Error('Viewport or chart did not settle: '+JSON.stringify({expectedWidth,viewport:[innerWidth,innerHeight]}));await pause();}};
+    await until(()=>innerWidth===expectedWidth && innerHeight===720 && document.querySelector('.recharts-pie-sector'));
+    await document.fonts.ready;
     const center=node=>{const r=node.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2,width:r.width,height:r.height};};
     const panel=document.querySelector('.distribution-panel'),chart=document.querySelector('.donut-chart');
+    const snapshot=()=>({viewport:[innerWidth,innerHeight],document:[document.documentElement.scrollWidth,document.documentElement.scrollHeight],
+      panel:center(panel),pie:center(document.querySelector('.recharts-pie')),label:center(document.querySelector('.donut-label')),chart:center(chart),surface:center(document.querySelector('.recharts-surface')),
+      bottom:panel.getBoundingClientRect().bottom-document.querySelector('.panel-bottom-link').getBoundingClientRect().bottom,
+      selects:[...document.querySelectorAll('select')].map(select=>{const style=getComputedStyle(select);return {box:center(select),arrow:center(select.parentElement.querySelector('svg')),display:style.display,align:style.alignItems,lineHeight:style.lineHeight,appearance:style.appearance,value:select.value};}),
+      customizable:CSS.supports('appearance','base-select')});
+    const settled=async()=>{
+      const deadline=performance.now()+3000;
+      let previous='',stable=0,last;
+      while(performance.now()<deadline){
+        last=snapshot();const key=JSON.stringify(last);
+        const ready=last.viewport[0]===expectedWidth && last.viewport[1]===720 && Math.abs(last.panel.height-parseFloat(panel.style.height))<1 && Math.abs(last.panel.width-parseFloat(panel.style.width))<1 && Math.abs(last.surface.width-last.chart.width)<1 && last.surface.height===166;
+        stable=ready && key===previous ? stable+1 : 0;previous=key;
+        // Consecutive layout samples allow native resize and ResizeObserver commits to complete.
+        if(stable>=3)return last;
+        await pause();
+      }
+      throw new Error('Layout did not settle: '+JSON.stringify({expectedWidth,last}));
+    };
     const layouts=[];
     for(const [height,width] of [[340,224],[520,224],[520,310]]){
       panel.style.height=height+'px';panel.style.width=width+'px';
-      await until(()=>Math.abs(document.querySelector('.recharts-surface').getBoundingClientRect().width-chart.getBoundingClientRect().width)<1);
-      layouts.push({height,width,pie:center(document.querySelector('.recharts-pie')),label:center(document.querySelector('.donut-label')),chart:center(chart),
-        bottom:panel.getBoundingClientRect().bottom-document.querySelector('.panel-bottom-link').getBoundingClientRect().bottom});
+      layouts.push({height,width,...await settled()});
     }
-    const selects=[...document.querySelectorAll('select')].map(select=>{const style=getComputedStyle(select);return {box:center(select),arrow:center(select.parentElement.querySelector('svg')),display:style.display,align:style.alignItems,lineHeight:style.lineHeight,appearance:style.appearance,value:select.value};});
-    return {layouts,selects,customizable:CSS.supports('appearance','base-select')};
-  }.toString()+')()';
-  const audits=[];
-  for(const width of [1400,1000,900]){win.setContentSize(width,720);audits.push(await win.webContents.executeJavaScript(audit));}
-  const results=audits.at(-1);results.layouts=audits.flatMap(result=>result.layouts);
-  win.webContents.debugger.attach('1.3');
-  const tree=await win.webContents.debugger.sendCommand('DOM.getDocument',{depth:-1,pierce:true});
-  const selected=[];
+    window.fixtureLayoutSnapshot=snapshot;window.fixtureSettledLayout=settled;
+    return layouts;
+  };
   // Measure the browser's displayed value, not the hidden option in its picker.
-  function visit(node){if(node.nodeName==='SELECTEDCONTENT' || (node.attributes || []).includes('-internal-select-inner-element'))selected.push(node);for(const child of [...(node.children || []),...(node.shadowRoots || [])])visit(child);}
-  visit(tree.root);
-  results.selectedBoxes=[];
-  for(const node of selected){const {model}=await win.webContents.debugger.sendCommand('DOM.getBoxModel',{backendNodeId:node.backendNodeId});results.selectedBoxes.push(model.content);}
+  async function selectedBoxes(){
+    const tree=await win.webContents.debugger.sendCommand('DOM.getDocument',{depth:-1,pierce:true}),selected=[];
+    function visit(node){if(node.nodeName==='SELECTEDCONTENT' || (node.attributes || []).includes('-internal-select-inner-element'))selected.push(node);for(const child of [...(node.children || []),...(node.shadowRoots || [])])visit(child);}
+    visit(tree.root);
+    const boxes=[];
+    for(const node of selected){const {model}=await win.webContents.debugger.sendCommand('DOM.getBoxModel',{backendNodeId:node.backendNodeId});boxes.push(model.content);}
+    return boxes;
+  }
+  const results=[];
+  for(const width of [1400,1000,900]){
+    win.setContentSize(width,720);
+    // Native content sizes can round by a CSS pixel on scaled displays; pin the tested viewport.
+    await win.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride',{width,height:720,deviceScaleFactor:1,mobile:false});
+    const layouts=await win.webContents.executeJavaScript('('+audit.toString()+')('+width+')');
+    // Refresh the DOM snapshot immediately before CDP and reject samples spanning layout changes.
+    const before=await win.webContents.executeJavaScript('window.fixtureSettledLayout()');
+    const boxes=await selectedBoxes();
+    const after=await win.webContents.executeJavaScript('window.fixtureLayoutSnapshot()');
+    if(JSON.stringify(before)!==JSON.stringify(after))throw new Error('Layout changed during CDP measurement: '+JSON.stringify({width,before,after}));
+    results.push({width,layouts,...before,selectedBoxes:boxes});
+  }
   console.log('OVERVIEW_LAYOUT_RESULT '+JSON.stringify(results));win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1);});
 `);
@@ -82,20 +112,25 @@ app.whenReady().then(async()=>{
   const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
   assert.equal(code,0,stderr);
   const line=stdout.split(/\r?\n/).find(line=>line.startsWith('OVERVIEW_LAYOUT_RESULT '));assert.ok(line,stdout+stderr);
-  const {layouts,selects,customizable,selectedBoxes}=JSON.parse(line.slice('OVERVIEW_LAYOUT_RESULT '.length));
-  for(const layout of layouts){
-    assert.ok(Math.abs(layout.pie.x-layout.label.x)<1,JSON.stringify(layout));
-    assert.ok(Math.abs(layout.pie.y-layout.label.y)<1,JSON.stringify(layout));
-    assert.equal(layout.chart.height,166);assert.ok(Math.abs(layout.bottom-1)<1,JSON.stringify(layout));
-  }
-  for(const select of selects){
-    assert.equal(select.box.height,32);assert.ok(Math.abs(select.box.y-select.arrow.y)<1);
-    assert.equal(select.lineHeight,'20px');
-    if(customizable){assert.equal(select.display,'flex');assert.equal(select.align,'center');assert.equal(select.appearance,'base-select');}
-  }
-  assert.deepEqual(selects.map((select:any)=>select.value),['model','all']);
-  if(customizable){
-    assert.equal(selectedBoxes.length,2);
-    selectedBoxes.forEach((box:number[],index:number)=>assert.ok(Math.abs((box[1]+box[5])/2-selects[index].box.y)<1,JSON.stringify({box,select:selects[index]})));
+  const results=JSON.parse(line.slice('OVERVIEW_LAYOUT_RESULT '.length));
+  assert.deepEqual(results.map((result:any)=>result.width),[1400,1000,900]);
+  for(const {width,viewport,layouts,selects,customizable,selectedBoxes} of results){
+    assert.deepEqual(viewport,[width,720]);
+    for(const layout of layouts){
+      assert.deepEqual(layout.viewport,[width,720]);
+      assert.ok(Math.abs(layout.pie.x-layout.label.x)<1,JSON.stringify(layout));
+      assert.ok(Math.abs(layout.pie.y-layout.label.y)<1,JSON.stringify(layout));
+      assert.equal(layout.chart.height,166);assert.ok(Math.abs(layout.bottom-1)<1,JSON.stringify(layout));
+    }
+    for(const select of selects){
+      assert.equal(select.box.height,32);assert.ok(Math.abs(select.box.y-select.arrow.y)<1);
+      assert.equal(select.lineHeight,'20px');
+      if(customizable){assert.equal(select.display,'flex');assert.equal(select.align,'center');assert.equal(select.appearance,'base-select');}
+    }
+    assert.deepEqual(selects.map((select:any)=>select.value),['model','all']);
+    if(customizable){
+      assert.equal(selectedBoxes.length,2);
+      selectedBoxes.forEach((box:number[],index:number)=>assert.ok(Math.abs((box[1]+box[5])/2-selects[index].box.y)<1,JSON.stringify({width,box,select:selects[index]})));
+    }
   }
 });

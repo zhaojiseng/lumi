@@ -1,13 +1,27 @@
 import {createHash,randomUUID} from 'node:crypto';
-import {lstat} from 'node:fs/promises';
+import {lstat,open} from 'node:fs/promises';
 import type {Tool,LocalSessionQuery,LocalSessionRecord,LocalSessionPage} from '../../shared/types';
 import {resolveRange,statisticsFilters} from '../../shared/range';
 import {appendedLines,codexDelta,type Counters} from './local-usage-lines';
 
 export const LOCAL_PAGE_BYTES=2*1024*1024,LOCAL_PAGE_RECORDS=50;
-type Cursor={sessionId:string;query:string;start:number;end:number;offset:number;dev:number;ino:number;size:number;mtimeMs:number;model:string;reasoning?:string;previous:Counters;signature:string;messages:Map<string,{signature:string;output:number}>;skipPartial:boolean;at:number;};
+type Cursor={sessionId:string;query:string;start:number;end:number;offset:number;dev:number;ino:number;size:number;mtimeMs:number;snapshot:string;checkpoint?:string;model:string;reasoning?:string;previous:Counters;signature:string;messages:Map<string,{signature:string;output:number}>;skipPartial:boolean;at:number;};
 const count=(value:unknown)=>typeof value==='number' && Number.isFinite(value) && value>=0 ? value : 0;
 const counts=(u:any):Counters=>({input:count(u.input_tokens),output:count(u.output_tokens),cache:count(u.cached_input_tokens ?? u.cache_read_input_tokens),write:count(u.cache_creation_input_tokens)});
+
+/** Check fixed-size markers, never re-read the whole consumed prefix on an append. */
+async function fingerprint(file:string,size:number,offset?:number):Promise<string>{
+  const positions=offset===undefined ? [0,Math.max(0,size-8192)] : [Math.max(0,Math.min(size-8192,offset-4096))];
+  const handle=await open(file,'r'),hash=createHash('sha256');
+  try{
+    for(const position of new Set(positions)){
+      const length=Math.min(8192,Math.max(0,size-position)),buffer=Buffer.alloc(length);
+      let done=0;while(done<length){const read=await handle.read(buffer,done,length-done,position+done);if(!read.bytesRead)throw new Error('会话文件已被修改，请重新打开。');done+=read.bytesRead;}
+      hash.update(String(position)+':').update(buffer);
+    }
+    return hash.digest('hex');
+  }finally{await handle.close();}
+}
 
 /** Opaque cursors keep a fixed file/time snapshot; no prompts or file paths reach the renderer. */
 export class LocalSessionPages {
@@ -22,8 +36,9 @@ export class LocalSessionPages {
     const stored=input.cursor ? this.cursors.get(input.cursor) : undefined;
     if(input.cursor && (!stored || stored.sessionId!==input.sessionId || stored.query!==query))throw new Error('会话详情游标已失效，请重新打开。');
     const window=stored ? null : resolveRange(input.query,new Date(now));
-    const cursor:Cursor=stored ? {...stored,previous:{...stored.previous},messages:new Map(stored.messages)} : {sessionId:input.sessionId,query,start:window!.start_timestamp,end:window!.end_timestamp,offset:0,dev:info.dev,ino:info.ino,size:info.size,mtimeMs:info.mtimeMs,model:'unknown',previous:{input:0,output:0,cache:0,write:0},signature:'',messages:new Map(),skipPartial:false,at:now};
+    const cursor:Cursor=stored ? {...stored,previous:{...stored.previous},messages:new Map(stored.messages)} : {sessionId:input.sessionId,query,start:window!.start_timestamp,end:window!.end_timestamp,offset:0,dev:info.dev,ino:info.ino,size:info.size,mtimeMs:info.mtimeMs,snapshot:await fingerprint(entry.file,info.size),model:'unknown',previous:{input:0,output:0,cache:0,write:0},signature:'',messages:new Map(),skipPartial:false,at:now};
     if(info.dev!==cursor.dev || info.ino!==cursor.ino || info.size<cursor.size || info.size===cursor.size && info.mtimeMs!==cursor.mtimeMs)throw new Error('会话文件已被修改，请重新打开。');
+    if(stored && (await fingerprint(entry.file,cursor.size)!==cursor.snapshot || cursor.checkpoint && await fingerprint(entry.file,cursor.size,cursor.offset)!==cursor.checkpoint))throw new Error('会话文件已被修改，请重新打开。');
     if(filters.tokenIds?.length)return {items:[],scannedBytes:cursor.size,totalBytes:cursor.size};
     const boundary=Math.min(cursor.size,cursor.offset+LOCAL_PAGE_BYTES),items:LocalSessionRecord[]=[];
     for await(const item of appendedLines(entry.file,cursor.offset,boundary,undefined,cursor.skipPartial)){
@@ -66,7 +81,11 @@ export class LocalSessionPages {
     }
     cursor.at=now;
     let nextCursor:string|undefined;
-    if(cursor.offset<cursor.size){nextCursor=randomUUID();this.cursors.set(nextCursor,cursor);while(this.cursors.size>128)this.cursors.delete(this.cursors.keys().next().value!);}
+    if(cursor.offset<cursor.size){
+      if(await fingerprint(entry.file,cursor.size)!==cursor.snapshot)throw new Error('会话文件已被修改，请重新打开。');
+      cursor.checkpoint=await fingerprint(entry.file,cursor.size,cursor.offset);
+      nextCursor=randomUUID();this.cursors.set(nextCursor,cursor);while(this.cursors.size>128)this.cursors.delete(this.cursors.keys().next().value!);
+    }
     return {items,nextCursor,scannedBytes:cursor.offset,totalBytes:cursor.size};
   }
 }
