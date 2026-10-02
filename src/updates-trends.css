@@ -49,7 +49,7 @@
 .trend-controls .segmented { flex-shrink: 0; }
 .trend-controls .segmented button { font-size: 12px; padding: 7px 11px; }
 .trend-controls .select-wrap { width:auto; max-width:180px; min-width:104px; flex:0 1 auto; }
-.trend-controls .select-wrap select { height:32px; min-height:32px; padding:5px 30px 5px 10px; border-radius:8px; font-size:12px; background:var(--panel-soft); }
+.trend-controls .select-wrap select { height:32px; min-height:32px; padding:5px 30px 5px 10px; border-radius:8px; font-size:12px; line-height:20px; background:var(--panel-soft); }
 .trend-controls .select-wrap select:hover { background:var(--accent-soft); }
 .trend-controls .select-wrap select { width: 100%; min-width: 0; }
 .trend-data { min-width:0; }

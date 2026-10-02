@@ -136,11 +136,21 @@ test('compressed markup shows unlabeled input/output and subtle cache read, with
   assert.equal((html.match(/<button\b/g) || []).length,1);
   assert.doesNotMatch(text,/输入|输出|缓存|站点|Lumi|Tokens|请求|7139|0\.000007|10\/02|09:41|上一分钟|更新|同步|刷新/);
   const tooltip=h.nodes('widget-model')[0].props.title;
-  for(const detail of ['latest-request','模型消费：$0.000007','请求数：7139','输入：—','输出：240','缓存读取：—','缓存写入：0','上一完整分钟：10/02 09:41','隔离测试站点','更新：'])assert.ok(tooltip.includes(detail),detail);
+  for(const detail of ['latest-request','模型消费：$0.000007','请求数：7139','输入：—','输出：240','缓存读取：—','缓存写入：0','消费范围：10/02 09:41','隔离测试站点','更新：'])assert.ok(tooltip.includes(detail),detail);
   assert.doesNotMatch(html,/NaN|undefined|null/);
   h.emit(state({models,latestModel:latest,historical:true,minuteLabel:'09/30 17:26',dataKey:'historical'}));
-  assert.match(h.nodes('widget-model')[0].props.title,/最近付费分钟：09\/30 17:26/);
+  assert.match(h.nodes('widget-model')[0].props.title,/回溯消费时间：09\/30 17:26/);
   assert.doesNotMatch(h.text(),/历史|分钟|09\/30|17:26/);
+  h.unmount();
+});
+
+test('local estimates keep the consumption label and explain online pricing only in hover details',async()=>{
+  const h=await harness();
+  h.emit(state({source:'local',latestModel:model('local-model')}));
+  assert.match(h.text(),/^最近消费/);assert.doesNotMatch(h.text(),/最近用量|线上定价|账单/);
+  assert.match(h.nodes('widget-consumption')[0].props.title,/按线上定价估算，最终以站点账单为准/);
+  assert.match(h.nodes('widget-model')[0].props.title,/按线上定价估算，最终以站点账单为准/);
+  h.emit(state());assert.doesNotMatch(h.nodes('widget-consumption')[0].props.title,/按线上定价估算/);
   h.unmount();
 });
 
@@ -364,9 +374,17 @@ app.whenReady().then(async()=>{
       const bounds=Object.fromEntries(['.widget-card','.widget-data','.widget-consumption','.widget-details','.widget-model-slot','.widget-balance'].map(s=>[s,rect(document.querySelector(s))]));
       const textBounds=[...data.querySelectorAll('dt, dd, .widget-model-name, .widget-model-notice, .widget-empty')].map(node=>({className:node.className,tag:node.tagName,...rect(node)}));
       const style=getComputedStyle(card);
+      const islands=[...card.querySelectorAll('*')].filter(node=>getComputedStyle(node).getPropertyValue('-webkit-app-region')==='no-drag');
+      const excluded=islands.map(rect),area=rect(data);
+      let draggable=0,samples=0;
+      for(let y=area.y+1;y<area.bottom;y+=2)for(let x=area.x+1;x<area.right;x+=2){
+        samples++;if(!excluded.some(r=>x>=r.x && x<r.right && y>=r.y && y<r.bottom))draggable++;
+      }
       return {viewport:[innerWidth,innerHeight],document:[document.documentElement.scrollWidth,document.documentElement.scrollHeight],
         bounds,textBounds,text:data.textContent,background:style.backgroundColor,shadow:style.boxShadow,image:style.backgroundImage,
         drag:style.getPropertyValue('-webkit-app-region'),contentDrag:getComputedStyle(data).getPropertyValue('-webkit-app-region'),
+        dragRatio:draggable/samples,interactive:[...data.querySelectorAll('.widget-value, .widget-model-name>span')].every(node=>getComputedStyle(node).getPropertyValue('-webkit-app-region')==='no-drag'),
+        closeDrag:getComputedStyle(document.querySelector('.widget-close')).getPropertyValue('-webkit-app-region'),
         closeOpacity:getComputedStyle(document.querySelector('.widget-close')).opacity,
         fonts:[getComputedStyle(document.querySelector('.widget-consumption dd')).fontSize,getComputedStyle(document.querySelector('.widget-balance dd')).fontSize],
         models:document.querySelectorAll('.widget-model').length,content:document.querySelectorAll('.widget-data').length};
@@ -406,7 +424,7 @@ app.whenReady().then(async()=>{
   const controls=await win.webContents.executeJavaScript('('+function controls(){
     const data=document.querySelector('.widget-data'),close=document.querySelector('.widget-close');
     data.focus();const focusedOpacity=getComputedStyle(close).opacity;
-    data.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+    data.querySelector('.widget-value').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
     data.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     close.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));close.click();
     return {focusedOpacity,actions:window.fixtureActions,wideBridge:typeof window.lumi,require:typeof require};
@@ -434,7 +452,9 @@ app.whenReady().then(async()=>{
     assert.ok(result.bounds['.widget-model-slot'].bottom<=result.bounds['.widget-balance'].y);
     assert.ok(data.height<=54);assert.deepEqual(result.fonts,['16px','11px']);
     const [red,green,blue]=result.background.match(/\d+/g).map(Number);assert.ok(green>red && green>blue,result.background);
-    assert.equal(result.shadow,'none');assert.equal(result.image,'none');assert.equal(result.drag,'drag');assert.equal(result.contentDrag,'no-drag');
+    assert.equal(result.shadow,'none');assert.equal(result.image,'none');assert.equal(result.drag,'drag');assert.equal(result.contentDrag,'drag');
+    assert.ok(result.dragRatio>.35,JSON.stringify({name:result.name,dragRatio:result.dragRatio}));
+    assert.equal(result.interactive,true);assert.equal(result.closeDrag,'no-drag');
     assert.equal(result.closeOpacity,'0');
   }
   assert.equal(results.find((result:any)=>result.name==='long').models,1);

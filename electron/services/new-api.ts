@@ -14,6 +14,8 @@ import {trackedToolTokenNames} from '../../shared/utils';
 import {logMetrics} from '../../shared/logs';
 import {DEFAULT_MENU_BAR_SELECTION} from '../../shared/menu-bar';
 import {previousMinute,widgetMinute,type WidgetUsage,type WidgetMinute} from '../../shared/widget';
+import {widgetPeriodWindow,widgetPeriodLabel,type WidgetPeriod} from '../../shared/widget-period';
+import type {WidgetPricingContext} from './local-widget-pricing';
 import type { ModelInfo, Dashboard, DashboardQuery, HealthSummary, ModelHealthDetails, SiteStatus, UserInfo, UsageStat, UsageLog, QuotaPoint, ModelCatalog, LogPage, LogQuery, ApiToken, CreateTokenInput, SiteProfile, Preferences } from '../../shared/types';
 import type { LoginInput, LoginInfo, LoginResult, ConfigRequest, Tool, UpdateTokenInput, TokenUsage, UsageQuality,MenuBarUsage,MenuBarSelection,MenuBarDetails } from '../../shared/types';
 export interface ResolvedToolToken { key: string; tokenName: string; tokenId: number; group: string; created: boolean; siteId: string; siteUrl: string; models?:ModelInfo[]; }
@@ -266,8 +268,45 @@ export class NewApiClient {
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
-  async widgetUsage(now=Date.now()):Promise<WidgetUsage>{
-    if(!this.snapshot)return this.scope().widgetUsage(now);
+  async widgetPricing():Promise<WidgetPricingContext>{
+    if(!this.snapshot)return this.scope().widgetPricing();
+    const scope=this.current(),statusTask=this.status();
+    if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {siteId:scope.site.id,siteName:scope.site.name,status:await statusTask,balance:null,loggedIn:false,catalog:null,userGroup:''};
+    const [status,user,catalogResult]=await Promise.all([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.catalog().then(catalog=>({catalog,error:undefined as string|undefined}),()=>({catalog:null,error:'线上模型价格暂不可用'}))]);
+    this.checkScope(scope);await this.validSecret(scope);
+    return {siteId:scope.site.id,siteName:scope.site.name,status,balance:typeof user.quota==='number' && Number.isFinite(user.quota) ? user.quota : null,loggedIn:true,catalog:catalogResult.catalog,userGroup:user.group || '',error:catalogResult.error};
+  }
+  async widgetUsage(now=Date.now(),period?:WidgetPeriod):Promise<WidgetUsage>{
+    if(!this.snapshot)return this.scope().widgetUsage(now,period);
+    if(period===60)return {...await this.widgetUsage(now),periodLabel:widgetPeriodLabel(period)};
+    if(period!==undefined){
+      const scope=this.current(),window=widgetPeriodWindow(period,now),statusTask=this.status(),base={siteId:scope.site.id,siteName:scope.site.name,balance:null,loggedIn:false,minute:null,historical:false,fetchedAt:now,warnings:[],periodLabel:widgetPeriodLabel(period)};
+      if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...base,status:await statusTask};
+      const [status,user]=await Promise.all([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo)]);
+      let minute:WidgetMinute|null;
+      if(period==='latest'){
+        const page=await this.logs({days:1,page:1,pageSize:1,type:2},window);
+        const latest=page.items.filter(row=>row.type===2 && row.created_at<=window.end_timestamp).sort((a,b)=>b.created_at-a.created_at || b.id-a.id)[0];
+        minute=latest ? widgetMinute([latest],Math.floor(latest.created_at/60)*60) : null;
+        if(minute && latest){minute.start=latest.created_at;minute.end=latest.created_at;}
+      }else{
+        const complete=await this.completeLogs(1,2,window),buckets=new Map<number,UsageLog[]>();
+        for(const row of complete.rows){const start=Math.floor(row.created_at/60)*60;const rows=buckets.get(start) || [];rows.push(row);buckets.set(start,rows);}
+        minute={start:window.start_timestamp,end:window.end_timestamp,quota:0,requests:0,models:[]};
+        const models=new Map<string,typeof minute.models[number]>();let latest:UsageLog|undefined;
+        for(const [start,rows] of buckets){const bucket=widgetMinute(rows,start);minute.quota+=bucket.quota;minute.requests+=bucket.requests;
+          for(const model of bucket.models){const existing=models.get(model.name);if(!existing){models.set(model.name,{...model});continue;}
+            existing.quota+=model.quota;existing.requests+=model.requests;
+            for(const key of ['inputTokens','outputTokens','cacheReadTokens','cacheWriteTokens'] as const)existing[key]=existing[key]===null || model[key]===null ? null : existing[key]+model[key];
+          }
+          const newest=rows.slice().sort((a,b)=>b.created_at-a.created_at || b.id-a.id)[0];
+          if(newest && (!latest || newest.created_at>latest.created_at || newest.created_at===latest.created_at && newest.id>latest.id)){latest=newest;minute.latestModel=bucket.latestModel;}
+        }
+        minute.models=[...models.values()].sort((a,b)=>b.quota-a.quota || a.name.localeCompare(b.name));if(!minute.requests)minute=null;
+      }
+      this.checkScope(scope);await this.validSecret(scope);
+      return {...base,status,balance:typeof user.quota==='number' && Number.isFinite(user.quota) ? user.quota : null,loggedIn:true,minute,fetchedAt:Date.now()};
+    }
     const scope=this.current(),window=previousMinute(now),statusTask=this.status();
     const base={siteId:scope.site.id,siteName:scope.site.name,balance:null,loggedIn:false,minute:null,historical:false,fetchedAt:now,warnings:[]} satisfies Omit<WidgetUsage,'status'>;
     if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...base,status:await statusTask};

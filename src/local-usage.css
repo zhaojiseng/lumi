@@ -1,0 +1,109 @@
+.local-usage-progress {
+  padding: 14px 18px;
+}
+.local-usage-progress-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 13px;
+}
+.local-usage-progress-heading strong {
+  color: var(--text);
+  font-weight: 550;
+}
+.local-usage-progress-heading > span {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.local-usage-progress-track {
+  height: 6px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border);
+}
+.local-usage-progress-track > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.local-usage-progress p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.local-sessions-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.local-sessions .text-link:disabled {
+  opacity: .5;
+  cursor: default;
+}
+.modal.wide.local-session-details {
+  width: min(1080px, calc(100vw - 68px));
+  max-width: 100%;
+}
+.local-session-range {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.local-session-scan {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.local-session-scan > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.local-session-records {
+  max-height: min(52vh, 460px);
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.local-session-records table {
+  min-width: 800px;
+}
+.local-session-records th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+}
+.local-session-window-note {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.local-session-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--red);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

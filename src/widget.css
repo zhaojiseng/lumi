@@ -39,7 +39,7 @@ p, dl, dt, dd { margin: 0; padding: 0; }
   --hover: #34533f;
   color-scheme: dark;
 }
-/* The card's exposed edges drag; content receives tooltips and double-clicks. */
+/* Background and gaps drag; text islands retain tooltips and double-clicks. */
 .widget-header { -webkit-app-region: drag; user-select: none; cursor: move; }
 .widget-data {
   display: grid;
@@ -48,19 +48,22 @@ p, dl, dt, dd { margin: 0; padding: 0; }
   height: 100%;
   min-width: 0;
   min-height: 0;
-  -webkit-app-region: no-drag;
-  cursor: default;
+  -webkit-app-region: drag;
+  cursor: move;
   border-radius: 3px;
 }
 .widget-consumption { display: flex; flex-direction: column; justify-content: center; min-width: 0; padding-right: 6px; border-right: 1px solid var(--line); }
 .widget-consumption dt { font-size: 10px; line-height: 12px; color: var(--muted); }
 .widget-consumption dd { color: var(--accent); font-size: 16px; line-height: 18px; font-weight: 650; letter-spacing: -.3px; }
 .widget-value { display: inline-block; max-width: 100%; vertical-align: bottom; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.widget-value, .widget-model-name>span, .widget-model-notice, .widget-empty>span, .widget-data dt { -webkit-app-region: no-drag; cursor: default; }
+.widget-data dt { width: fit-content; }
 .widget-details { display: grid; grid-template-rows: minmax(0, 1fr) 14px; min-width: 0; min-height: 0; }
 .widget-model-slot { width: 100%; min-width: 0; min-height: 0; }
 .widget-model { min-width: 0; border-radius: 3px; }
 .widget-model-heading { display: flex; align-items: center; gap: 4px; min-width: 0; padding-right: 6px; font-size: 12px; line-height: 13px; }
 .widget-model-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+.widget-model-name>span { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
 .widget-model-notice { flex-shrink: 0; color: var(--muted); font-size: 10px; line-height: 13px; }
 .widget-tokens { display: flex; align-items: flex-start; gap: 5px; min-width: 0; }
 .widget-token-input { display: flex; flex-direction: column; min-width: 0; max-width: calc((100% - 18px) / 2); }
@@ -71,8 +74,9 @@ p, dl, dt, dd { margin: 0; padding: 0; }
 .widget-balance { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .widget-balance dt { flex-shrink: 0; color: var(--muted); font-size: 10px; line-height: 14px; }
 .widget-balance dd { min-width: 0; font-size: 11px; line-height: 14px; font-weight: 550; }
-.widget-balance .widget-value { display: block; }
+.widget-balance .widget-value { vertical-align: top; }
 .widget-empty { display: flex; align-items: center; height: 100%; color: var(--muted); font-size: 12px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.widget-empty>span { overflow: hidden; text-overflow: ellipsis; }
 .widget-close { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 14px; height: 14px; padding: 0; border-radius: 4px; color: var(--muted); opacity: 0; }
 .widget-card:hover .widget-close, .widget-card:focus-within .widget-close { opacity: 1; }
 .widget-close:hover:not(:disabled) { background: var(--hover); color: var(--accent); }

@@ -57,7 +57,7 @@ function Value({value}:{value:string}) {
 function ModelDetails({model,notice,tooltip}:{model:WidgetModel;notice:string;tooltip:string}) {
   const details=[model.name,'模型消费：'+model.cost,'请求数：'+model.requests,'输入：'+model.input,'输出：'+model.output,'缓存读取：'+model.cacheRead,'缓存写入：'+model.cacheWrite,tooltip].join('\n');
   return <div className="widget-model" title={details}>
-    <div className="widget-model-heading"><span className="widget-model-name">{model.name}</span>{notice && <span className="widget-model-notice" role="status" aria-live="polite">{notice}</span>}</div>
+    <div className="widget-model-heading"><span className="widget-model-name"><span>{model.name}</span></span>{notice && <span className="widget-model-notice" role="status" aria-live="polite">{notice}</span>}</div>
     <div className="widget-tokens" role="group" aria-label={model.name+' 的 Tokens'}>
       <div className="widget-token-input">
         <span className="widget-token-number" aria-label={'输入：'+model.input} title={'输入：'+model.input}><Value value={model.input}/></span>
@@ -95,16 +95,16 @@ export function WidgetApp() {
   };
   const updated=state.updatedAt>0 && Number.isFinite(state.updatedAt) ? new Date(state.updatedAt) : null;
   const updatedLabel=updated && Number.isFinite(updated.getTime()) ? updated.toLocaleString('zh-CN') : '尚未更新';
-  const tooltip=[state.siteName,(state.historical ? '最近付费分钟：' : '上一完整分钟：')+state.minuteLabel,'消费：'+state.cost,'余额：'+state.balance,'更新：'+updatedLabel,error || state.message].filter(Boolean).join('\n');
+  const tooltip=[state.siteName,(state.historical ? '回溯消费时间：' : '消费范围：')+state.minuteLabel,'消费：'+state.cost,'余额：'+state.balance,state.source==='local' ? '本地用量按线上定价估算，最终以站点账单为准。' : '', '更新：'+updatedLabel,error || state.message].filter(Boolean).join('\n');
   const model=state.latestModel ?? state.models[0];
   const notice=error || (state.phase==='error' ? '用量暂不可用' : '');
   const empty=notice || (state.phase==='loading' || state.phase==='idle' ? '读取中…' : '暂无消费模型');
   return <main className="widget-card widget-header" data-theme={received.theme} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
     <div className="widget-data" ref={data} tabIndex={window.lumiWidget ? 0 : undefined} role="group" aria-label="用量，双击或按 Enter 打开工作台" onKeyDown={event=>{if(event.key==='Enter' && !event.repeat && event.target===event.currentTarget){event.preventDefault();void action('open');}}}>
-      <dl className="widget-consumption" title={tooltip}><dt>{state.source==='local' ? '最近用量' : '最近消费'}</dt><dd><Value value={state.cost}/></dd></dl>
+      <dl className="widget-consumption" title={tooltip}><dt>最近消费</dt><dd><Value value={state.cost}/></dd></dl>
       <div className="widget-details">
         <section className="widget-model-slot" aria-label="最近模型">
-          {model ? <ModelDetails model={model} notice={notice} tooltip={tooltip}/> : <p className="widget-empty" role="status" aria-live="polite">{empty}</p>}
+          {model ? <ModelDetails model={model} notice={notice} tooltip={tooltip}/> : <p className="widget-empty" role="status" aria-live="polite"><span>{empty}</span></p>}
         </section>
         <dl className="widget-balance" title={tooltip}><dt>余额</dt><dd><Value value={state.balance}/></dd></dl>
       </div>

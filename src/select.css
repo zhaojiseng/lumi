@@ -172,7 +172,8 @@ select option[data-tone=sage] {
   }
 
   .select-wrap select {
-    display: block;
+    display: flex;
+    align-items: center;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;

@@ -11,6 +11,8 @@ import { SettingsStore } from './services/store';
 import { NewApiClient } from './services/new-api';
 import { ConfigService } from './services/config';
 import { LocalUsageService } from './services/local-usage';
+import {localWidgetPricing,combineLocalWidget} from './services/local-widget-pricing';
+import {WIDGET_PERIODS,type WidgetPeriod} from '../shared/widget-period';
 import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
 import {AppCacheService,isolateLumiDataPaths,lumiBrowserCacheRoots,lumiUpdateCacheRoots} from './services/app-cache';
@@ -58,7 +60,7 @@ const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema,
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const barRangeSchema=z.union([z.literal('follow'),z.literal('24h'),z.literal(1),z.literal(7),z.literal(30)]);
-const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
+const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),widgetPeriod:z.union([z.literal('latest'),z.number().refine(value=>WIDGET_PERIODS.some(option=>option.value===value)).transform(value=>value as WidgetPeriod)]).optional(),widgetInputMode:z.enum(['total','uncached']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
 function trustedFrame(event: Electron.IpcMainInvokeEvent) {
@@ -123,14 +125,17 @@ async function start() {
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
   const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
-  const widgetIdentity=()=>{const site=store.activeSite(),s=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,s.userId,s.sessionId,s.sessionAuth ? null : s.accessToken,s.sessionId ? null : s.cookies,store.preferences.widgetDataSource])).digest('hex');};
+  const widgetIdentity=()=>{const site=store.activeSite(),s=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,s.userId,s.sessionId,s.sessionAuth ? null : s.accessToken,s.sessionId ? null : s.cookies,store.preferences.widgetDataSource,store.preferences.widgetPeriod])).digest('hex');};
   const loadWidgetUsage=async()=>{
-    return store.preferences.widgetDataSource==='local' ? usage.widgetUsage() : api.widgetUsage();
+    const preferences=structuredClone(store.preferences),period=preferences.widgetPeriod,now=Date.now();
+    if(preferences.widgetDataSource!=='local')return api.widgetUsage(now,period);
+    const context=await api.widgetPricing(),pricing=localWidgetPricing(context,preferences.bindings);
+    const local=await usage.widgetUsage(now,{...pricing,period});return combineLocalWidget(local,context,period);
   };
   const widgetUsage=new WidgetService({identity:widgetIdentity,load:loadWidgetUsage,minInterval:()=>store.preferences.widgetDataSource==='local' ? 1000 : 0,ttl:()=>store.preferences.widgetDataSource==='local' ? 1000 : 60000,changed:()=>widgetPanel.update()});
   let widgetTimer:ReturnType<typeof setTimeout>|undefined;
   let widgetSchedule=0;
-  const widgetPanel=new WidgetPanel({root,preload:path.join(__dirname,'widget-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>{const s=widgetUsage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:store.preferences.widgetEnabled,viewKey:widgetIdentity(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,animation:store.preferences.dataRefreshAnimation,error:s.error});},event:async e=>{
+  const widgetPanel=new WidgetPanel({root,preload:path.join(__dirname,'widget-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>{const s=widgetUsage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:store.preferences.widgetEnabled,viewKey:widgetIdentity(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,animation:store.preferences.dataRefreshAnimation,inputMode:store.preferences.widgetInputMode,error:s.error});},event:async e=>{
     if(e.type==='close'){await store.update({widgetEnabled:false});await syncWidget();if(!win.isDestroyed())win.webContents.send('lumi:widgetVisibility',false);}
     else if(e.type==='open')navigate('overview');
     else await widgetUsage.refresh();
@@ -199,7 +204,11 @@ async function start() {
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
   handle('openUpdateFile',noPayload,()=>updates.openMacInstaller(file=>shell.openPath(file),()=>{setImmediate(()=>app.quit());}));
   handle('restartUpdate',noPayload,()=>updates.restart());
-  handle('localUsage', statisticsSchema, query => usage.scan(query));
+  handle('localUsage', z.union([statisticsSchema,z.object({query:statisticsSchema,requestId:z.string().uuid()}).strict()]), input => {
+    const identified=typeof input==='object' && 'query' in input;
+    return usage.scan(identified ? input.query : input,identified ? progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localUsageProgress',{...progress,requestId:input.requestId});} : undefined);
+  });
+  handle('localSessionDetails',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,cursor:z.string().uuid().optional()}).strict(),input=>usage.sessionDetails(input));
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
   handle('applyConfig', z.string().uuid(), id => configs.apply(id));
   handle('backups', noPayload, () => configs.backups());
@@ -262,13 +271,20 @@ async function start() {
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
+        let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
+        const requestId=crypto.randomUUID(),progress=[];
+        const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
+        const local=await window.lumi.localUsage(1,requestId);stopProgress();
+        const changed=await window.lumi.updatePreferences({widgetInputMode:'uncached',widgetPeriod:'latest'});
+        const localSessionIpcValid=invalidDetails && Array.isArray(local.sessions) && progress.some(value=>value.phase==='complete') && changed.widgetInputMode==='uncached' && changed.widgetPeriod==='latest';
+        await window.lumi.updatePreferences({widgetInputMode:'total',widgetPeriod:60});
         const cacheBefore=await window.lumi.appCache(),cleared=await window.lumi.clearAppCache();
         const appCacheValid=Number.isFinite(cacheBefore.totalBytes) && cleared.freedBytes>=0 && Array.isArray(cleared.cache.warnings);
         const logs=await window.lumi.appLogs();
         const header=document.querySelector('.titlebar'),sidebar=document.querySelector('.sidebar'),rect=header?.getBoundingClientRect(),side=sidebar?.getBoundingClientRect();
         const platformLayout=!!rect && !!side && (b.platform==='darwin' ? rect.x===0 && Math.abs(rect.width-innerWidth)<1 && side.top>=rect.bottom : side.top===0 && rect.x>=side.right && Math.abs(rect.right-innerWidth)<1);
         const titlebarGeometry=platformLayout && rect.y===0 && header.parentElement.classList.contains('desktop-shell') && getComputedStyle(header).getPropertyValue('-webkit-app-region')==='drag' && getComputedStyle(document.querySelector('.titlebar-actions')).getPropertyValue('-webkit-app-region')==='no-drag';
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,localSessionIpcValid,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
       result.widgetPanel=await widgetPanel.smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);

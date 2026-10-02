@@ -12,22 +12,33 @@ import { TrendChart } from '../components/charts';
 import {UsageTrend} from '../components/UsageTrend';
 import {UsageQuality} from '../components/UsageQuality';
 import {DataRefreshMotion} from '../components/DataRefreshMotion';
-import { compact, formatMoney, dailySeries } from '../../shared/utils';
-import type { LocalUsage, LogPage, UsageLog } from '../../shared/types';
+import {LocalUsageProgress} from '../components/LocalUsageProgress';
+import {useLocalUsage} from '../components/useLocalUsage';
+import {LocalSessions} from '../components/LocalSessions';
+import {LocalSessionDetails} from '../components/LocalSessionDetails';
+import {localUsageSeries} from '../../shared/local-trends';
+import { compact, formatMoney, usageGranularity } from '../../shared/utils';
+import type { LocalSessionSummary, LogPage, UsageLog, Tool, StatisticsQuery } from '../../shared/types';
+import '../local-usage.css';
 export default function Usage() {
   const { dashboard: d, preferences, days, statisticsQuery, toast, setPage } = useApp();
   const [tab, setTab] = useSavedSelection<'billing' | 'logs' | 'local'>('usage.tab','billing',v=>['billing','logs','local'].includes(v));
   const [type, setType] = useSavedSelection<number>('usage.type',0,v=>[0,2,5].includes(v));
   const [page, setLogPage] = useState(1); const [logs, setLogs] = useState<LogPage | null>(null); const [busy, setBusy] = useState(false);
-  const [local, setLocal] = useState<LocalUsage | null>(null); const [detail, setDetail] = useState<UsageLog | null>(null);
+  const [detail, setDetail] = useState<UsageLog | null>(null);
+  const [sessionDetail,setSessionDetail]=useState<{scope:string;session:LocalSessionSummary;query:StatisticsQuery}|null>(null);
   const [localFilter, setLocalFilter] = useSavedSelection<string>('usage.localTool','all',v=>['all','codex','claude'].includes(v)); const [exporting, setExporting] = useState(false);
   const filterKey=JSON.stringify(statisticsQuery),resolved=resolveRange(statisticsQuery);
+  const site=preferences.sites.find(s=>s.id===preferences.activeSiteId);
+  const localAccountKey=JSON.stringify([preferences.activeSiteId,site?.url,site?.userId,site?.username,site?.accessTokenConfigured,site?.apiKeyConfigured,site?.sessionAuth,d?.user?.id]);
+  const localDetailScope=JSON.stringify([localAccountKey,statisticsQuery]);
+  const {local,query:localQuery,busy:localBusy,progress:localProgress,stale:localStale}=useLocalUsage(tab==='local',statisticsQuery,localAccountKey,message=>toast(message,'error'));
+  useEffect(()=>{setSessionDetail(null);},[tab,localDetailScope,localFilter]);
   const logQuery={days:resolved.days,range:statisticsQuery.range,models:statisticsQuery.models,tokenIds:statisticsQuery.tokenIds,type};
   useEffect(() => { setLogPage(1); }, [filterKey,type]);
   useEffect(() => {
     let active = true; setBusy(true);
     if (tab === 'logs') bridge.logs({ ...logQuery, page, pageSize: 15 }).then(r => { if (active) setLogs(r); }).catch(e => { if (active) { setLogs(null); toast(e.message, 'error'); } }).finally(() => { if (active) setBusy(false); });
-    else if (tab === 'local') bridge.localUsage(statisticsQuery).then(r => { if (active) setLocal(r); }).catch(e => { if (active) toast(e.message, 'error'); }).finally(() => { if (active) setBusy(false); });
     else setBusy(false);
     return () => { active = false; };
   }, [tab, filterKey, page, type, preferences.activeSiteId, tab === 'logs' ? d?.fetchedAt : undefined]);
@@ -38,7 +49,9 @@ export default function Usage() {
   const motion={animation:preferences.dataRefreshAnimation,resetKey:refreshScope};
   const bindingList = preferences.bindings.filter(b => b.siteId === preferences.activeSiteId);
   const rows = (local?.rows || []).filter(r => localFilter === 'all' || r.tool === localFilter);
-  const localTrend = dailySeries(d.series,days,d.status,d.range,new Date(d.fetchedAt)).map(r => ({ ...r, tokens: rows.filter(x => x.date === r.date).reduce((s, x) => s + x.inputTokens + x.outputTokens + x.cacheReadTokens + x.cacheWriteTokens, 0), requests: rows.filter(x => x.date === r.date).reduce((s, x) => s + x.requests, 0) }));
+  const localNow=new Date(local?.scannedAt || Date.now()),localWindow=resolveRange(localQuery,localNow);
+  const localTrend=localUsageSeries(local?.points || [],localQuery,localNow,localFilter as Tool|'all');
+  const localHasTrend=localTrend.some(row=>row.tokens>0 || row.requests>0);
   async function doExport() { setExporting(true); try { const r = await bridge.exportLogs({ ...logQuery, page: 1, pageSize: 100 }); if (r.count) toast(`已导出 ${r.count} 条记录`, 'success'); } catch (e: any) { toast(e.message, 'error'); } finally { setExporting(false); } }
   return <div className="page"><PageIntro title="每一份消耗，尽在掌握" description="从站点账单到本地会话，了解你的 AI 如何工作。"/><StatisticsFilter/>
     <div className="page-tabs">{([['billing', Cloud, '站点消费'], ['logs', FileText, '请求明细'], ['local', Monitor, '本机会话']] as const).map(([key, Icon, title]) => <button className={tab === key ? 'active' : ''} key={key} onClick={() => setTab(key)}><Icon size={16}/>{title}{tab === key && <span className="tab-dot"/>}</button>)}</div>
@@ -50,7 +63,8 @@ export default function Usage() {
       <div className="info-note"><Info size={15}/><span>工具消费按绑定的独立令牌查询，遵循当前时间与筛选。共享令牌的消耗无法区分应用；本地 Tokens 可在“本机会话”中查看。</span></div>
     </>}
     {tab === 'logs' && <section className="surface panel logs-panel"><SectionHeading title="请求明细" sub={rangeLabel(d.range,new Date(d.fetchedAt))} action={<div className="request-log-actions"><LogColumnsControl/><Button busy={exporting} onClick={doExport}><Download size={15}/>导出 CSV</Button></div>}/><div className="filter-bar"><Select label="筛选状态" value={type} onChange={v => setType(Number(v))}><option value="0">全部状态</option><option value="2">成功调用</option><option value="5">错误请求</option></Select><span className="filter-count">{busy ? <Loader2 size={15} className="spin"/> : `共 ${logs?.total || 0} 条`}</span></div><DataRefreshMotion {...motion} resetKey={JSON.stringify([refreshScope,page,type])} identity={JSON.stringify(logs)}><RequestLogTable logs={logs} busy={busy} page={page} onPage={setLogPage} onDetail={setDetail} status={d.status} catalog={d.catalog}/></DataRefreshMotion></section>}
-    {tab === 'local' && <><div className="info-note"><Monitor size={16}/><span>读取本机 ~/.codex/sessions、archived_sessions 和 ~/.claude/projects。只提取用量元数据，会话内容不会上传。缓存 Tokens 单独列出，不重复计入普通输入。</span></div><div className="stats-grid local-stats">{[['普通输入', rows.reduce((s, r) => s + r.inputTokens, 0)], ['模型输出', rows.reduce((s, r) => s + r.outputTokens, 0)], ['缓存读取', rows.reduce((s, r) => s + r.cacheReadTokens, 0)], ['缓存写入', rows.reduce((s, r) => s + r.cacheWriteTokens, 0)]].map(([label, value]) => <div className="surface stat-card" key={label}><span className="muted">{label}</span><div className="stat-number">{compact(Number(value))}</div><span className="muted small-text">Tokens · 最近 {days} 天</span></div>)}</div><section className="surface panel"><SectionHeading title="本地 Tokens 趋势" sub="普通输入 + 输出 + 缓存读取 + 缓存写入"/>{rows.length ? <TrendChart data={localTrend} metric="tokens"/> : <Empty title="暂无会话曲线" description="读取到本机会话后显示。"/>}</section><section className="surface panel"><SectionHeading title="本地模型用量" sub={busy ? '正在扫描会话…' : `已扫描 ${local?.filesScanned || 0} 个会话文件`} action={<div className="segmented">{['all', 'codex', 'claude'].map((t, i) => <button key={t} className={localFilter === t ? 'active' : ''} onClick={() => setLocalFilter(t)}>{['全部', 'Codex', 'Claude Code'][i]}</button>)}</div>}/>{rows.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>日期</th><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>用量事件</th></tr></thead><tbody>{rows.slice().reverse().map((r, i) => <tr key={`${r.date}-${r.tool}-${r.model}-${i}`}><td className="muted">{r.date}</td><td><div className="model-cell"><ToolIcon tool={r.tool} size={28}/><strong>{r.model}</strong></div></td><td>{compact(r.inputTokens)}</td><td>{compact(r.outputTokens)}</td><td>{compact(r.cacheReadTokens)}</td><td>{compact(r.cacheWriteTokens)}</td><td>{r.requests}</td></tr>)}</tbody></table></div> : <Empty title={busy ? '正在读取本地会话' : '没有找到会话记录'} description="使用 Codex 或 Claude Code 后，保存在本机的用量记录将显示在这里。"/>}</section>{local?.warnings.map((w, i) => <div className="warning-banner" key={i}><Info size={15}/>{w}</div>)}<div className="info-note"><Info size={15}/><span>本地记录反映工具的使用情况，费用以站点账单为准。用量事件是日志采样次数，可能与站点请求数不同；继承历史的分支会话可能包含父会话用量。</span></div></>}
+    {tab === 'local' && <><div className="info-note"><Monitor size={16}/><span>读取本机 ~/.codex/sessions、archived_sessions 和 ~/.claude/projects。只提取用量元数据，会话内容不会上传。缓存 Tokens 单独列出，不重复计入普通输入。</span></div><LocalUsageProgress progress={localProgress}/><div className="stats-grid local-stats">{[['普通输入', rows.reduce((s, r) => s + r.inputTokens, 0)], ['模型输出', rows.reduce((s, r) => s + r.outputTokens, 0)], ['缓存读取', rows.reduce((s, r) => s + r.cacheReadTokens, 0)], ['缓存写入', rows.reduce((s, r) => s + r.cacheWriteTokens, 0)]].map(([label, value]) => <div className="surface stat-card" key={label}><span className="muted">{label}</span><div className="stat-number">{compact(Number(value))}</div><span className="muted small-text">Tokens · 所选 {localWindow.days} 天</span></div>)}</div><section className="surface panel"><SectionHeading title="本地 Tokens 趋势" sub={rangeLabel(localWindow.range,localNow)}/>{localHasTrend ? <TrendChart data={localTrend} metric="tokens"/> : <Empty title="暂无会话曲线" description={localBusy ? "正在读取所选时间段的本机会话。" : local && !local.points && rows.length ? "当前会话数据缺少时间记录，重新扫描后显示。" : "所选时间段没有本机会话用量。"}/>}<div className="chart-note"><span>{usageGranularity(localWindow.durationDays).label} · 时长 ÷ 30 · 普通输入 + 输出 + 缓存读取 + 缓存写入</span></div></section><section className="surface panel"><SectionHeading title="本地模型用量" sub={localBusy ? '正在扫描会话…' : `已扫描 ${local?.filesScanned || 0} 个会话文件`} action={<div className="segmented">{['all', 'codex', 'claude'].map((t, i) => <button key={t} className={localFilter === t ? 'active' : ''} onClick={() => setLocalFilter(t)}>{['全部', 'Codex', 'Claude Code'][i]}</button>)}</div>}/>{rows.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>日期</th><th>工具 / 模型</th><th>输入</th><th>输出</th><th>缓存读取</th><th>缓存写入</th><th>用量事件</th></tr></thead><tbody>{rows.slice().reverse().map((r, i) => <tr key={`${r.date}-${r.tool}-${r.model}-${i}`}><td className="muted">{r.date}</td><td><div className="model-cell"><ToolIcon tool={r.tool} size={28}/><strong>{r.model}</strong></div></td><td>{compact(r.inputTokens)}</td><td>{compact(r.outputTokens)}</td><td>{compact(r.cacheReadTokens)}</td><td>{compact(r.cacheWriteTokens)}</td><td>{r.requests}</td></tr>)}</tbody></table></div> : <Empty title={localBusy ? '正在读取本地会话' : '没有找到会话记录'} description="使用 Codex 或 Claude Code 后，保存在本机的用量记录将显示在这里。"/>}</section><LocalSessions sessions={local?.sessions} tool={localFilter as Tool|'all'} scope={JSON.stringify([localDetailScope,local?.scannedAt])} busy={localBusy} stale={localStale} onOpen={session=>setSessionDetail({scope:localDetailScope,session,query:structuredClone(statisticsQuery)})}/>{local?.warnings.map((w, i) => <div className="warning-banner" key={i}><Info size={15}/>{w}</div>)}<div className="info-note"><Info size={15}/><span>本地记录反映工具的使用情况，费用以站点账单为准。用量事件是日志采样次数，可能与站点请求数不同；继承历史的分支会话可能包含父会话用量。</span></div></>}
     </MotionSwap>{detail && <RequestDetail log={detail} status={d.status} onClose={() => setDetail(null)}/>}
+    {tab==='local' && sessionDetail?.scope===localDetailScope && (localFilter==='all' || sessionDetail.session.tool===localFilter) && <LocalSessionDetails session={sessionDetail.session} query={sessionDetail.query} accountKey={localAccountKey} onClose={()=>setSessionDetail(null)}/>}
   </div>;
 }

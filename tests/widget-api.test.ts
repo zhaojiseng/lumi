@@ -56,3 +56,15 @@ test('log permission errors reject refresh and logged-out widget never requests 
   const denied=await fixture(t,[],{fail:true});await assert.rejects(denied.api.widgetUsage(now),/无权/);
   const anonymous=await fixture(t,[],{anonymous:true}),data=await anonymous.api.widgetUsage(now);assert.equal(data.loggedIn,false);assert.equal(data.balance,null);assert.equal(data.minute,null);assert.deepEqual(anonymous.seen.map(u=>u.pathname),['/api/status']);
 });
+
+
+test('latest widget period selects one actual call including the current minute, excluding future records',async t=>{
+  const f=await fixture(t,[log(1,window.start_timestamp,2),log(2,Math.floor(now/1000)-1,7,'latest-model'),log(3,Math.floor(now/1000)+1,9)]);
+  const result=await f.api.widgetUsage(now,'latest');assert.equal(result.minute?.requests,1);assert.equal(result.minute?.quota,7);assert.equal(result.minute?.latestModel?.name,'latest-model');assert.equal(result.minute?.start,Math.floor(now/1000)-1);assert.equal(result.periodLabel,'最近一次');
+});
+test('long widget periods include complete paginated history, all models and exactly the requested range',async t=>{
+  const start=window.end_timestamp-1800+1;
+  const rows=Array.from({length:135},(_,i)=>log(i+1,start+i,1,i%2 ? 'a' : 'b'));rows.push(log(200,start-1,100),log(201,window.end_timestamp+1,100));
+  const f=await fixture(t,rows),result=await f.api.widgetUsage(now,1800);assert.equal(result.minute?.quota,135);assert.equal(result.minute?.requests,135);assert.equal(result.minute?.models.length,2);assert.equal(result.minute?.start,start);assert.equal(result.minute?.end,window.end_timestamp);assert.equal(result.minute?.latestModel?.name,'b');assert.ok(f.seen.some(u=>u.searchParams.get('p')==='2'));assert.equal(result.historical,false);
+  const empty=await f.api.widgetUsage(now,180);assert.equal(empty.minute,null);
+});
