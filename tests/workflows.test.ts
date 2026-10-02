@@ -72,7 +72,7 @@ test('both tools provision all site models regardless of missing or unrelated pr
   const codex=await f.api.ensureToolToken({tool:'codex',model:'model-a',group:'standard'});
   const configs=new ConfigService(f.store,f.root,path.join(f.root,'home'),req=>f.api.ensureToolToken(req));
   const preview=await configs.preview({tool:'claude',model:'model-a',group:'standard'});assert.equal(preview.files.length,1);await configs.apply(preview.id);
-  const cli=JSON.parse(await readFile(path.join(f.root,'home','.claude','settings.json'),'utf8'));assert.equal(cli.env.ANTHROPIC_MODEL,'model-a');assert.ok(cli.env.ANTHROPIC_AUTH_TOKEN);
+  const cli=JSON.parse(await readFile(path.join(f.root,'home','.claude','settings.json'),'utf8'));assert.equal(cli.env.ANTHROPIC_MODEL,'model-a');assert.ok(cli.env.ANTHROPIC_API_KEY);assert.equal(cli.env.ANTHROPIC_AUTH_TOKEN,undefined);
   assert.notEqual(preview.token?.id,codex.tokenId);assert.equal(f.created,2);
   await assert.rejects(f.api.ensureToolToken({tool:'claude',model:'missing',group:'standard'}),/站点提供/);
   await assert.rejects(f.api.ensureToolToken({tool:'claude',model:'model-b',group:'standard'}),/渠道/);assert.equal(f.created,2);

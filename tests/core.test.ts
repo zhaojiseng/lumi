@@ -84,8 +84,8 @@ test('Codex direct config preserves unrelated TOML and official login, keeping t
   assert.equal(auth.OPENAI_API_KEY, undefined); assert.equal(auth.auth_mode, 'chatgpt'); assert.deepEqual(auth.tokens, {access_token:'old-token'}); assert.equal(auth.custom, 3);
 });
 test('Claude config merge preserves permission settings and replaces conflicting API auth', () => {
-  const r = JSON.parse(buildClaude(JSON.stringify({ permissions: { allow: ['Read'] }, env: { CUSTOM_VAR: 'kept', ANTHROPIC_API_KEY: 'old' } }), { ...request, tool: 'claude', model: 'custom-sonnet', opus: 'custom-opus' }, 'https://gateway.invalid', 'sk-claude-only'));
-  assert.deepEqual(r.permissions.allow, ['Read']); assert.equal(r.env.CUSTOM_VAR, 'kept'); assert.equal(r.env.ANTHROPIC_API_KEY, undefined);
+  const r = JSON.parse(buildClaude(JSON.stringify({ permissions: { allow: ['Read'] }, env: { CUSTOM_VAR: 'kept', ANTHROPIC_API_KEY: 'old', ANTHROPIC_AUTH_TOKEN: 'old-token' } }), { ...request, tool: 'claude', model: 'custom-sonnet', opus: 'custom-opus' }, 'https://gateway.invalid', 'sk-claude-only'));
+  assert.deepEqual(r.permissions.allow, ['Read']); assert.equal(r.env.CUSTOM_VAR, 'kept'); assert.equal(r.env.ANTHROPIC_API_KEY, 'sk-claude-only'); assert.equal(r.env.ANTHROPIC_AUTH_TOKEN, undefined);
   assert.equal(r.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'custom-opus'); assert.equal(r.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'custom-sonnet');
   assert.equal(r.env.CLAUDE_CODE_ATTRIBUTION_HEADER,'false');
 });

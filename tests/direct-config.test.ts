@@ -40,10 +40,10 @@ test('Claude CLI accepts actual model IDs and ignores Desktop files in preview, 
  const f=await fixture(),cliPath=path.join(f.home,'.claude','settings.json');
  const desktopPath=path.join(f.home,'AppData','Local','Claude-3p','configLibrary','_meta.json'),desktopBefore='{malformed Desktop fixture';
  await mkdir(path.dirname(desktopPath),{recursive:true});await writeFile(desktopPath,desktopBefore);
- await mkdir(path.dirname(cliPath),{recursive:true});const original='{"permissions":{"allow":["Read"]},"mcpServers":{"kept":{}},"env":{"OTHER":"preserved"}}';await writeFile(cliPath,original);
+ await mkdir(path.dirname(cliPath),{recursive:true});const original='{"permissions":{"allow":["Read"]},"mcpServers":{"kept":{}},"env":{"OTHER":"preserved","ANTHROPIC_AUTH_TOKEN":"old-token","ANTHROPIC_API_KEY":"old-key"}}';await writeFile(cliPath,original);
  const preview=await f.service.preview({tool:'claude',model:'gpt-fixture-anthropic',group:'test'});assert.equal(preview.files.length,1);assert.equal(preview.files[0].path,cliPath);assert.ok(!JSON.stringify(preview).includes('sk-only-fixture'));
- await f.service.apply(preview.id);const cli=JSON.parse(await readFile(cliPath,'utf8'));assert.equal(cli.env.ANTHROPIC_AUTH_TOKEN,'sk-only-fixture');assert.equal(cli.env.ANTHROPIC_MODEL,'gpt-fixture-anthropic');assert.equal(cli.env.OTHER,'preserved');assert.deepEqual(cli.mcpServers,{kept:{}});assert.deepEqual(cli.permissions,{allow:['Read']});
- const state=(await f.service.inspect()).find(c=>c.tool==='claude')!;assert.equal(state.model,'gpt-fixture-anthropic');assert.equal(state.error,undefined);assert.ok(!JSON.stringify(state).includes('desktop'));
+ await f.service.apply(preview.id);const cli=JSON.parse(await readFile(cliPath,'utf8'));assert.equal(cli.env.ANTHROPIC_API_KEY,'sk-only-fixture');assert.equal(cli.env.ANTHROPIC_AUTH_TOKEN,undefined);assert.equal(cli.env.ANTHROPIC_MODEL,'gpt-fixture-anthropic');assert.equal(cli.env.OTHER,'preserved');assert.deepEqual(cli.mcpServers,{kept:{}});assert.deepEqual(cli.permissions,{allow:['Read']});
+ const state=(await f.service.inspect()).find(c=>c.tool==='claude')!;assert.equal(state.model,'gpt-fixture-anthropic');assert.equal(state.error,undefined);assert.equal(state.keyConfigured,true);assert.ok(!JSON.stringify(state).includes('desktop'));
  const [backup]=await f.service.backups();assert.deepEqual(backup.paths,[cliPath]);await f.service.restore(backup.id);assert.equal(await readFile(cliPath,'utf8'),original);assert.equal(await readFile(desktopPath,'utf8'),desktopBefore);
 });
 test('historical multi-file Claude backups restore only CLI even if Desktop settings have changed',async()=>{
