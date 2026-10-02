@@ -28,7 +28,7 @@ const nav = [
   { id: 'tokens', label: 'API 令牌', icon: KeyRound, hint: '管理访问与额度' },
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手' },
 ] as const;
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.34', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.4.35', configs: [], secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }

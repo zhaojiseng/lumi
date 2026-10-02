@@ -2,6 +2,12 @@
 
 本文件描述当前可用行为。测试与平台验证见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
+## 0.4.35 · 2026-10-02
+
+- Claude Code 专用密钥改为写入 `env.ANTHROPIC_API_KEY`，同时移除旧的 `env.ANTHROPIC_AUTH_TOKEN`，避免两种鉴权配置冲突。
+- 保留现有模型、上下文窗口、归属标头、MCP 和权限设置；配置预览、密钥脱敏、应用检查及加密备份恢复继续生效。
+- 更新配置合并、CLI 应用 / 读取 / 回滚及站点自动配钥工作流的回归测试。
+
 ## 0.4.34 · 2026-10-02
 
 - Claude Code 工具配置新增“禁用归属标头”选项，默认开启，应用时写入 `CLAUDE_CODE_ATTRIBUTION_HEADER="false"`；关闭后移除该字段，保留其他配置。

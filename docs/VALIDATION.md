@@ -431,3 +431,12 @@ macOS 取消 frame 动画、加载快照保留实际模型行数、连续切换 
 - Claude 配置默认写入字符串 `CLAUDE_CODE_ATTRIBUTION_HEADER="false"` 与 `CLAUDE_CODE_MAX_CONTEXT_TOKENS="256000"`；验证关闭标头、自定义窗口、非法长度、保留无关配置、预览不写入本机配置、应用持久化、配置读取及加密备份恢复。
 - 类型检查、生产构建和 Windows 隐藏桌面启动检查通过；未读写真实 CLI 配置或访问真实账户。
 - macOS ARM64 编译、三平台检查及发行包完整性验证由该版本 GitHub 标签工作流执行。
+
+
+### v0.4.35 Claude Code API Key 鉴权
+
+日期：2026-10-02（Asia/Shanghai），本机 Windows x64，仅使用隔离测试配置和占位凭据。
+
+- 全量自动测试 564 项：562 通过、2 项平台检查跳过、0 失败；类型检查、生产构建、隐藏桌面启动与依赖审计通过，0 个已知漏洞。
+- 配置写入 `ANTHROPIC_API_KEY` 并删除冲突的 `ANTHROPIC_AUTH_TOKEN`；验证保留其他环境变量、MCP 和权限，以及预览脱敏、读取密钥状态、应用与原配置恢复。
+- macOS ARM64 编译、三平台检查及发行包完整性验证由 GitHub 标签发布工作流执行。
