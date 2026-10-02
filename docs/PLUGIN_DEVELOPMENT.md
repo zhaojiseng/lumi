@@ -1,60 +1,43 @@
 # Lumi 插件开发指南
 
-本文对应 Lumi 0.4.35 的插件接口 v1，面向制作独立插件包的作者，并在最后说明内置插件的开发路径。清单和 SDK 的版本号均为 `1`；这里描述的是当前已实现接口。
+本文面向**只有已安装的 Lumi 和本指南，没有 Lumi 程序源码**的插件作者。使用普通文本编辑器即可创建、安装和调试下面的插件；不需要克隆仓库、安装 Lumi 开发依赖、复制源码或重新编译 EXE。本文给出了全部示例文件、清单规范、SDK 调用和返回类型。
+
+接口版本为 v1，适用于带有外部插件及独立界面包支持的 Lumi 0.4.35 构建。先确认常规设置中有“额外插件目录”和“界面插件”入口；缺少入口的旧构建需先升级。`schemaVersion`、`hostApiVersion`、`sdk.apiVersion` 当前均为 `1`。
+
+完成第 2–3 节即可做出功能插件；完成第 2、3 节的 LICENSE 和第 7 节即可做出界面插件。SDK 的完整 TypeScript 声明在第 11 节，可直接复制，不依赖任何外部文件。
 
 ## 1. 选择插件类型
 
 | 类型 | 位置与文件形式 | 能做什么 | 运行方式 |
 | --- | --- | --- | --- |
-| 外部功能插件 | `extensions/packages/<ID>/`，JSON + HTML/JS/CSS + LICENSE | 给工作台、用量、模型、令牌、连接、设置顶栏或侧栏提供自己的内容 | 隔离 iframe，通过 SDK 读取受控数据、网络和独立存储 |
+| 外部功能插件 | 任意工作目录下的 `<ID>/`，JSON + HTML/JS/CSS + LICENSE | 给工作台、用量、模型、令牌、连接、设置顶栏或侧栏提供自己的内容 | 隔离 iframe，通过 SDK 读取受控数据、网络和独立存储 |
 | 外部界面插件 | 同上，JSON + CSS + LICENSE | 修改标题栏、侧栏、内容区和状态栏的布局与皮肤 | 宿主校验并应用 CSS，一次启用一个 |
-| 内置插件 | `plugins/<ID>/`，TypeScript/React，可含 main/renderer | 提供特权服务、系统能力、CLI 适配器、桌面表面及系统页面 | 静态装配，随应用编译发布 |
 
-外部包不进入 `dist/`、`app.asar` 或安装 EXE。宿主打包时将它们单独输出到 `release/.../extensions/`；修改外部包不需要重新编译 EXE。
+这两类插件都是独立目录包，不进入安装 EXE。制作完毕后复制到 Lumi 的额外插件目录即可运行；开发目录没有固定位置。
 
-工作台、用量分析、模型广场、令牌管理和工具配置是统一系统页面；NewAPI/Codex 等接入插件提供具体内容。浮窗和托盘消费系统展示服务，默认界面插件负责主窗口外壳。外部插件可贡献视图，但 v1 尚不能注册供浮窗/托盘消费的主进程能力、CLI 配置适配器或任意 Node.js 服务。
+工作台、用量分析、模型广场、令牌管理和工具配置是统一系统页面；NewAPI/Codex 等内置接入提供具体内容，浮窗和托盘读取系统展示服务。内置插件由维护者编译发布，其内部接口不属于本指南的外部 SDK。v1 外部插件可贡献视图，但尚不能注册供浮窗/托盘消费的主进程能力、CLI 配置适配器或任意 Node.js 服务。
 
 ## 2. 最快开始
 
-从仓库根目录操作，使用 Node.js 24+、npm 11+。已有开发依赖时跳过安装。
+准备支持插件的 Lumi 桌面应用和一个保存 UTF-8 文本的编辑器。下面的纯 JavaScript/CSS 示例不需要 Node.js、npm、TypeScript 或其它构建工具。
 
-```powershell
-npm ci --ignore-scripts
-npm run setup:electron
+1. 在任意目录新建 `extension.author.notes` 文件夹。
+2. 将第 3 节的五份文件分别保存到该文件夹，不改扩展名；确认不是 `plugin.json.txt`。
+3. 在 Lumi 中按下面的安装步骤加载。便笺示例不需要登录、网络或 API 密钥。
+4. 显示和保存成功后，再修改名称、功能和插件 ID。
 
-# 功能插件示例
-Copy-Item -Recurse extensions/packages/extension.lumi.notes extensions/packages/extension.author.notes
-
-# 或者：界面插件示例
-Copy-Item -Recurse extensions/packages/extension.lumi.compact extensions/packages/extension.author.layout
-```
-
-修改新目录的 `plugin.json`，设置自己的 `id`、名称、作者、版本和说明。ID 格式为 `extension.<作者>.<名称>`，后两段各以小写字母开头，后续仅允许小写字母、数字、短横线，各段最长 40 个字符。完整目录名建议与 ID 一致。
-
-```powershell
-npm run check:extensions -- extensions/packages/extension.author.notes
-```
-
-该命令检查清单、文件入口、路径、许可文件和包大小，不会执行插件代码、发出 SDK 网络请求或验证实际布局。
-
-开发桌面应用自动扫描仓库的 `extensions/packages/`。为隔离应用数据及 CLI 配置/会话目录，可在当前 PowerShell 会话设置：
-
-```powershell
-$env:LUMI_TEST_DATA = Join-Path $PWD '.test-data/plugin-dev/app'
-$env:LUMI_TEST_HOME = Join-Path $PWD '.test-data/plugin-dev/home'
-npm run dev
-```
-
-开发模式本身不会隔离用户的 CLI home；测试时应同时设置这两个变量。使用模拟数据和假凭据。`npm run dev:web` 只能预览 renderer 的公开信息，无法替代桌面插件协议、加密存储和 IPC 验证。
+ID 格式为 `extension.<作者>.<名称>`，后两段各以小写字母开头，后续仅允许小写字母、数字、短横线，各段最长 40 个字符。建议文件夹名与 ID 一致，不使用内置插件 ID。界面插件按第 7 节创建三份文件，LICENSE 使用第 3 节的完整文本。
 
 ### 安装到已运行的 Lumi
 
 1. 打开常规设置 → 插件 → 额外插件目录 → “打开目录”。
-2. 复制完整包文件夹到该目录，使目录直接包含 `plugin.json`。
+2. 复制完整包文件夹到该目录，例如 `<额外插件目录>/extension.author.notes/plugin.json`。不要多套一层父目录。
 3. 点击“重新扫描”，检查诊断信息。
 4. 功能插件用滑块启用；界面插件在“界面插件”中选择。
 
-目录包是目前的分发形式；尚无在线市场或 ZIP 自动安装。用户插件目录优先于开发目录或安装资源旁置目录，重复 ID 的后续包会被诊断并跳过。
+“重新扫描”就是已安装程序自带的包校验入口；不需要仓库检查脚本。格式不合法、缺入口/许可或重复 ID 时会显示诊断，修正后再扫描。目录包是目前的分发形式；如果收到 ZIP，先手动解压，再复制插件目录，没有 ZIP 自动安装或在线市场。
+
+可以直接在额外插件目录编辑文件，也可在自己的工作目录编辑后复制覆盖。每次修改后重新扫描并重新启用；不是修改后立即热更新。
 
 ## 3. 功能插件：完整最小示例
 
@@ -168,7 +151,33 @@ textarea { box-sizing: border-box; width: 100%; margin: 8px 0; }
 button { padding: 6px 12px; }
 ```
 
-提供与声明匹配的完整 `LICENSE`，不要只写“MIT”三个字。可以从仓库示例复制适用的完整许可，并按实际版权归属调整。
+将下面完整文本保存为无扩展名的 `LICENSE`。示例选择 MIT；发布自己的插件时把 Author 替换为实际版权人，并按实际年份调整。无需从 Lumi 仓库复制文件。
+
+```text
+MIT License
+
+Copyright (c) 2026 Author
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+安装后，在工作台卡片输入便笺并保存；打开侧栏“便笺”，应能读取已保存内容。在常规设置关闭“工作台便笺”子开关后，卡片消失，但侧栏和设置顶栏“便笺”继续可用。关闭父插件后全部贡献撤回。这就是最小示例的验收步骤。
 
 ## 4. 清单字段与贡献点
 
@@ -251,7 +260,7 @@ context 不包含账户凭据、用户文件路径或会话正文。工作台卡
 
 缺失数据可能为 `null` 或展示字符 `—`，不能当成零；不要用格式化余额推算费用或订阅积分。周限额依据 `durationMinutes` 判断，不能假定每个 secondary 窗口都是一周。Codex 需本机 CLI 已登录；插件仅消费接入的读取结果。
 
-权威类型见 [`shared/menu-bar.ts`](../shared/menu-bar.ts)、[`shared/widget.ts`](../shared/widget.ts)、[`shared/contracts/subscription-usage.ts`](../shared/contracts/subscription-usage.ts)。作者可复制所需类型到独立工程；SDK 类型文件 [`extensions/sdk/lumi-extension.d.ts`](../extensions/sdk/lumi-extension.d.ts) 不依赖宿主源码。其读取方法的泛型只提供类型提示，不做返回数据校验。
+这三种快照的全部字段及 SDK 签名都在第 11 节，可直接复制为独立的 `lumi-extension.d.ts`。JavaScript 作者按字段表及上述行为使用即可；不必导入或查看宿主类型。TypeScript 泛型仅提供类型提示，不做返回数据校验。
 
 ### 独立存储
 
@@ -261,28 +270,153 @@ context 不包含账户凭据、用户文件路径或会话正文。工作台卡
 
 ### 连接、凭据与外部网络
 
-为清单增加 `permissions: ["secrets", "network.read"]`、`networkOrigins: ["https://api.example.invalid"]`，并添加一个 `connection` 贡献作为输入界面。下面是调用片段；占位域名需换成服务的真实公共 HTTPS origin。
+下面是另一份完整功能插件，用自己的连接界面保存密钥，在工作台手动读取服务。创建 `extension.author.service/`，保存以下三份文件，再加入第 3 节的 `style.css` 与 `LICENSE`。该示例不自动请求网络；先将清单 origin 和 JS 中的 URL 换成服务实际的公共 HTTPS GET 接口。
+
+`plugin.json`：
+
+```json
+{
+  "schemaVersion": 1,
+  "hostApiVersion": 1,
+  "kind": "feature",
+  "id": "extension.author.service",
+  "name": "我的服务",
+  "version": "1.0.0",
+  "description": "在连接设置保存密钥，并在工作台手动读取服务信息。",
+  "author": "Author",
+  "license": "MIT",
+  "permissions": ["secrets", "network.read"],
+  "networkOrigins": ["https://api.example.invalid"],
+  "contributions": [
+    {"id": "connection", "slot": "connection", "title": "我的服务", "entry": "index.html"},
+    {"id": "card", "slot": "workbench", "title": "服务信息", "entry": "index.html"}
+  ]
+}
+```
+
+`index.html`：
+
+```html
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="style.css">
+  <script src="lumi-sdk.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="connection" hidden>
+    <label for="api">服务 API 密钥</label>
+    <input id="api" type="password" maxlength="10000" autocomplete="off">
+    <button id="save" disabled>保存密钥</button>
+    <button id="remove" disabled>删除密钥</button>
+  </div>
+  <button id="read" hidden disabled>读取服务信息</button>
+  <pre id="result" role="status" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+</body>
+</html>
+```
+
+`app.js`：
 
 ```js
-// 用户在插件自己的连接界面主动保存密钥。
-await sdk.secrets.set('api', input.value);
-input.value = '';
+const sdk = window.lumiExtension;
+const input = document.getElementById('api');
+const output = document.getElementById('result');
+const controls = ['save', 'remove', 'read'].map(id => document.getElementById(id));
 
-// 在需要数据时读取；宿主注入加密存储中的密钥。
-const response = await sdk.network.read({
-  url: 'https://api.example.invalid/usage',
-  headers: {Accept: 'application/json'},
-  secret: {key: 'api', header: 'Authorization', prefix: 'Bearer '}
-});
-if (response.status < 200 || response.status >= 300) {
-  throw new Error(`服务返回 HTTP ${response.status}`);
+async function run(operation) {
+  controls.forEach(button => { button.disabled = true; });
+  try { await operation(); }
+  catch (error) { output.textContent = error.message; }
+  finally { controls.forEach(button => { button.disabled = false; }); }
 }
-const data = JSON.parse(response.body);
+
+document.getElementById('save').addEventListener('click', () => run(async () => {
+  if (!input.value.trim()) throw new Error('请输入密钥');
+  await sdk.secrets.set('api', input.value.trim());
+  input.value = '';
+  output.textContent = '已保存；请在工作台手动读取。';
+}));
+document.getElementById('remove').addEventListener('click', () => run(async () => {
+  await sdk.secrets.set('api', null);
+  input.value = '';
+  output.textContent = '已删除密钥';
+}));
+document.getElementById('read').addEventListener('click', () => run(async () => {
+  const response = await sdk.network.read({
+    url: 'https://api.example.invalid/usage',
+    headers: {Accept: 'application/json'},
+    secret: {key: 'api', header: 'Authorization', prefix: 'Bearer '}
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`服务返回 HTTP ${response.status}`);
+  }
+  output.textContent = JSON.stringify(JSON.parse(response.body), null, 2);
+}));
+
+sdk.ready.then(async ({context, view}) => {
+  const theme = value => { document.documentElement.dataset.theme = value.theme; };
+  theme(context);
+  const unsubscribe = sdk.onContext(theme);
+  window.addEventListener('pagehide', unsubscribe);
+  document.getElementById('connection').hidden = view.slot !== 'connection';
+  document.getElementById('read').hidden = view.slot === 'connection';
+  output.textContent = await sdk.secrets.has('api') ? '密钥已设置' : '请先在连接设置中保存密钥';
+  controls.forEach(button => { button.disabled = false; });
+}).catch(error => { output.textContent = error.message; });
 ```
+
+安装后，在常规设置“连接”中保存密钥；打开工作台点击“读取服务信息”。`api.example.invalid` 是不可用占位域名，原样运行只验证界面和错误处理，不会获得真实服务数据。服务返回 JSON 的解释由作者按该服务文档实现，Lumi 不推测余额字段。
+
+### 读取系统展示数据
+
+若读取 Lumi 已连接的数据而非自己的外部服务，将清单权限改为所需的 `workbench.read`、`usage.read` 或 `codex.usage.read`。下面的完整 `app.js` 可以替换第 3 节的 JS：同时将其清单 permissions 改成 `["workbench.read"]`，移除不再需要的 card 子开关也可以。
+
+```js
+const sdk = window.lumiExtension;
+const output = document.getElementById('status');
+const read = document.getElementById('save');
+document.getElementById('note').hidden = true;
+document.querySelector('label').hidden = true;
+read.textContent = '刷新余额';
+let requestVersion = 0;
+
+async function refresh() {
+  const version = ++requestVersion;
+  const site = sdk.context.site;
+  try {
+    const snapshot = await sdk.workbench.read();
+    if (version !== requestVersion || sdk.context.site.id !== site.id || sdk.context.site.url !== site.url) return;
+    output.textContent = `${snapshot.siteName}：${snapshot.balance} · ${snapshot.message}`;
+  } catch (error) {
+    if (version === requestVersion) output.textContent = error.message;
+  }
+}
+read.addEventListener('click', refresh);
+sdk.ready.then(({context}) => {
+  document.documentElement.dataset.theme = context.theme;
+  read.disabled = false;
+  const unsubscribe = sdk.onContext(next => {
+    document.documentElement.dataset.theme = next.theme;
+    output.textContent = '正在读取当前连接…';
+    void refresh();
+  });
+  window.addEventListener('pagehide', () => { ++requestVersion; unsubscribe(); });
+  void refresh();
+}).catch(error => { output.textContent = error.message; });
+```
+
+本例读取工作台展示服务；NewAPI 未启用或未登录时按服务错误/未知状态显示，不制造数值。改读 Codex 时使用 `sdk.codex.readUsage()` 和第 11 节的 `SubscriptionUsageSnapshot`，不要把订阅限额与站点余额混合。
+
+### 网络规则
 
 `secret.header` 仅为 `Authorization` / `X-Api-Key`；`prefix` 仅为 `"Bearer "` / `""`，省略默认为 `"Bearer "`。普通 headers 仅允许 Accept、Accept-Language、Authorization、X-Api-Key（大小写不敏感）。secret 使用时还必须声明 `secrets` 权限。
 
-origin 是协议、主机及可选端口，不含路径或末尾斜杠，例如 `https://api.example.invalid:8443`。请求仅允许 GET，不支持 body、POST 或其它写入操作。HTTP 非重定向错误仍返回 status/body，由插件检查；3xx 会拒绝。
+origin 是协议、主机及可选端口，不含路径或末尾斜杠，例如 `https://api.example.invalid:8443`。请求 URL 最长 4000 字符，不含用户名/密码或锚点；header 值最多 4000 字符且不能含换行。secrets 的非空 value 最多 10000 字符。
+
+请求仅允许 GET，不支持 body、POST 或其它写入操作。HTTP 非重定向错误仍返回 status/body，由插件检查；3xx 会拒绝。
 
 宿主拒绝本机/私有地址、重定向和不在声明中的 origin，固定解析后的 DNS 地址并保留 TLS 校验。网络读取最多 15 秒、响应最多 1 MiB；SDK 单视图和宿主单包各限制 8 个在途请求。SDK 调用等待最多 30 秒；该等待超时不等于所有底层操作已取消。
 
@@ -302,26 +436,7 @@ flowchart LR
 
 父插件停用撤回全部贡献；子项关闭撤回对应内容。当前设置标签被撤回时回到常规设置。宿主设置页保持挂载，但扫描、启停和子开关变化可能使外部 iframe 重建，外部页面草稿应由插件主动保存。
 
-停用或扫描使旧代次请求/资源失效，停用中止网络读取；站点绑定读取还会校验账户/来源范围。插件仍需防止自己的旧响应覆盖新显示：
-
-```js
-let requestVersion = 0;
-async function refresh() {
-  const version = ++requestVersion;
-  const siteId = sdk.context.site.id;
-  try {
-    const snapshot = await sdk.workbench.read();
-    if (version !== requestVersion || sdk.context.site.id !== siteId) return;
-    output.textContent = snapshot.balance;
-  } catch (error) {
-    if (version === requestVersion && sdk.context.site.id === siteId) {
-      output.textContent = error.message;
-    }
-  }
-}
-```
-
-上面需声明 `workbench.read`，并在 `sdk.ready` 后调用；`output` 是插件自己的 DOM 节点。使用 context 变化和用户刷新触发重读，并按需清除旧站点内容。
+停用或扫描使旧代次请求/资源失效，停用中止网络读取；站点绑定读取还会校验账户/来源范围。插件仍需用请求序号和站点 ID/URL 防止自己的旧响应覆盖新显示，第 5 节的系统展示示例已经包含这些处理。
 
 外部 UI 使用 sandbox frame，无宿主 DOM、preload、Node、任意 IPC 或文件系统权限。网络走 SDK，不能直接 fetch；没有 worker、嵌套 frame 或表单提交权限。JS 使用包内脚本文件，避免内联脚本、eval 和 CDN 依赖。宿主 SDK 自动测量内容高度，显示范围为 120–3000 px；内容更长时安排内部滚动。
 
@@ -390,7 +505,9 @@ extension.author.layout/
 
 继承默认浅/深色语义变量，保持窗口控制可点击、内容可滚动和侧栏位于标题栏下方。CSS 文件最多 64 KiB / 1000 条规则，支持普通/嵌套样式、`@media`、`@supports`。拒绝 `@import`、`@font-face`、url/image-set 资源、app-region 拖动区域属性，以及高于 1000 或非数值的 z-index（允许 auto）。不要添加自己的外层 `@scope`、keyframes 或其它 at-rule。
 
-一次启用一个额外界面；选择新的包会原子停用旧包，选择默认界面会停用当前包。切换/扫描仅改样式，保留设置和功能页节点、草稿、焦点及滚动。缺包或文件变化回到默认；非法 CSS 保留默认布局并提示错误。右下角恢复按钮位于插件作用域外。完整示例见 [`extension.lumi.compact`](../extensions/packages/extension.lumi.compact/)。
+一次启用一个额外界面；选择新的包会原子停用旧包，选择默认界面会停用当前包。切换/扫描仅改样式，保留设置和功能页节点、草稿、焦点及滚动。缺包或文件变化回到默认；非法 CSS 保留默认布局并提示错误。右下角恢复按钮位于插件作用域外。
+
+本节清单、CSS 和第 3 节 LICENSE 即为完整可运行包。安装后选中“我的紧凑界面”，侧栏应变窄、强调色变蓝；点击恢复默认后还原。不需要额外 JS、HTML、内置界面源码或仓库样例。
 
 ## 8. 文件限制与独立构建
 
@@ -410,7 +527,31 @@ React/Vue/TypeScript 作者在自己的工程构建，将最终自包含 HTML/JS
 
 ## 9. 调试、更新与验收
 
-修改外部文件后：运行包检查 → 桌面设置重新扫描 → 重新启用 → 检查各贡献。修改 main/preload 或内置插件时需要重启开发进程；Vite 热更新不能替代 Electron 重启。
+修改文件后：复制/覆盖完整包 → 桌面设置重新扫描 → 修正诊断 → 重新启用 → 检查各贡献。没有仓库脚本也能完成这条流程。直接双击 HTML 或用普通浏览器打开不会有 `window.lumiExtension`；功能插件必须在已安装 Lumi 的插件视图中测试。
+
+### 使用已安装程序建立隔离测试环境
+
+可在普通用户配置中安装无网络便笺/界面示例。需要与日常账户和 CLI 会话分开测试时，先完全退出 Lumi，再在 PowerShell 中启动**已安装的可执行文件**：
+
+```powershell
+$pluginDevRoot = Join-Path $env:TEMP 'lumi-plugin-development'
+$env:LUMI_TEST_DATA = Join-Path $pluginDevRoot 'app'
+$env:LUMI_TEST_HOME = Join-Path $pluginDevRoot 'home'
+# 将路径换成自己已经安装的 Lumi.exe；不是安装器 EXE。
+& 'C:\path\to\Lumi.exe'
+```
+
+macOS 可在终端使用同样变量启动已安装应用的二进制：
+
+```sh
+LUMI_TEST_DATA="$TMPDIR/lumi-plugin-development/app" \
+LUMI_TEST_HOME="$TMPDIR/lumi-plugin-development/home" \
+/Applications/Lumi.app/Contents/MacOS/Lumi
+```
+
+进入隔离实例的设置，使用该实例的“打开目录”安装插件。变量只对从此 shell 启动的进程生效；测试后退出应用，在新终端或正常应用入口启动即可回到日常环境。这不要求编译程序或修改源码。
+
+### 手动验收
 
 建议验证这些实际行为：
 
@@ -421,19 +562,7 @@ React/Vue/TypeScript 作者在自己的工程构建，将最终自包含 HTML/JS
 - 界面包在浅/深色、1280/1100 宽度下检查侧栏悬浮、控件、滚动和恢复默认。
 - 修改插件时宿主设置页保持挂载；外部 iframe 重建后的草稿恢复策略符合自身设计。
 
-仓库已有回归命令：
-
-```powershell
-npm run pretest
-node --import tsx --test tests/extensions.test.ts tests/interface-plugin-ui.test.ts tests/renderer-plugins.test.ts
-
-# 宿主代码变更再检查类型及真实构建后的桌面 IPC。
-npm run typecheck
-npm run build
-npm run test:desktop
-```
-
-这些既有测试不会自动覆盖你新增包的业务。包检查不执行 CSSOM 校验；界面 CSS 的实际合法性和效果还需在桌面启用验证。使用隔离数据、mock 服务和假凭据，不用真实 CLI 配置或收费模型调用测试。
+重新扫描检查清单和文件；界面 CSS 的实际合法性和效果在启用时检查。示例把错误显示在插件自己的 status/result 区域，先检查这些文字和扫描诊断。可以先用本地静态数据验证显示，再接入服务；网络 broker 不允许 localhost/私有地址，不以关闭校验的方式连接本地 mock。不要通过收费模型调用测试展示插件。
 
 | 现象 | 排查点 |
 | --- | --- |
@@ -447,55 +576,103 @@ npm run test:desktop
 
 ## 10. 提交到仓库与分发
 
-1. 将可运行包放在 `extensions/packages/<ID>/`，附 README、完整 LICENSE 和使用界面图。
-2. README 写清用途、每个贡献、数据来源、权限及 origin、构建方式、安装和更新方法。
-3. 运行 `npm run check:extensions`，确认其它包也能扫描；完成自己功能的隔离验证。
-4. 提交 PR，使用 [额外插件模板](../.github/PULL_REQUEST_TEMPLATE/extension.md)，说明 ID/版本、权限依据和验证结果。
+完成本地安装验证后即可单独分发整个插件文件夹或 ZIP，并附 README、完整 LICENSE 和界面图。接收者先解压再复制插件目录。提交给 Lumi 仓库是可选的，不影响独立开发/安装，也不要求修改程序注册表。
 
-新增外部包不需要修改内置注册表。合并后的包可独立分发；宿主打包脚本导出仓库中通过校验的包，发布校验比对独立包与仓库字节。用户复制文件夹安装；卸载时先停用、移除目录并重新扫描，不应假定持久存储同时被删除。
+要贡献官方仓库时，通过 [GitHub 仓库](https://github.com/zhaojiseng/lumi) 将完整目录上传到 `extensions/packages/<ID>/` 并发起 PR；可以使用 GitHub 网页上传文件，不必为了写插件下载全部源码。README/PR 至少包含以下内容：
 
-## 11. 内置插件开发路径
-
-此部分面向修改 Lumi 源码的维护者。内置 main 代码受信任并静态装配；manifest 权限声明本身不是安全沙箱，不能将外部文件直接 import 到主进程。
-
-### 主进程能力与依赖
-
-`PluginManifest` 声明 `id`、`version`、`hostApiVersion: 1`、`configurable`、`requires`、`optional`、`provides` 和可选 `settings`。依赖使用 `{sourceId, capability}`，sourceId 是插件 ID，不是站点 ID。设置组声明 `title`、`description`、`order`、`views`，宿主据此生成父/子滑块。
-
-例如 Codex 接入的现有声明提供 `subscriptionUsage.read`，工作台 view 可单独隐藏；其 main 激活流程如下：
-
-```ts
-// 节选自 plugins/provider.codex/main.ts。
-return {
-  manifest: codexProviderManifest,
-  activate(context) {
-    const service = new CodexUsageService({resolve});
-    context.provide('subscriptionUsage.read', {read: input => service.read(input)});
-    context.onDispose(() => service.close());
-  }
-};
+```text
+插件 ID 与版本：
+功能及每个显示位置：
+数据来源：
+每项 permissions / networkOrigins 的用途：
+安装、更新、独立构建方式（纯 JS/CSS 可写“无需构建”）：
+许可证与依赖/素材许可：
+测试的 Lumi 构建、系统、启停/扫描/重启结果：
+界面截图：
 ```
 
-`activate` 可返回清理函数，或通过 `onDispose` 注册多个资源清理；清理逆序执行。必需依赖自动启用，提供者停用先停必需消费者；可选依赖不会自动启用。能力调用有代次检查，停用后的旧引用与迟到结果失效。
+仓库的 `npm run check:extensions` 是维护者/已持有源码者的额外检查，不是无源码作者的开发前提。用户卸载时先停用、移除目录并重新扫描，不应假定插件持久存储同时被删除。
 
-### Renderer 贡献
+## 11. 完整可复制的 TypeScript 接口
 
-`RendererContribution` 提供 workbench、usage、models、tokens、toolConfigs、connections、settingsTabs、sidebar 和自定义 settings.component。组件静态导入或 React.lazy 加载；view 必须在 manifest.settings.views 中声明。
+纯 JavaScript 作者不需要此文件。TypeScript 作者将以下代码保存为自己工程中的 `lumi-extension.d.ts` 并纳入 tsconfig 即可获得全部清单、SDK 和数据类型，无需安装 Lumi npm 包或访问程序源码。该声明仅供开发使用，不要将 TypeScript 未编译源码作为运行入口。
 
-连接/设置标签 ID 使用 `plugin:<manifest.id>:<name>`；sidebar 的 page/navigation ID 一致且使用该命名空间。系统卡片声明 site/independent 范围；只让站点绑定内容随账号切换重建。
+```ts
+/** Portable author types for the sandboxed Lumi extension SDK v1. No host imports required. */
+export type Json = null | boolean | number | string | Json[] | {[key:string]:Json};
+export interface Context {theme:'light'|'dark';locale:'zh-CN';site:{id:string;name:string;url:string};refreshEpoch?:number;}
+export type ExtensionSlot='workbench'|'usage'|'models'|'tokens'|'connection'|'settingsTab'|'sidebar';
+export type ExtensionPermission='workbench.read'|'usage.read'|'codex.usage.read'|'storage'|'network.read'|'secrets';
+export interface ExtensionManifest {
+  schemaVersion:1;hostApiVersion:1;id:string;kind?:'feature'|'interface';
+  name:string;version:string;description:string;author:string;license:string;
+  permissions?:ExtensionPermission[];networkOrigins?:string[];
+  switches?:{id:string;title:string;defaultEnabled?:boolean}[];
+  contributions?:{id:string;slot:ExtensionSlot;title:string;entry:string;order?:number;scope?:'site'|'independent';switch?:string;section?:'workspace'|'tools'|'settings'}[];
+  interface?:{stylesheet:string};
+}
+/** Formatted presentation data, not an account/consumption-log API. */
+export interface NativeMenuBarState {
+  type:'state';schemaVersion:1;phase:string;siteName:string;accountLabel:string;days:number;tool:string;
+  contents:('balance'|'totals'|'tokenDetail'|'efficiency'|'chart'|'models')[];
+  totalsCaption?:string;viewKey?:string;
+  balance:string;cost:string;tokens:string;requests:string;tokenDetail:string;cacheDetail:string;
+  cacheHitRate:string;tokenSpeed:string;message:string;updatedLabel:string;canRefresh:boolean;chartCaption:string;
+  chart:{label:string;value:number;cost:string;tokens:string;requests:string}[]|null;
+  models:{name:string;cost:string;share:number}[];modelsMessage:string;
+}
+export interface WidgetModel {name:string;cost:string;requests:string;input:string;output:string;cacheRead:string;cacheWrite:string;}
+export interface WidgetState {
+  phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;
+  models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';
+  animation?:'slide-up'|'slide-down'|'blur'|'fade'|'scale'|'none';source?:'api'|'local';
+}
+export interface SubscriptionWindow {usedPercent:number|null;remainingPercent:number|null;durationMinutes:number|null;resetsAt:number|null;}
+export interface SubscriptionCredits {remaining:number|null;unlimited:boolean|null;hasCredits:boolean|null;}
+export interface SubscriptionUsageSnapshot {
+  sourceId:'provider.codex';account:{id:string;label:string;plan:string|null}|null;
+  state:'ready'|'signed-out'|'unsupported';
+  windows:{id:string;label:string;primary:SubscriptionWindow|null;secondary:SubscriptionWindow|null;credits:SubscriptionCredits|null}[];
+  fetchedAt:number;
+}
+export interface LumiExtensionSdk {
+  readonly apiVersion:1;
+  readonly context:Context|undefined;
+  readonly view:{id:string;slot:ExtensionSlot}|undefined;
+  readonly ready:Promise<{context:Context;view:NonNullable<LumiExtensionSdk['view']>}>;
+  onContext(listener:(context:Context)=>void):()=>void;
+  workbench:{read<T=NativeMenuBarState>(input?:{force?:boolean}):Promise<T>};
+  usage:{read<T=WidgetState>(input?:{force?:boolean}):Promise<T>};
+  codex:{readUsage<T=SubscriptionUsageSnapshot>(input?:{force?:boolean}):Promise<T>};
+  storage:{read<T extends Json=Json>(key:string):Promise<T|null>;write(key:string,value:Json):Promise<void>};
+  secrets:{has(key:string):Promise<boolean>;set(key:string,value:string|null):Promise<void>};
+  network:{read(input:{url:string;headers?:Record<string,string>;secret?:{key:string;header:'Authorization'|'X-Api-Key';prefix?:'Bearer '|''}}):Promise<{status:number;body:string}>};
+}
+declare global {interface Window {readonly lumiExtension:LumiExtensionSdk;}}
+```
 
-| 要做的修改 | 接入位置 |
-| --- | --- |
-| 增加插件元数据 | `plugins/<ID>/manifest.ts` → `plugins/manifests.ts`，此入口仅导出元数据 |
-| 增加 main 服务 | `plugins/<ID>/main.ts` → `electron/host/plugins.ts`，同时调整 implemented 列表 |
-| 增加 renderer 贡献 | `plugins/<ID>/renderer.tsx` → `src/host/renderer-registry.ts` |
-| 增加能力类型 | `shared/contracts/`、BuiltinCapabilityMap / BUILTIN_CAPABILITY_IDS |
-| 增加特权 UI 操作 | 窄 DTO、LumiBridge、preload、校验的 main handler、service、browser fallback |
-| 调整默认主窗口外壳 | `plugins/interface.default/` 与 `src/host/interface.tsx` 的 InterfaceShellProps |
-| 调整浮窗/托盘运行时 | 相应 surface 插件；保持独立受限 preload 和窗口资源清理 |
+这些声明没有 import，复制到独立目录也可使用。以下代码在自己的 TypeScript 工程中应能正常检查；它只是类型提示示例，不是插件额外入口：
 
-新 API 沿用固定类型化 IPC，校验参数和主窗口 sender/frame/origin，不能暴露通用 invoke 或文件路径。能力/服务/renderer 边界不得把 Node 或凭据代码带入 renderer bundle。
+```ts
+import type {ExtensionManifest} from './lumi-extension';
+const manifest: ExtensionManifest = {
+  schemaVersion: 1, hostApiVersion: 1, kind: 'interface',
+  id: 'extension.author.layout', name: '我的界面', version: '1.0.0',
+  description: '独立布局', author: 'Author', license: 'MIT',
+  interface: {stylesheet: 'interface.css'}
+};
+async function inspectTypes() {
+  await window.lumiExtension.ready;
+  const display = await window.lumiExtension.workbench.read();
+  const balance: string = display.balance;
+  const quota = await window.lumiExtension.codex.readUsage();
+  const credits: number | null | undefined = quota.windows[0]?.credits?.remaining;
+  return {manifest, balance, credits};
+}
+```
 
-保持设置页实例稳定，父子开关不通过 bootstrap 重载实现；撤回页面不能被退出动画保留。NewAPI 的令牌服务和专用配钥策略仍由 NewAPI 拥有，Tools 消费能力而非令牌页面。直接 CLI 配置继续使用预览、加密备份、冲突检查、原子写入和回滚；本地分析保持只读。
+## 12. 接口兼容与发布前检查
 
-完整宿主架构见 [PLUGINS.md](PLUGINS.md)，实际类型见 [插件合约](../shared/contracts/plugins.ts) 和 [Renderer 注册表](../src/host/renderer-registry.ts)。新增内置服务需相应生命周期/作用域/权限回归，不以单纯移动目录作为完成标准。
+发布包至少附上支持的 Lumi 构建说明、清单版本、安装方法及权限用途。SDK v1 只提供本文列出的操作；`apiVersion` 与清单声明是兼容标志，不应尝试读取任意宿主对象或追加未文档化方法。响应可能增加字段，作者应只消费需要的字段，并保留 null/未知状态。
+
+在不克隆程序源码的情况下，本文的便笺、外部服务和界面示例均可由列出的文件独立构成。开发、验证、更新和分发都通过目录包与已安装程序完成；向 GitHub 提交是独立的可选步骤。
