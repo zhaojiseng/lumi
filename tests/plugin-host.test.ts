@@ -24,7 +24,9 @@ test('plugin registry rejects duplicate identities, missing capabilities, cycles
 
 test('settings declarations are validated and snapshotted with the capability graph',async t=>{
   const settings={title:'Source',description:'',order:1,views:[{id:'history',title:'History',defaultEnabled:false}]};
-  const host=hostFor([plugin('p',()=>{},{settings})]);t.after(()=>host.dispose());settings.views[0].title='Mutated';
+  const host=hostFor([plugin('p',()=>{},{settings,defaultEnabled:false})]);t.after(()=>host.dispose());settings.views[0].title='Mutated';
+  assert.equal(host.getStatuses()[0].manifest.defaultEnabled,false);
+  assert.throws(()=>hostFor([plugin('p',()=>{},{defaultEnabled:'false' as unknown as boolean})]),/Invalid default enabled flag/);
   assert.equal(host.getStatuses()[0].manifest.settings?.views[0].title,'History');
   assert.throws(()=>hostFor([plugin('p',()=>{},{settings:{...settings,views:[settings.views[0],settings.views[0]]}})]),/Invalid settings view/);
   assert.throws(()=>hostFor([plugin('p',()=>{},{settings:{...settings,views:[{id:'../path',title:'Invalid'}]}})]),/Invalid settings view/);

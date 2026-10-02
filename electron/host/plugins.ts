@@ -1,5 +1,5 @@
 import {createPluginHost} from '../../shared/plugin-host';
-import {configurablePlugin,validatePluginView} from '../../shared/plugin-preferences';
+import {configurablePlugin,validatePluginView,pluginEnabled} from '../../shared/plugin-preferences';
 import type {CatalogReadCapability,CatalogReadRequest} from '../../shared/contracts/catalog';
 import type {PluginStatus,PluginViewId,BuiltinCapabilityMap,PluginCapabilityId} from '../../shared/contracts/plugins';
 import {newApiPlugin} from '../../plugins/provider.newapi/main';
@@ -23,7 +23,7 @@ export async function createBuiltinPlugins(store:SettingsStore,options:{catalog?
   const implemented=['provider.newapi','provider.codex','source.local-sessions','adapter.tool.codex','adapter.tool.claude','surface.widget','surface.tray','feature.workbench','feature.usage'];
   const host=createPluginHost({plugins:[newApiPlugin(store,options.catalog),localSessionsPlugin(options.localHome),codexAdapterPlugin,claudeAdapterPlugin,createWidgetPlugin(desktop),createTrayPlugin(desktop),workbenchPlugin(()=>store.preferences),usagePlugin(()=>store.preferences),codexProviderPlugin(options.resolveCodex || (async()=>undefined)),...builtinManifests.filter(m=>!implemented.includes(m.id)).map(manifest=>({manifest,activate(){}}))]});
   for(const manifest of builtinManifests.filter(m=>!m.configurable))await host.enable(manifest.id);
-  for(const manifest of builtinManifests.filter(m=>m.configurable))if((store.preferences.pluginEnabled[manifest.id] ?? (manifest.id==='surface.widget' ? store.preferences.widgetEnabled : true))!==false){
+  for(const manifest of builtinManifests.filter(m=>m.configurable))if(pluginEnabled(manifest,store.preferences)){
     try{await host.enable(manifest.id);}catch{/* A failed product plugin must not abort the settings shell. */}
   }
   const generations=new Map<string,number>(),operations=new Map<string,number>(),transitioning=new Set<string>(),activeOperations=new Set<Promise<unknown>>();

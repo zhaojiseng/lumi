@@ -79,7 +79,7 @@ test('Workbench and Usage are source-neutral; providers own contributions and Co
   const statuses=builtinManifests.map(manifest=>({manifest,state:manifest.id==='provider.newapi' ? 'disabled' as const : 'active' as const}));
   assert.deepEqual(workbenchContributions(statuses).map(card=>card.id),['codex.subscription']);assert.deepEqual(usageContributions(statuses).map(view=>view.id),['local']);assert.ok(rendererNavigation([],statuses).some(item=>item.id==='overview'));
   const root=await fixture(t),store=new SettingsStore(root,{available:()=>true,encrypt:s=>s,decrypt:s=>s});await store.load();
-  const host=await createBuiltinPlugins(store,{localHome:root});t.after(()=>host.dispose());assert.ok(host.require('provider.codex','subscriptionUsage.read'));
+  const host=await createBuiltinPlugins(store,{localHome:root});t.after(()=>host.dispose());assert.equal(host.isEnabled('provider.codex'),false);await host.setEnabled('provider.codex',true);assert.ok(host.require('provider.codex','subscriptionUsage.read'));
   await host.setEnabled('provider.codex',false);assert.throws(()=>host.require('provider.codex','subscriptionUsage.read'));await store.load();assert.equal(store.preferences.pluginEnabled['provider.codex'],false);
   const restarted=await createBuiltinPlugins(store,{localHome:root});t.after(()=>restarted.dispose());assert.throws(()=>restarted.require('provider.codex','subscriptionUsage.read'));
   const patched=applyPreferencePatch(structuredClone(DEFAULT_PREFERENCES),{sourceSelection:{sourceId:'source.local-sessions',values:{range:30,tool:'codex'}}});

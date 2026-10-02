@@ -1,5 +1,9 @@
 import type {PluginManifest,PluginViewId} from './contracts/plugins';
 import {builtinManifests} from '../plugins/manifests';
+import type {Preferences} from './types';
+export function pluginEnabled(manifest:PluginManifest,preferences:Pick<Preferences,'pluginEnabled'|'widgetEnabled'>){
+  return preferences.pluginEnabled[manifest.id] ?? (manifest.id==='surface.widget' ? preferences.widgetEnabled : manifest.defaultEnabled ?? true);
+}
 export function settingsGroups(manifests:readonly PluginManifest[]=builtinManifests){return manifests.filter(m=>m.configurable && m.settings).map(m=>({id:m.id,...m.settings!})).sort((a,b)=>a.order-b.order);}
 export const pluginSettingsGroups=settingsGroups();
 export function configurablePlugin(manifests:readonly PluginManifest[],id:string):PluginManifest{

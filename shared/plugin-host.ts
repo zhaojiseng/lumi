@@ -70,6 +70,7 @@ export class PluginHost<Capabilities extends object = BuiltinCapabilityMap> {
       }
       if (input.hostApiVersion !== 1) throw new Error(`Unsupported host API version for ${input.id}`);
       if (typeof input.configurable !== 'boolean') throw new Error(`Missing configurable flag for ${input.id}`);
+      if (input.defaultEnabled!==undefined && typeof input.defaultEnabled!=='boolean') throw new Error(`Invalid default enabled flag for ${input.id}`);
       if (typeof plugin.activate !== 'function') throw new Error(`Missing activate function for ${input.id}`);
       if(input.settings){
         const settings=input.settings,ids=new Set<string>();
@@ -103,6 +104,7 @@ export class PluginHost<Capabilities extends object = BuiltinCapabilityMap> {
         Object.freeze(refs.map(ref => Object.freeze({ sourceId: ref.sourceId, capability: ref.capability })));
       const manifest = Object.freeze({
         id: input.id, version: input.version, hostApiVersion: 1 as const, configurable: input.configurable,
+        ...(input.defaultEnabled!==undefined ? {defaultEnabled:input.defaultEnabled} : {}),
         requires: freezeRefs(input.requires), optional: freezeRefs(input.optional), provides: Object.freeze([...input.provides]),
         ...(input.settings ? {settings:Object.freeze({...input.settings,views:Object.freeze(input.settings.views.map(view=>Object.freeze({...view})))})} : {}),
       });

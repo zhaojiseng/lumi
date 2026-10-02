@@ -34,6 +34,14 @@ test('legacy flags migrate to provider children preserving selections',async t=>
   assert.equal(next.preferences.pluginViews['provider.newapi'].models,false);assert.equal(next.preferences.theme,'dark');assert.deepEqual(next.preferences.favoriteModels,['fixture']);assert.equal(next.preferences.viewSelections[store.activeSite().id]['models.search'],'kept');
   await assert.rejects(store.setPluginEnabled('feature.models',false));await assert.rejects(store.setPluginView('provider.codex','tokens',false));
 });
+test('Codex subscription provider starts disabled unless explicitly enabled and keeps its saved choice',async t=>{
+  const {root,store}=await fixture(t),host=await createBuiltinPlugins(store,{localHome:root,resolveCodex:async()=>assert.fail('Inactive provider must not resolve the CLI')});t.after(()=>host.dispose());
+  assert.equal(host.isEnabled('provider.codex'),false);assert.equal(host.list().find(s=>s.manifest.id==='provider.codex')?.manifest.defaultEnabled,false);
+  assert.throws(()=>host.require('provider.codex','subscriptionUsage.read'),/未启用/);assert.equal(host.isEnabled('provider.newapi'),true);assert.equal(host.isEnabled('adapter.tool.codex'),true);
+  await host.setEnabled('provider.codex',true);
+  const restored=new SettingsStore(root,cipher);await restored.load();const enabled=await createBuiltinPlugins(restored,{localHome:root});t.after(()=>enabled.dispose());assert.equal(enabled.isEnabled('provider.codex'),true);
+  await enabled.setEnabled('provider.codex',false);const disabledStore=new SettingsStore(root,cipher);await disabledStore.load();const disabled=await createBuiltinPlugins(disabledStore,{localHome:root});t.after(()=>disabled.dispose());assert.equal(disabled.isEnabled('provider.codex'),false);
+});
 test('provider shutdown revokes late reads; stable ports reacquire capabilities after restart',async t=>{
   const {root,store}=await fixture(t),waiting=deferred<CatalogSnapshot>();let calls=0;
   const host=await createBuiltinPlugins(store,{localHome:root,catalog:{read:()=>{calls++;return calls===1 ? waiting.promise : Promise.resolve(snapshot(store));}}});t.after(()=>host.dispose());
@@ -93,7 +101,8 @@ test('shutdown drains mutations and immediately rejects new commands',async t=>{
 const browserBundle=build({entryPoints:['src/bridge.ts'],bundle:true,platform:'browser',format:'cjs',write:false,logLevel:'silent'});
 async function browser(storage=new Map<string,string>(),fail=false){const module={exports:{} as {bridge:LumiBridge}};runInNewContext((await browserBundle).outputFiles[0].text,{module,exports:module.exports,structuredClone,window:{},localStorage:{getItem:(key:string)=>storage.get(key) ?? null,setItem:(key:string,value:string)=>{if(fail)throw new Error('storage unavailable');storage.set(key,value);}},fetch:()=>assert.fail('placeholder must not fetch')});return {bridge:module.exports.bridge,storage};}
 test('browser stores product and child flags without desktop privileges and rolls back failures',async()=>{
-  const {bridge,storage}=await browser();await bridge.setPluginView('provider.newapi','models',false);await bridge.setPluginEnabled('provider.newapi',false);const next=(await browser(storage)).bridge;
+  const {bridge,storage}=await browser();assert.equal((await bridge.listPlugins()).find(s=>s.manifest.id==='provider.codex')?.state,'disabled');await bridge.setPluginEnabled('provider.codex',true);await bridge.setPluginView('provider.newapi','models',false);await bridge.setPluginEnabled('provider.newapi',false);const next=(await browser(storage)).bridge;
+  assert.equal((await next.listPlugins()).find(s=>s.manifest.id==='provider.codex')?.state,'active');
   assert.equal((await next.listPlugins()).find(s=>s.manifest.id==='provider.newapi')?.state,'disabled');await next.setPluginEnabled('provider.newapi',true);assert.equal((await next.listPlugins()).find(s=>s.manifest.id==='provider.newapi')?.views?.models,false);
   await assert.rejects(next.readCatalog({siteId:'x',siteUrl:'https://fixture.invalid'}),/Electron/);await next.dashboard(7);await assert.rejects(next.setPluginView('provider.codex','tokens',false));await assert.rejects(next.setPluginEnabled('feature.usage',false));
   const failed=(await browser(new Map(),true)).bridge;await assert.rejects(failed.setPluginEnabled('provider.newapi',false),/storage unavailable/);assert.equal((await failed.listPlugins()).find(s=>s.manifest.id==='provider.newapi')?.state,'active');

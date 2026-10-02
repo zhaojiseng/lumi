@@ -25,11 +25,11 @@ Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的
 
 `src/host/interface.tsx` 保持默认 React 外壳及页面节点稳定，外部 `kind: "interface"` 包经独立 CSS 接口覆盖布局和皮肤。界面包只有清单、CSS 和许可，不获得功能插件的 SDK/权限；一次选中一个，启用新界面会原子停用旧界面。功能插件仍通过自己的系统插槽或隔离 frame 显示内容。
 
-样式经 CSSOM 检查后放入以插件 ID 限定的 `@scope`，限制大小、规则类型、资源引用、拖动区域和 z-index。恢复默认按钮位于作用域外；非法样式、缺包或摘要变化回退到默认。切换和扫描不重挂载设置、功能页或修改其草稿。外部接口 v1 支持 CSS 布局/皮肤，尚不提供任意外部 React/JavaScript 替换整套界面的接口。包格式和选择器见 [作者指南](../extensions/README.md#界面插件-v1)。
+样式经 CSSOM 检查后放入以插件 ID 限定的 `@scope`，限制大小、规则类型、资源引用、拖动区域和 z-index。恢复默认使用设置中的“默认界面”；非法样式、缺包或摘要变化回退到默认。切换和扫描不重挂载设置、功能页或修改其草稿。外部接口 v1 支持 CSS 布局/皮肤，尚不提供任意外部 React/JavaScript 替换整套界面的接口。包格式和选择器见 [作者指南](../extensions/README.md#界面插件-v1)。
 
 ## 插件贡献接口
 
-`plugins/manifests.ts` 仅导出元数据，禁止引入 main 实现。`shared/contracts/plugins.ts` 的 `PluginManifest` 声明依赖、提供能力及 `settings`。插件通过元数据申请设置组和子开关，宿主自动展示、校验与持久化，无需修改设置页。例如：
+`plugins/manifests.ts` 仅导出元数据，禁止引入 main 实现。`shared/contracts/plugins.ts` 的 `PluginManifest` 声明依赖、提供能力及 `settings`。可配置插件通过顶层 `defaultEnabled` 声明初始启用状态，未声明时默认启用；`provider.codex` 默认关闭。桌面和浏览器共用同一解析规则，显式保存的 `pluginEnabled` 优先，浮窗继续兼容旧 `widgetEnabled`。插件通过元数据申请设置组和子开关，宿主自动展示、校验与持久化，无需修改设置页。例如：
 
 ```ts
 settings: {

@@ -39,6 +39,8 @@ export interface PluginManifest<Id extends string = PluginCapabilityId> {
   version: string;
   hostApiVersion: 1;
   configurable: boolean;
+  /** Initial preference for configurable plugins; an explicit saved choice takes priority. */
+  defaultEnabled?: boolean;
   requires: readonly PluginCapabilityReference<Id>[];
   optional: readonly PluginCapabilityReference<Id>[];
   provides: readonly Id[];
