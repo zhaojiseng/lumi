@@ -45,46 +45,52 @@ app.whenReady().then(async()=>{
 for(const kind of ['charts','widget','tray']){
  const win=new BrowserWindow({width:kind==='widget' ? 244 : kind==='tray' ? 396 : 850,height:kind==='widget' ? 64 : 720,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,kind+'.html'),{hash:kind});
  await win.webContents.executeJavaScript('('+async function(kind){
- const check=(value,label)=>{if(!value)throw new Error(kind+': '+label);},until=async fn=>{const deadline=performance.now()+6000;while(!fn()){if(performance.now()>deadline)throw new Error(kind+': timeout');await new Promise(r=>setTimeout(r,10));}};
+ const check=(value,label)=>{if(!value)throw new Error(kind+': '+label);},until=async(fn,label=()=> 'timeout')=>{const deadline=performance.now()+6000;while(!fn()){if(performance.now()>deadline)throw new Error(kind+': '+label());await new Promise(r=>setTimeout(r,10));}};
  const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d',{willReadFrequently:true});
  const rgba=value=>{context.clearRect(0,0,1,1);context.fillStyle='transparent';context.fillStyle=value;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].join(',');};
  const sameColor=(actual,expected)=>rgba(actual)===rgba(expected);
+ const waitColor=(read,expected,label)=>until(()=>sameColor(read(),expected),()=>label+': '+read()+' expected '+expected);
  if(kind==='charts'){
    await until(()=>document.querySelector('#total .recharts-area-curve') && document.querySelectorAll('#grouped .recharts-line-curve').length===2 && document.querySelector('.recharts-pie-sector'));
    const shell=document.querySelector('.desktop-shell'),curve=document.querySelector('#total .recharts-area-curve');
    const validate=async color=>{
      // Root theme state can precede descendant style invalidation in hidden Chromium windows.
      await new Promise(resolve=>requestAnimationFrame(resolve));
-     await until(()=>sameColor(getComputedStyle(curve).stroke,color));
-     check(sameColor(getComputedStyle(curve).stroke,color),'total curve ignored accent: '+getComputedStyle(curve).stroke+' expected '+color);
-     const grouped=document.querySelectorAll('#grouped .recharts-line-curve');check(sameColor(getComputedStyle(grouped[0]).stroke,color) && sameColor(getComputedStyle(grouped[1]).stroke,'rgb(140, 80, 190)'),'grouped lines lost theme or distinction');
-     check(sameColor(getComputedStyle(document.querySelector('.recharts-pie-sector path')).fill,color),'donut ignored accent');
-     check(sameColor(getComputedStyle(document.querySelector('.legend-dot')).backgroundColor,color),'legend ignored accent');
+     await waitColor(()=>getComputedStyle(curve).stroke,color,'total curve ignored accent');
+     const grouped=document.querySelectorAll('#grouped .recharts-line-curve');
+     await waitColor(()=>getComputedStyle(grouped[0]).stroke,color,'grouped line ignored accent');
+     await waitColor(()=>getComputedStyle(grouped[1]).stroke,'rgb(140, 80, 190)','grouped line lost distinction');
+     await waitColor(()=>getComputedStyle(document.querySelector('.recharts-pie-sector path')).fill,color,'donut ignored accent');
+     await waitColor(()=>getComputedStyle(document.querySelector('.legend-dot')).backgroundColor,color,'legend ignored accent');
      for(const [tone,key] of Object.entries({sage:'accent',blue:'blue',lavender:'purple',peach:'orange',red:'red',neutral:'text-secondary'})){
        const control=document.querySelector('select[aria-label="'+tone+'"]'),probe=document.createElement('i');probe.style.color='var(--'+key+')';shell.append(probe);
-       check(sameColor(getComputedStyle(control.closest('.select-wrap'),'::before').backgroundColor,getComputedStyle(probe).color) && sameColor(getComputedStyle(control.closest('.select-wrap').querySelector('svg')).color,getComputedStyle(probe).color),'select tone '+tone+' ignored semantic color');check(sameColor(getComputedStyle(control).color,getComputedStyle(shell).color),'select lost text color');probe.remove();
+       await waitColor(()=>getComputedStyle(control.closest('.select-wrap'),'::before').backgroundColor,getComputedStyle(probe).color,'select tone '+tone+' ignored semantic color');
+       await waitColor(()=>getComputedStyle(control.closest('.select-wrap').querySelector('svg')).color,getComputedStyle(probe).color,'select icon '+tone+' ignored semantic color');
+       await waitColor(()=>getComputedStyle(control).color,getComputedStyle(shell).color,'select lost text color');probe.remove();
      }
    };
    await validate('rgb(60, 100, 210)');
    const select=document.querySelector('select[aria-label="sage"]');select.showPicker();await until(()=>select.matches(':open'));
-   check(sameColor(getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(250, 245, 255)'),'opened picker ignored plugin panel');
-   check(sameColor(getComputedStyle(select.querySelector('option'),'::before').backgroundColor,'rgb(60, 100, 210)'),'opened option dot ignored plugin accent');
+   await waitColor(()=>getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(250, 245, 255)','opened picker ignored plugin panel');
+   await waitColor(()=>getComputedStyle(select.querySelector('option'),'::before').backgroundColor,'rgb(60, 100, 210)','opened option dot ignored plugin accent');
    document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';await validate('rgb(140, 170, 250)');
-   check(sameColor(getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(35, 25, 50)'),'opened picker ignored dark palette');
+   await waitColor(()=>getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(35, 25, 50)','opened picker ignored dark palette');
    document.documentElement.dataset.theme='light';shell.dataset.theme='light';
    document.querySelector('[aria-label="Fixture date"]').click();await until(()=>shell.querySelector('.date-time-modal'));const modal=document.querySelector('.date-time-modal');
-   check(sameColor(getComputedStyle(modal).backgroundColor,'rgb(250, 245, 255)'),'picker escaped light theme');
+   await waitColor(()=>getComputedStyle(modal).backgroundColor,'rgb(250, 245, 255)','picker escaped light theme');
    document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';await validate('rgb(140, 170, 250)');
-   check(document.querySelector('.date-time-modal')===modal && sameColor(getComputedStyle(modal).backgroundColor,'rgb(35, 25, 50)'),'picker remounted or escaped dark theme');
+   await waitColor(()=>getComputedStyle(modal).backgroundColor,'rgb(35, 25, 50)','picker escaped dark theme');
+   check(document.querySelector('.date-time-modal')===modal,'picker remounted');
    check(document.querySelector('#total .recharts-area-curve')===curve,'theme change remounted chart');
  }else{
    const selector=kind==='widget' ? '.widget-card' : '.tray-card';await until(()=>document.querySelector(selector) && fixture.listeners.size);const card=document.querySelector(selector);fixture.emit(fixture.colors());
-   await until(()=>sameColor(getComputedStyle(card).backgroundColor,'rgb(35, 25, 50)'));check(sameColor(getComputedStyle(card).color,'rgb(240, 230, 250)'),'foreground ignored palette');
+   await waitColor(()=>getComputedStyle(card).backgroundColor,'rgb(35, 25, 50)','surface ignored panel');
+   await waitColor(()=>getComputedStyle(card).color,'rgb(240, 230, 250)','foreground ignored palette');
    if(kind==='tray'){
-     check(sameColor(getComputedStyle(document.querySelector('.tray-bar.used')).backgroundColor,'rgb(60, 100, 210)'),'tray chart ignored accent');
-     check(sameColor(getComputedStyle(document.querySelector('.tray-switch-thumb')).backgroundColor,'rgb(35, 25, 50)'),'tray selection alias retained default palette');
+     await waitColor(()=>getComputedStyle(document.querySelector('.tray-bar.used')).backgroundColor,'rgb(60, 100, 210)','tray chart ignored accent');
+     await waitColor(()=>getComputedStyle(document.querySelector('.tray-switch-thumb')).backgroundColor,'rgb(35, 25, 50)','tray selection alias retained default palette');
    }
-   fixture.emit(undefined);await until(()=>sameColor(getComputedStyle(card).backgroundColor,'rgb(255, 255, 255)'));check(document.querySelector(selector)===card,'theme change remounted surface');
+   fixture.emit(undefined);await waitColor(()=>getComputedStyle(card).backgroundColor,'rgb(255, 255, 255)','surface did not restore default panel');check(document.querySelector(selector)===card,'theme change remounted surface');
  }
  check(fixture.errors.length===0,'renderer errors '+fixture.errors);
  }.toString()+')('+JSON.stringify(kind)+')',true);
