@@ -139,12 +139,24 @@ export interface LocalUsage {
 }
 export interface LocalSessionSummary {
   id:string;tool:Tool;model:string;startedAt:number;updatedAt:number;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheWriteTokens:number;requests:number;
+  metadata?:LocalSessionMetadata;
 }
+export interface LocalSessionMetadata {title?:string;firstPrompt?:string;sessionKey?:string;cwd?:string;project?:string;gitBranch?:string;version?:string;source?:string;}
 export interface LocalSessionRecord {
   id:string;created_at:number;model:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheWriteTokens:number;contextTokens:number;reasoning?:string;
 }
 export interface LocalSessionPage {items:LocalSessionRecord[];nextCursor?:string;scannedBytes:number;totalBytes:number;}
 export interface LocalSessionQuery {sessionId:string;query:DashboardQuery;cursor?:string;}
+export interface LocalSessionLoad {sessionId:string;query:DashboardQuery;requestId:string;}
+export interface LocalSessionProgress {requestId:string;phase:'read'|'complete';bytesRead:number;totalBytes:number;calls:number;}
+export interface LocalSessionSnapshot {snapshotId:string;metadata:LocalSessionMetadata;total:number;eventTotal:number;totalBytes:number;warnings:string[];}
+export interface LocalSessionRecordsQuery {snapshotId:string;page:number;pageSize:number;}
+export interface LocalSessionRecordsPage {items:LocalSessionRecord[];total:number;page:number;pageSize:number;}
+export interface LocalSessionContentQuery extends LocalSessionRecordsQuery {recordId?:string;}
+export interface LocalSessionEvent {id:string;createdAt?:number;role:'user'|'assistant'|'tool'|'system'|'event';kind:string;text:string;toolName?:string;toolCallId?:string;details:{label:string;value:string}[];truncated?:boolean;rawBytes?:number;}
+export interface LocalSessionContentPage {items:LocalSessionEvent[];total:number;page:number;pageSize:number;association:'session'|'turn'|'message'|'unavailable';}
+export interface LocalSessionRawQuery {snapshotId:string;eventId:string;offset:number;}
+export interface LocalSessionRawPage {text:string;offset:number;nextOffset?:number;totalBytes:number;}
 export interface LocalUsagePoint {
   tool:Tool;created_at:number;model:string;inputTokens:number;outputTokens:number;cacheReadTokens:number;cacheWriteTokens:number;requests:number;
 }
@@ -211,6 +223,12 @@ export interface LumiBridge {
   localUsage(query: DashboardQuery,requestId?:string): Promise<LocalUsage>;
   onLocalUsageProgress(listener:(progress:LocalUsageProgress)=>void):()=>void;
   localSessionDetails(input:LocalSessionQuery):Promise<LocalSessionPage>;
+  loadLocalSession(input:LocalSessionLoad):Promise<LocalSessionSnapshot>;
+  onLocalSessionProgress(listener:(progress:LocalSessionProgress)=>void):()=>void;
+  localSessionRecords(input:LocalSessionRecordsQuery):Promise<LocalSessionRecordsPage>;
+  localSessionContent(input:LocalSessionContentQuery):Promise<LocalSessionContentPage>;
+  localSessionRaw(input:LocalSessionRawQuery):Promise<LocalSessionRawPage>;
+  releaseLocalSession(input:{requestId?:string;snapshotId?:string}):Promise<void>;
   previewConfig(input: ConfigRequest): Promise<ConfigPreview>;
   onConfigProgress(listener:(progress:ConfigProgress)=>void):()=>void;
   applyConfig(id: string): Promise<ToolConfigState[]>;

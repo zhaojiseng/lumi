@@ -209,6 +209,13 @@ async function start() {
     return usage.scan(identified ? input.query : input,identified ? progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localUsageProgress',{...progress,requestId:input.requestId});} : undefined);
   });
   handle('localSessionDetails',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,cursor:z.string().uuid().optional()}).strict(),input=>usage.sessionDetails(input));
+  const snapshotPageSchema=z.object({snapshotId:z.string().uuid(),page:z.number().int().min(1).max(100000000),pageSize:z.number().int().min(1).max(50)}).strict();
+  handle('loadLocalSession',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,requestId:z.string().uuid()}).strict(),input=>usage.sessionStore.load(input,progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localSessionProgress',progress);}));
+  handle('localSessionRecords',snapshotPageSchema,input=>usage.sessionStore.records(input));
+  handle('localSessionContent',snapshotPageSchema.extend({pageSize:z.number().int().min(1).max(20),recordId:z.string().min(1).max(200).optional()}),input=>usage.sessionStore.content(input));
+  handle('localSessionRaw',z.object({snapshotId:z.string().uuid(),eventId:z.string().regex(/^[1-9]\d{0,15}$/),offset:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)}).strict(),input=>usage.sessionStore.raw(input));
+  handle('releaseLocalSession',z.object({requestId:z.string().uuid().optional(),snapshotId:z.string().uuid().optional()}).strict().refine(value=>!!(value.requestId || value.snapshotId)),input=>usage.sessionStore.release(input));
+  app.once('before-quit',()=>usage.close());
   handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
   handle('applyConfig', z.string().uuid(), id => configs.apply(id));
   handle('backups', noPayload, () => configs.backups());
@@ -275,8 +282,19 @@ async function start() {
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
         const local=await window.lumi.localUsage(1,requestId);stopProgress();
+        let snapshotValid=false;
+        if(local.sessions?.length){
+          const requestId=crypto.randomUUID(),progress=[];const stop=window.lumi.onLocalSessionProgress(value=>{if(value.requestId===requestId)progress.push(value);});
+          const snapshot=await window.lumi.loadLocalSession({sessionId:local.sessions[0].id,query:1,requestId});stop();
+          const records=await window.lumi.localSessionRecords({snapshotId:snapshot.snapshotId,page:1,pageSize:50});
+          const content=await window.lumi.localSessionContent({snapshotId:snapshot.snapshotId,page:1,pageSize:20});
+          const raw=await window.lumi.localSessionRaw({snapshotId:snapshot.snapshotId,eventId:content.items[0].id,offset:0});
+          let invalidRaw=false;try{await window.lumi.localSessionRaw({snapshotId:snapshot.snapshotId,eventId:'../auth.json',offset:0});}catch{invalidRaw=true;}
+          await window.lumi.releaseLocalSession({snapshotId:snapshot.snapshotId});let released=false;try{await window.lumi.localSessionRecords({snapshotId:snapshot.snapshotId,page:1,pageSize:50});}catch{released=true;}
+          snapshotValid=snapshot.total===1 && records.items.length===1 && content.items.some(item=>item.text.includes('本地消息检查')) && raw.totalBytes>0 && snapshot.metadata.title==='桌面会话检查' && progress.some(value=>value.phase==='complete') && invalidRaw && released;
+        }
         const changed=await window.lumi.updatePreferences({widgetInputMode:'uncached',widgetPeriod:'latest'});
-        const localSessionIpcValid=invalidDetails && Array.isArray(local.sessions) && progress.some(value=>value.phase==='complete') && changed.widgetInputMode==='uncached' && changed.widgetPeriod==='latest';
+        const localSessionIpcValid=snapshotValid && invalidDetails && Array.isArray(local.sessions) && progress.some(value=>value.phase==='complete') && changed.widgetInputMode==='uncached' && changed.widgetPeriod==='latest';
         await window.lumi.updatePreferences({widgetInputMode:'total',widgetPeriod:60});
         const cacheBefore=await window.lumi.appCache(),cleared=await window.lumi.clearAppCache();
         const appCacheValid=Number.isFinite(cacheBefore.totalBytes) && cleared.freedBytes>=0 && Array.isArray(cleared.cache.warnings);

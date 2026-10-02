@@ -53,9 +53,93 @@
   opacity: .5;
   cursor: default;
 }
+.local-session-summary {
+  display: grid;
+  gap: 4px;
+  width: clamp(180px, 24vw, 330px);
+}
+.local-session-summary > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-session-summary strong {
+  color: var(--text);
+  font-weight: 550;
+}
+.local-session-summary span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .modal.wide.local-session-details {
   width: min(1080px, calc(100vw - 68px));
   max-width: 100%;
+  min-width: 0;
+  font-family: inherit;
+}
+.local-session-identity {
+  margin-bottom: 14px;
+}
+.local-session-identity h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.local-session-identity dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  margin: 0;
+}
+.local-session-identity dl > div,
+.local-session-event dl > div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.local-session-identity dt,
+.local-session-event dt {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.local-session-identity dd,
+.local-session-event dd {
+  margin: 0;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.local-session-key {
+  grid-column: 1 / -1;
+}
+.local-session-first-prompt {
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.local-session-first-prompt summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--accent);
+}
+.local-session-details pre {
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.local-session-first-prompt pre {
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 .local-session-range {
   margin: 0 0 8px;
@@ -92,11 +176,6 @@
   z-index: 1;
   background: var(--panel);
 }
-.local-session-window-note {
-  margin: 12px 0 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
 .local-session-error {
   display: flex;
   align-items: center;
@@ -106,4 +185,186 @@
   color: var(--red);
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+.local-session-error .button {
+  flex-shrink: 0;
+}
+.local-session-warnings {
+  margin: 14px 0;
+  padding-left: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.local-session-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.local-session-tabs button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+}
+.local-session-tabs button[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.local-session-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.local-session-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin-top: 16px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.local-session-pagination > div,
+.local-session-pagination form,
+.local-session-pagination label,
+.local-session-raw-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.local-session-pagination input {
+  width: 64px;
+  min-height: 36px;
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+.local-session-association {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.local-session-related,
+.local-session-raw-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.local-session-related span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.local-session-events {
+  display: grid;
+  gap: 12px;
+}
+.local-session-event {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.local-session-event header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.local-session-event header strong {
+  color: var(--accent);
+  font-weight: 550;
+}
+.local-session-event header span,
+.local-session-event time,
+.local-session-tool-id {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.local-session-event time {
+  margin-left: auto;
+}
+.local-session-tool-id {
+  overflow-wrap: anywhere;
+}
+.local-session-event-text {
+  max-height: 340px;
+  margin: 12px 0;
+  overflow: auto;
+  color: var(--text);
+}
+.local-session-event dl {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+}
+.local-session-event dd {
+  max-height: 180px;
+  overflow: auto;
+}
+.local-session-raw {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--panel-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.local-session-raw pre {
+  max-height: 340px;
+  overflow: auto;
+  margin: 12px 0;
+  color: var(--text);
+}
+.local-session-raw-heading {
+  justify-content: space-between;
+}
+@media (max-width: 640px) {
+  .modal.wide.local-session-details {
+    width: calc(100vw - 24px);
+    max-width: none;
+    flex-shrink: 0;
+    padding: 16px;
+    max-height: 94dvh;
+  }
+  .local-session-identity dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .local-session-event {
+    padding: 10px;
+  }
+  .local-session-event time {
+    margin-left: 0;
+  }
+  .local-session-pagination {
+    justify-content: flex-start;
+  }
 }

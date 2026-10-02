@@ -3,10 +3,13 @@ import path from 'node:path';
 import os from 'node:os';
 import {createHash} from 'node:crypto';
 import {LocalSessionPages} from './local-session-pages';
+import {LocalSessionStore} from './local-session-store';
+import {updateSessionMetadata} from './local-session-parser';
+import {sessionTitles} from './local-session-titles';
 import {appendedLines,codexDelta,type Counters} from './local-usage-lines';
 export {appendedLines,codexDelta} from './local-usage-lines';
 import {resolveRange,statisticsFilters,isRollingRange} from '../../shared/range';
-import type { DashboardQuery,LocalUsage, LocalUsageRow, LocalUsagePoint,LocalUsageProgress,LocalSessionSummary,LocalSessionQuery,Tool, SiteStatus } from '../../shared/types';
+import type { DashboardQuery,LocalUsage, LocalUsageRow, LocalUsagePoint,LocalUsageProgress,LocalSessionSummary,LocalSessionQuery,LocalSessionMetadata,Tool, SiteStatus } from '../../shared/types';
 import type {UsagePriceFacts} from '../../shared/usage-pricing';
 import {widgetPeriodWindow,type WidgetPeriod} from '../../shared/widget-period';
 import type { WidgetUsage, WidgetMinute, WidgetModelUsage } from '../../shared/widget';
@@ -33,7 +36,9 @@ async function walk(root: string, cutoff: number, warnings: string[], files: str
 }
 export class LocalUsageService {
   private sessionPages=new LocalSessionPages();
+  readonly sessionStore=new LocalSessionStore();
   sessionDetails(input:LocalSessionQuery){return this.sessionPages.read(input);}
+  close(){this.sessionStore.close();}
   private cache = new Map<string, { at: number; data: LocalUsage }>();
   private inFlight = new Map<string, Promise<LocalUsage>>();
   private progress=new Map<string,LocalReadProgress>();
@@ -183,13 +188,14 @@ export class LocalUsageService {
     const duration=window.end_timestamp-window.start_timestamp+1,count=Math.min(30,duration);
     const edges=Array.from({length:count+1},(_,index)=>window.start_timestamp+Math.floor(index*duration/count));
     const points=new Map<string,LocalUsagePoint>();
-    const summaries=new Map<string,LocalSessionSummary>();let activeFile='';
+    const summaries=new Map<string,LocalSessionSummary>();let activeFile='',metadata:LocalSessionMetadata={};
     const sessions = new Map<string, Set<string>>();
     const codexRoot = this.respectEnvironment && process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(this.home, '.codex');
     const claudeRoot = this.respectEnvironment && process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(this.home, '.claude');
     const codexFiles: string[] = []; const claudeFiles: string[] = [];
     await Promise.all([walk(path.join(codexRoot, 'sessions'), cutoff, warnings, codexFiles), walk(path.join(codexRoot, 'archived_sessions'), cutoff, warnings, codexFiles), walk(path.join(claudeRoot, 'projects'), cutoff, warnings, claudeFiles)]);
     if (codexFiles.length >= 2000 || claudeFiles.length >= 2000) warnings.push('本次扫描达到 2000 个文件上限，统计可能不完整。');
+    const titles=await sessionTitles(codexRoot,codexFiles,claudeFiles);
     const sizes=new Map<string,number>();for(const file of [...codexFiles,...claudeFiles]){try{sizes.set(file,(await stat(file)).size);}catch{sizes.set(file,0);}}
     progress.filesTotal=sizes.size;progress.bytesTotal=[...sizes.values()].reduce((sum,size)=>sum+size,0);progress.phase='read';report({...progress});
     let lastProgress=0;const bytes=(amount:number)=>{progress.bytesRead+=amount;const now=Date.now();if(now-lastProgress>=100){lastProgress=now;report({...progress});}};
@@ -205,12 +211,12 @@ export class LocalUsageService {
       const id=createHash('sha256').update(activeFile).digest('hex');
       const summary=summaries.get(id) || {id,tool,model,startedAt:timestamp/1000,updatedAt:timestamp/1000,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,requests:0};
       summary.startedAt=Math.min(summary.startedAt,timestamp/1000);if(timestamp/1000>=summary.updatedAt){summary.updatedAt=timestamp/1000;summary.model=model;}
-      summary.inputTokens+=c.input;summary.outputTokens+=c.output;summary.cacheReadTokens+=c.cache;summary.cacheWriteTokens+=c.write;summary.requests++;summaries.set(id,summary);this.sessionPages.register(id,activeFile,tool);
+      summary.metadata={...metadata};summary.inputTokens+=c.input;summary.outputTokens+=c.output;summary.cacheReadTokens+=c.cache;summary.cacheWriteTokens+=c.write;summary.requests++;summaries.set(id,summary);this.sessionPages.register(id,activeFile,tool);this.sessionStore.register(id,activeFile,tool,metadata);
     };
     let filesScanned = 0;
     for (const [tool, files] of [['codex', codexFiles], ['claude', claudeFiles]] as [Tool, string[]][]) {
       for (const file of files) {
-        activeFile=file;
+        activeFile=file;metadata={...titles.get(file)};
         let previous: Counters = { input: 0, output: 0, cache: 0, write: 0 }; let model = 'unknown'; let session = path.basename(file);
         let codexSignature = '';
         const claudeMessages = new Map<string, { timestamp: number; model: string; count: Counters; session: string }>();
@@ -219,6 +225,7 @@ export class LocalUsageService {
           for await (const item of appendedLines(file,0,size,bytes)) {
             const line=item.line;
             let e: any; try { e = JSON.parse(line); } catch { continue; }
+            metadata=updateSessionMetadata(tool,e,metadata);
             if (tool === 'codex') {
               if (e.type === 'session_meta') session = e.payload?.id || session;
               if (e.type === 'turn_context') model = e.payload?.model || model;
@@ -248,6 +255,7 @@ export class LocalUsageService {
             }
           }
           if (tool === 'claude') for (const m of claudeMessages.values()) add('claude', m.timestamp, m.model, m.count, m.session);
+          const summary=summaries.get(createHash('sha256').update(file).digest('hex'));if(summary){summary.metadata={...metadata};this.sessionStore.register(summary.id,file,tool,metadata);}
           filesScanned++;
         } catch { warnings.push(`会话读取不完整：${path.basename(file)}`); }
         progress.filesDone++;report({...progress});

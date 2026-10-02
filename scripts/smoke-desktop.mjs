@@ -1,10 +1,19 @@
 
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp,writeFile } from 'node:fs/promises';
 import path from 'node:path';
 await mkdir('.test-data', { recursive: true });
 const directory = await mkdtemp(path.resolve('.test-data/desktop-'));
 const env = { ...process.env, LUMI_SMOKE: '1', LUMI_TEST_DATA: path.join(directory, 'app'), LUMI_TEST_HOME: path.join(directory, 'home'), LUMI_SMOKE_SCREENSHOT: path.resolve('docs/preview-desktop.png') };
+const sessionDirectory=path.join(env.LUMI_TEST_HOME,'.codex/sessions');await mkdir(sessionDirectory,{recursive:true});
+const timestamp=new Date().toISOString();
+await writeFile(path.join(sessionDirectory,'fixture.jsonl'),[
+  {type:'session_meta',payload:{id:'smoke-session',title:'桌面会话检查',cwd:'/fixture/project'}},
+  {type:'turn_context',payload:{model:'smoke-model',turn_id:'smoke-turn'}},
+  {type:'response_item',timestamp,payload:{type:'message',role:'user',content:[{type:'input_text',text:'本地消息检查'}]}},
+  {type:'event_msg',timestamp,payload:{type:'token_count',info:{last_token_usage:{input_tokens:10,output_tokens:2,cached_input_tokens:3}}}},
+  {type:'response_item',timestamp,payload:{type:'message',role:'assistant',content:[{type:'output_text',text:'本地回复检查'}]}},
+].map(event=>JSON.stringify(event)).join('\n')+'\n');
 delete env.ELECTRON_RUN_AS_NODE;
 const electronPath = (await import('electron')).default;
 const child = spawn(electronPath, ['.'], { env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
