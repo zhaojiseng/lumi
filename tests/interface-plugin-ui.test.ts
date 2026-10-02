@@ -52,7 +52,8 @@ check(getComputedStyle(shell).color===text && getComputedStyle(document.querySel
 check(document.querySelector('.settings-page')===root && threshold.value==='123.4','Theme switch reset settings');
 check(document.querySelector('.update-release-modal')===updateModal && getComputedStyle(updateModal).backgroundColor===panel && getComputedStyle(updateModal.querySelector('h2')).color===text,'Update dialog lost scoped theme or remounted');
 const site=document.querySelector('.site-switch'),dot=getComputedStyle(site,'::before').backgroundColor,probe=document.createElement('span');probe.style.color='var(--accent)';shell.append(probe);
-check(dot===getComputedStyle(probe).color,'Site dot ignored interface accent');probe.remove();
+const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d',{willReadFrequently:true}),rgba=value=>{context.clearRect(0,0,1,1);context.fillStyle=value;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].join(',');};
+check(rgba(dot)===rgba(getComputedStyle(probe).color),'Site dot ignored interface accent: '+dot+' expected '+getComputedStyle(probe).color);probe.remove();
 for(const select of shell.querySelectorAll('.select-wrap select'))check(getComputedStyle(select).getPropertyValue('--choice-fg').trim()===getComputedStyle(select.closest('.select-wrap')).getPropertyValue('--choice-fg').trim(),'Select palette lost inheritance');
 };
 await palette('light','rgb(50, 30, 70)','rgb(250, 245, 255)');

@@ -53,7 +53,7 @@ async function fixture(t: TestContext) {
   const root = await mkdtemp(path.join(testData, 'codex-streaming-'));
   const relative = path.relative(testData, path.resolve(root));
   assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
-  t.after(() => rm(root, {recursive: true, force: true}));
+  t.after(() => rm(root, {recursive: true, force: true, maxRetries: 5, retryDelay: 100}));
   const home = path.join(root, 'home'), dir = path.join(home, '.codex'), app = path.join(root, 'app');
   await mkdir(dir, {recursive: true});
   const {cipher, state} = boundedCipher();
