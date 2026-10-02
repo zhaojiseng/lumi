@@ -1,7 +1,7 @@
 {
   "name": "lumi-ai-workbench",
   "productName": "Lumi",
-  "version": "0.4.30",
+  "version": "0.4.31",
   "description": "A flat desktop workbench for New API, Codex and Claude Code",
   "author": "CYG",
   "license": "MIT",

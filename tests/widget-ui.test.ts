@@ -317,8 +317,8 @@ test('missing bridge, empty data and errors use concise model-slot messages and 
 
 test('244×64 Chromium layout keeps both themes, long values and controls inside the strip', {timeout:20000},async t=>{
   let electron:string;
-  try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron runtime unavailable');}
-  if(!existsSync(electron))return t.skip('Electron runtime unavailable');
+  try{electron=createRequire(import.meta.url)('electron');}catch(error){if(process.env.CI)throw error;return t.skip('Electron runtime unavailable');}
+  if(!existsSync(electron)){if(process.env.CI)assert.fail('CI must install the Electron runtime');return t.skip('Electron runtime unavailable');}
   await mkdir('.test-data',{recursive:true});
   const root=await mkdtemp(path.resolve('.test-data/widget-ui-'));
   t.after(async()=>{
@@ -346,6 +346,8 @@ app.disableHardwareAcceleration();
 app.whenReady().then(async()=>{
   const win=new BrowserWindow({width:244,height:64,useContentSize:true,show:false,frame:false,thickFrame:false,resizable:false,hasShadow:false,transparent:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});
   await win.loadFile(path.join(__dirname,'fixture.html'));
+  win.webContents.debugger.attach('1.3');
+  await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
   for(let i=0;i<40;i++){if(await win.webContents.executeJavaScript("!!document.querySelector('.widget-model-name')"))break;await new Promise(r=>setTimeout(r,25));}
   const results=[];
   for(const [name,patch] of [
@@ -378,19 +380,27 @@ app.whenReady().then(async()=>{
   }
   const transition=await win.webContents.executeJavaScript('('+async function transition(){
     const next={...window.fixtureState,phase:'ready',viewKey:'animation-fixture',dataKey:'real-1',animation:'slide-up',balance:'$old',latestModel:{name:'old-model',cost:'$1',requests:'1',input:'1',output:'1',cacheRead:'0',cacheWrite:'0'}};
-    const wait=()=>new Promise(r=>setTimeout(r,10));
     const data=document.querySelector('.widget-data');
-    window.fixtureEmit(next);await wait();
-    window.fixtureEmit({...next,dataKey:'real-2',balance:'$new',latestModel:{...next.latestModel,name:'new-model'}});await wait();
+    if(matchMedia('(prefers-reduced-motion: reduce)').matches)throw new Error('Animation fixture requires no-preference media emulation');
+    // Pause real WAAPI animations so a busy CI runner cannot finish them before sampling.
+    const animate=Element.prototype.animate;
+    Element.prototype.animate=function(...args){const motion=animate.apply(this,args);motion.pause();motion.currentTime=0;return motion;};
+    const until=async predicate=>{
+      const deadline=performance.now()+3000;
+      while(!predicate()){if(performance.now()>deadline)throw new Error('Animation fixture condition timed out');await new Promise(r=>setTimeout(r,10));}
+    };
+    window.fixtureEmit(next);await until(()=>data.textContent.includes('old-model'));
+    window.fixtureEmit({...next,dataKey:'real-2',balance:'$new',latestModel:{...next.latestModel,name:'new-model'}});await until(()=>data.getAnimations().length===1);
     const outgoing=data.textContent,exit=data.getAnimations()[0],exitDuration=exit?.effect.getTiming().duration;
-    exit?.finish();await wait();
+    exit.finish();await until(()=>data.textContent.includes('new-model') && data.getAnimations()[0]!==exit);
     const incoming=data.textContent,entry=data.getAnimations()[0],entryDuration=entry?.effect.getTiming().duration;
-    window.fixtureEmit({...next,dataKey:'real-3',balance:'$superseded'});await wait();
+    window.fixtureEmit({...next,dataKey:'real-3',balance:'$superseded'});await until(()=>data.getAnimations().length===1 && data.getAnimations()[0]!==entry);
     const superseded=data.getAnimations()[0];
-    window.fixtureEmit({...next,dataKey:'real-4',balance:'$latest'});await wait();
+    window.fixtureEmit({...next,dataKey:'real-4',balance:'$latest'});await until(()=>data.getAnimations().length===1 && data.getAnimations()[0]!==superseded);
     const supersededState=superseded?.playState;
-    data.getAnimations()[0]?.finish();await wait();const latest=data.textContent;
-    window.fixtureEmit({...next,viewKey:'new-account',dataKey:'new-account',balance:'—',cost:'—',models:[],latestModel:undefined});await wait();
+    data.getAnimations()[0].finish();await until(()=>data.textContent.includes('余额$latest'));const latest=data.textContent;
+    window.fixtureEmit({...next,viewKey:'new-account',dataKey:'new-account',balance:'—',cost:'—',models:[],latestModel:undefined});await until(()=>data.textContent==='最近消费—暂无消费模型余额—' && data.getAnimations().length===0);
+    Element.prototype.animate=animate;
     return {outgoing,incoming,exitDuration,entryDuration,supersededState,latest,reset:data.textContent,remaining:data.getAnimations().length,content:document.querySelectorAll('.widget-data').length};
   }.toString()+')()');
   const controls=await win.webContents.executeJavaScript('('+function controls(){

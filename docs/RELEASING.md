@@ -30,7 +30,7 @@ npm run build
 npm audit
 ```
 
-CI 只需要 contents: read，不使用真实站点、账号或发布密钥。当前锁定依赖已验证 `npm ci --ignore-scripts` 可完成测试和构建；桌面运行和打包前需额外执行 `npm run setup:electron`。
+CI 只需要 contents: read，不使用真实站点、账号或发布密钥。依赖以 `npm ci --ignore-scripts` 安装，再显式运行 `npm run setup:electron`，确保真实 Chromium 布局检查实际执行。Linux 使用 Xvfb 虚拟显示，并配置 Chromium SUID 沙箱的所有者及权限；测试不会关闭沙箱。动画 fixture 显式模拟无减少动态效果，并通过暂停 / 完成真实动画校验状态，避免宿主机偏好与调度影响结果。
 
 ## Windows 与 macOS 安装包
 
