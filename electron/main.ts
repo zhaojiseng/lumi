@@ -229,6 +229,7 @@ async function start() {
   if (process.env.LUMI_SMOKE === '1') {
     try {
       const result = await win.webContents.executeJavaScript(String.raw`(async () => {
+        const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Desktop smoke timed out: '+label);await new Promise(r=>setTimeout(r,20));}};
         await new Promise(resolve => setTimeout(resolve,1500));
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
@@ -262,11 +263,11 @@ async function start() {
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
-        const local=await window.lumi.localUsage(1,requestId);stopProgress();
+        let local;try{local=await window.lumi.localUsage(1,requestId);await until(()=>progress.some(value=>value.phase==='complete'),'local usage progress');}finally{stopProgress();}
         let snapshotValid=false,localSessionChecks={sessionFound:!!local.sessions?.length};
         if(local.sessions?.length){
           const requestId=crypto.randomUUID(),progress=[];const stop=window.lumi.onLocalSessionProgress(value=>{if(value.requestId===requestId)progress.push(value);});
-          const snapshot=await window.lumi.loadLocalSession({sessionId:local.sessions[0].id,query:1,requestId});stop();
+          let snapshot;try{snapshot=await window.lumi.loadLocalSession({sessionId:local.sessions[0].id,query:1,requestId});await until(()=>progress.some(value=>value.phase==='complete'),'local session progress');}finally{stop();}
           const records=await window.lumi.localSessionRecords({snapshotId:snapshot.snapshotId,page:1,pageSize:50});
           const content=await window.lumi.localSessionContent({snapshotId:snapshot.snapshotId,page:1,pageSize:20});
           const raw=await window.lumi.localSessionRaw({snapshotId:snapshot.snapshotId,eventId:content.items[0].id,offset:0});
@@ -307,12 +308,15 @@ async function start() {
       await win.webContents.executeJavaScript(String.raw`(async()=>{document.querySelector('[aria-label="启用工作台便笺"]').click();const end=performance.now()+4000;while(document.querySelector('iframe[src^="lumi-extension:"]')){if(performance.now()>end)throw new Error('Revoked extension frame retained');await new Promise(r=>setTimeout(r,20));}})()`);
       result.externalPluginValid=externalIsolation && extensions.statuses().find(s=>s.manifest.id==='extension.lumi.notes')!.state==='disabled' && !extensions.asset('lumi-extension://extension.lumi.notes/'+oldGeneration+'/index.html');
       result.interfacePluginChecks=await win.webContents.executeJavaScript(String.raw`(async()=>{
-        const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface smoke timed out: '+label+'; selected='+document.querySelector('.desktop-shell')?.dataset.interface+'; '+(document.querySelector('.plugin-settings [role=alert]')?.textContent || document.querySelector('.interface-settings [role=alert]')?.textContent || ''));await new Promise(r=>setTimeout(r,20));}};
+        const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface smoke timed out: '+label+'; selected='+document.querySelector('.desktop-shell')?.dataset.interface+'; sidebar='+document.querySelector('.sidebar')?.getBoundingClientRect().width+'; track='+getComputedStyle(document.querySelector('.desktop-shell')).gridTemplateColumns+'; '+(document.querySelector('.plugin-settings [role=alert]')?.textContent || document.querySelector('.interface-settings [role=alert]')?.textContent || ''));await new Promise(r=>setTimeout(r,20));}};
+        // The previous plugin toggle removes its frame before its inventory/React update finishes.
+        await until(()=>!document.querySelector('.interface-settings [role=radio]').disabled,'previous toggle');
         const settings=document.querySelector('.settings-page'),input=document.querySelector('[aria-label="余额提醒阈值"]'),scroll=document.querySelector('.content-scroll'),shell=document.querySelector('.desktop-shell');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'34.5');input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();scroll.scrollTop=80;
         const width=document.querySelector('.sidebar').getBoundingClientRect().width;
         Array.from(document.querySelectorAll('[role=radio]')).find(e=>e.textContent==='紧凑界面').click();
-        await until(()=>shell.dataset.interface==='extension.lumi.compact','enable');
+        // Hidden Chromium windows can commit the selection before updating stylesheet geometry.
+        await until(()=>shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.sidebar').getBoundingClientRect().width<width,'enable layout');
         const saved=(await window.lumi.extensionInventory()).interfaceStyle?.id==='extension.lumi.compact';
         const checks={saved,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
         document.querySelector('.extension-manager .button:last-child').click();
@@ -320,7 +324,7 @@ async function start() {
         await until(()=>!document.querySelector('.extension-manager .button:last-child').disabled,'reload');
         const reloadRetained=shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===settings && input.value==='34.5';
         const noOverlay=!document.querySelector('.interface-recovery');Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面').click();
-        await until(()=>shell.dataset.interface==='interface.default','recover');
+        await until(()=>shell.dataset.interface==='interface.default' && document.querySelector('.sidebar').getBoundingClientRect().width===width,'recover layout');
         return {...checks,reloadRetained,noOverlay,defaultSelected:!(await window.lumi.extensionInventory()).interfaceStyle,defaultWidth:document.querySelector('.sidebar').getBoundingClientRect().width===width,recoveredSettings:document.querySelector('.settings-page')===settings,recoveredDraft:input.value==='34.5'};
       })()`);
       result.interfacePluginValid=Object.values(result.interfacePluginChecks).every(Boolean);
