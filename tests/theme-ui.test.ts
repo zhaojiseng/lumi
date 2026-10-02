@@ -47,12 +47,15 @@ for(const kind of ['charts','widget','tray']){
  await win.webContents.executeJavaScript('('+async function(kind){
  const check=(value,label)=>{if(!value)throw new Error(kind+': '+label);},until=async fn=>{const deadline=performance.now()+6000;while(!fn()){if(performance.now()>deadline)throw new Error(kind+': timeout');await new Promise(r=>setTimeout(r,10));}};
  const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d',{willReadFrequently:true});
- const rgba=value=>{context.clearRect(0,0,1,1);context.fillStyle=value;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].join(',');};
+ const rgba=value=>{context.clearRect(0,0,1,1);context.fillStyle='transparent';context.fillStyle=value;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].join(',');};
  const sameColor=(actual,expected)=>rgba(actual)===rgba(expected);
  if(kind==='charts'){
    await until(()=>document.querySelector('#total .recharts-area-curve') && document.querySelectorAll('#grouped .recharts-line-curve').length===2 && document.querySelector('.recharts-pie-sector'));
    const shell=document.querySelector('.desktop-shell'),curve=document.querySelector('#total .recharts-area-curve');
-   const validate=color=>{
+   const validate=async color=>{
+     // Root theme state can precede descendant style invalidation in hidden Chromium windows.
+     await new Promise(resolve=>requestAnimationFrame(resolve));
+     await until(()=>sameColor(getComputedStyle(curve).stroke,color));
      check(sameColor(getComputedStyle(curve).stroke,color),'total curve ignored accent: '+getComputedStyle(curve).stroke+' expected '+color);
      const grouped=document.querySelectorAll('#grouped .recharts-line-curve');check(sameColor(getComputedStyle(grouped[0]).stroke,color) && sameColor(getComputedStyle(grouped[1]).stroke,'rgb(140, 80, 190)'),'grouped lines lost theme or distinction');
      check(sameColor(getComputedStyle(document.querySelector('.recharts-pie-sector path')).fill,color),'donut ignored accent');
@@ -62,16 +65,16 @@ for(const kind of ['charts','widget','tray']){
        check(sameColor(getComputedStyle(control.closest('.select-wrap'),'::before').backgroundColor,getComputedStyle(probe).color) && sameColor(getComputedStyle(control.closest('.select-wrap').querySelector('svg')).color,getComputedStyle(probe).color),'select tone '+tone+' ignored semantic color');check(sameColor(getComputedStyle(control).color,getComputedStyle(shell).color),'select lost text color');probe.remove();
      }
    };
-   validate('rgb(60, 100, 210)');
+   await validate('rgb(60, 100, 210)');
    const select=document.querySelector('select[aria-label="sage"]');select.showPicker();await until(()=>select.matches(':open'));
    check(sameColor(getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(250, 245, 255)'),'opened picker ignored plugin panel');
    check(sameColor(getComputedStyle(select.querySelector('option'),'::before').backgroundColor,'rgb(60, 100, 210)'),'opened option dot ignored plugin accent');
-   document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';validate('rgb(140, 170, 250)');
+   document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';await validate('rgb(140, 170, 250)');
    check(sameColor(getComputedStyle(select,'::picker(select)').backgroundColor,'rgb(35, 25, 50)'),'opened picker ignored dark palette');
    document.documentElement.dataset.theme='light';shell.dataset.theme='light';
    document.querySelector('[aria-label="Fixture date"]').click();await until(()=>shell.querySelector('.date-time-modal'));const modal=document.querySelector('.date-time-modal');
    check(sameColor(getComputedStyle(modal).backgroundColor,'rgb(250, 245, 255)'),'picker escaped light theme');
-   document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';validate('rgb(140, 170, 250)');
+   document.documentElement.dataset.theme='dark';shell.dataset.theme='dark';await validate('rgb(140, 170, 250)');
    check(document.querySelector('.date-time-modal')===modal && sameColor(getComputedStyle(modal).backgroundColor,'rgb(35, 25, 50)'),'picker remounted or escaped dark theme');
    check(document.querySelector('#total .recharts-area-curve')===curve,'theme change remounted chart');
  }else{
