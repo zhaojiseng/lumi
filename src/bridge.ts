@@ -16,6 +16,7 @@ const desktopOnly = async (): Promise<never> => { throw new Error('此操作需�
 async function publicStatus() { const site=preferences.sites.find(s => s.id === preferences.activeSiteId)!;if(site.url===DEFAULT_SITE_URL)return {system_name:'New API',quota_per_unit:0,password_login_enabled:false};const r=await fetch('/_lumi/public-status?site='+encodeURIComponent(site.url),{cache:'no-store'});if (!r.ok) throw new Error('站点信息加载失败，请在桌面应用中连接。');const j=await r.json();if (!j.success) throw new Error(j.message);return j.data; }
 function browserPluginStatuses():PluginStatus[]{return builtinManifests.map(manifest=>({manifest,state:manifest.configurable && !pluginEnabled(manifest,preferences) ? 'disabled' : 'active',views:preferences.pluginViews[manifest.id]}));}
 const browserBridge: LumiBridge = {
+  syncSurfaceTheme:async()=>{},
   extensionInventory:async()=>({directory:'',plugins:[],diagnostics:[]}),reloadExtensions:desktopOnly,openExtensionsDirectory:desktopOnly,extensionRequest:desktopOnly,
   readCodexUsage:desktopOnly,
   readCatalog:desktopOnly,
@@ -35,7 +36,7 @@ const browserBridge: LumiBridge = {
     return browserPluginStatuses();
   },
   onWidgetVisibility:()=>()=>{},
-  bootstrap:async () => ({preferences:structuredClone(preferences),desktop:false,platform:'browser',version:'0.5.0',secureStorage:false,configs:[]}),
+  bootstrap:async () => ({preferences:structuredClone(preferences),desktop:false,platform:'browser',version:'0.5.1',secureStorage:false,configs:[]}),
   inspectConfigs:async()=>[],
   appLogs:async()=>({startedAt:Date.now(),entries:[],dropped:0}),onAppLog:()=>()=>{},onNavigate:()=>()=>{},onRefresh:()=>()=>{},
   appCache:desktopOnly,clearAppCache:desktopOnly,
@@ -46,7 +47,7 @@ const browserBridge: LumiBridge = {
   loginInfo:async () => {const s=await publicStatus();return {enabled:s.password_login_enabled !== false,turnstile:!!s.turnstile_check,encryption:!!s.password_login_encryption_enabled,siteName:s.system_name};},login:desktopOnly,verifyLogin:desktopOnly,browserLogin:desktopOnly,logout:desktopOnly,
   modelHealth:desktopOnly, dashboard:async query => ({status:await publicStatus(),user:null,logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},tokens:[],warnings:[],fetchedAt:Date.now(),days:resolveRange(query).days,range:resolveRange(query).range} satisfies Dashboard),
   logs:desktopOnly,localUsage:desktopOnly,localSessionDetails:desktopOnly,onLocalUsageProgress:()=>()=>{},loadLocalSession:desktopOnly,onLocalSessionProgress:()=>()=>{},localSessionRecords:desktopOnly,localSessionContent:desktopOnly,localSessionRaw:desktopOnly,releaseLocalSession:desktopOnly,previewConfig:desktopOnly,onConfigProgress:()=>()=>{},applyConfig:desktopOnly,backups:async () => [],restoreBackup:desktopOnly,createToken:desktopOnly,toggleToken:desktopOnly,updateToken:desktopOnly,getTokenKey:desktopOnly,copyTokenKey:desktopOnly,exportLogs:desktopOnly,
-  tokenUsage:desktopOnly,usageQuality:desktopOnly,updateStatus:async()=>({phase:'unsupported',currentVersion:'0.5.0',received:0,total:0}),checkUpdate:desktopOnly,downloadUpdate:desktopOnly,cancelUpdate:desktopOnly,showUpdateFile:desktopOnly,openUpdateFile:desktopOnly,restartUpdate:desktopOnly,onUpdate:()=>()=>{},onReviewUpdate:()=>()=>{},
+  tokenUsage:desktopOnly,usageQuality:desktopOnly,updateStatus:async()=>({phase:'unsupported',currentVersion:'0.5.1',received:0,total:0}),checkUpdate:desktopOnly,downloadUpdate:desktopOnly,cancelUpdate:desktopOnly,showUpdateFile:desktopOnly,openUpdateFile:desktopOnly,restartUpdate:desktopOnly,onUpdate:()=>()=>{},onReviewUpdate:()=>()=>{},
   openExternal:async url => {const u=new URL(url);if (!['http:','https:'].includes(u.protocol)) throw new Error('不支持此链接。');window.open(u.href,'_blank','noopener,noreferrer');},windowControl:async () => {},
 };
 export const bridge=window.lumi || browserBridge;

@@ -11,7 +11,7 @@ export class WidgetRuntime implements DesktopSurfaceControl {
   private panel:WidgetPanel;private usage:WidgetService;private timer?:ReturnType<typeof setTimeout>;private schedule=0;private closed=false;private probing=false;private stopTheme:()=>void;
   constructor(private env:DesktopSurfaceEnvironment,projection:UsagePresentationCapability){
     this.usage=new WidgetService({identity:()=>this.identity(),load:()=>projection.loadWidget(),minInterval:()=>this.env.preferences().widgetDataSource==='local' ? 1000 : 0,ttl:()=>this.env.preferences().widgetDataSource==='local' ? 1000 : 60000,changed:()=>{if(!this.closed)this.panel.update();}});
-    this.panel=new WidgetPanel({root:env.root,preload:path.join(env.preloadDirectory,'widget-preload.cjs'),devUrl:env.devUrl,state:()=>{const prefs=env.preferences(),s=this.usage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:!this.closed,viewKey:this.identity(),theme:env.theme(),animation:prefs.dataRefreshAnimation,inputMode:prefs.widgetInputMode,error:s.error});},event:async event=>{
+    this.panel=new WidgetPanel({root:env.root,preload:path.join(env.preloadDirectory,'widget-preload.cjs'),devUrl:env.devUrl,state:()=>{const prefs=env.preferences(),s=this.usage.snapshot();return {...formattedWidget(s.phase,s.usage,{enabled:!this.closed,viewKey:this.identity(),theme:env.theme(),animation:prefs.dataRefreshAnimation,inputMode:prefs.widgetInputMode,error:s.error}),palette:env.palette?.()};},event:async event=>{
       if(this.closed)return;
       if(event.type==='close'){if(!this.probing)await env.setEnabled('surface.widget',false);}
       else if(event.type==='open')env.navigate('overview');else await this.refresh();

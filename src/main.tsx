@@ -4,6 +4,7 @@ import App from './App';
 import './styles.css';
 import './workbench.css';
 import './select.css';
+import './theme-tokens.css';
 import './theme.css';
 import './updates-trends.css';
 import './filters-tools-motion.css';

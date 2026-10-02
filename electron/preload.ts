@@ -6,6 +6,7 @@ async function call(channel: string, payload?: unknown) {
   return response.data;
 }
 const bridge: LumiBridge = {
+  syncSurfaceTheme:input=>call('syncSurfaceTheme',input),
   extensionInventory:()=>call('extensionInventory'),reloadExtensions:()=>call('reloadExtensions'),openExtensionsDirectory:()=>call('openExtensionsDirectory'),extensionRequest:input=>call('extensionRequest',input),
   readCodexUsage:input=>call('readCodexUsage',input),
   readCatalog:input=>call('readCatalog',input),listPlugins:()=>call('listPlugins'),setPluginEnabled:(id,enabled)=>call('setPluginEnabled',{id,enabled}),

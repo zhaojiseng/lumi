@@ -14,6 +14,8 @@ final class CardMenuItem: NSMenuItem { override var isHighlighted: Bool { false 
 struct UsageState: Decodable {
     let type: String; let schemaVersion: Int; let phase: String; let siteName: String; let accountLabel: String
     let viewKey: String?
+    let theme: String?
+    let palette: [String: [Double]]?
     let contents: [MenuBarSection]?
     let days: Int; let tool: String; let balance: String; let cost: String; let tokens: String; let requests: String
     let tokenDetail: String; let cacheDetail: String; let cacheHitRate: String; let tokenSpeed: String
@@ -27,6 +29,9 @@ func emit(_ data: [String: Any]) {
 }
 
 final class SpendChart: NSView {
+    var accent = NSColor.controlAccentColor { didSet { needsDisplay = true } }
+    var muted = NSColor.secondaryLabelColor { didSet { needsDisplay = true } }
+    var border = NSColor.separatorColor { didSet { needsDisplay = true } }
     var points: [ChartPoint]? { didSet { updateBars(); if let index = hover, index >= (points?.count ?? 0) { hover = nil }; detail?(hover.flatMap { points?[$0] }); needsDisplay = true } }
     private var heights: [CGFloat] = []
     private var targetHeights: [CGFloat] = []
@@ -75,13 +80,13 @@ final class SpendChart: NSView {
         super.draw(dirtyRect)
         guard let points else {
             let caption = "消费曲线暂不可用" as NSString
-            caption.draw(at: NSPoint(x: 0, y: 20), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]); return
+            caption.draw(at: NSPoint(x: 0, y: 20), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: muted]); return
         }
         let maximum = max(points.map(\.value).max() ?? 0, 0.001)
-        NSColor.separatorColor.setFill(); NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
+        border.setFill(); NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
         for (index, point) in points.enumerated() {
             let width = bounds.width / CGFloat(max(points.count, 1)), height = index < heights.count ? heights[index] : point.value > 0 ? max(2, (bounds.height - 4) * CGFloat(point.value / maximum)) : 2
-            (point.value > 0 ? NSColor.systemGreen.withAlphaComponent(hover == index ? 1 : 0.72) : NSColor.tertiaryLabelColor.withAlphaComponent(0.25)).setFill()
+            (point.value > 0 ? accent.withAlphaComponent(hover == index ? 1 : 0.72) : muted.withAlphaComponent(0.25)).setFill()
             let rect = NSRect(x: CGFloat(index) * width + 1, y: bounds.height - height, width: max(1, width - 3), height: height)
             NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2).fill()
         }
@@ -117,6 +122,7 @@ final class UsageCard: NSView {
     private var transitionGeneration: UInt64 = 0
     private var suppressValueAnimations = false
     private var accessibilityObserver: NSObjectProtocol?
+    private var fieldTones: [NSTextField: Bool] = [:]
     var selected: ((Int, String) -> Void)?
     override var isFlipped: Bool { true }
     override var allowsVibrancy: Bool { true }
@@ -193,6 +199,7 @@ final class UsageCard: NSView {
         field.frame = NSRect(x: x, y: y, width: width, height: size + 7)
         field.font = NSFont.systemFont(ofSize: size, weight: weight)
         field.textColor = muted ? .secondaryLabelColor : .labelColor
+        fieldTones[field] = muted
         field.lineBreakMode = .byTruncatingTail; field.maximumNumberOfLines = 1
         addSubview(field)
         if let buildingSection { sectionViews[buildingSection, default: []].append((field, field.frame)) }
@@ -244,6 +251,14 @@ final class UsageCard: NSView {
         suppressValueAnimations = !pendingSelectionSections.isEmpty
         defer { suppressValueAnimations = false }
         self.state = state
+        func color(_ key: String, fallback: NSColor) -> NSColor {
+            guard let channels = state.palette?[key], channels.count == 4 else { return fallback }
+            return NSColor(srgbRed: CGFloat(channels[0] / 255), green: CGFloat(channels[1] / 255), blue: CGFloat(channels[2] / 255), alpha: CGFloat(channels[3]))
+        }
+        for (field, muted) in fieldTones { field.textColor = color(muted ? "text-secondary" : "text", fallback: muted ? .secondaryLabelColor : .labelColor) }
+        chart.accent = color("accent", fallback: .controlAccentColor)
+        chart.muted = color("text-muted", fallback: .secondaryLabelColor)
+        chart.border = color("border", fallback: .separatorColor)
         let toolSegment = state.tool == "codex" ? 1 : state.tool == "claude" ? 2 : 0
         let daySegment = state.days == 7 ? 1 : state.days == 30 ? 2 : 0
         // selectedSegment is not a documented animatable property; AppKit owns its feedback.
@@ -397,7 +412,7 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if ["overview", "usage", "settings"].contains(action) { emit(["type": "navigate", "page": action]) }
         else { emit(["type": action]) }
     }
-    func menuWillOpen(_ menu: NSMenu) { card.setMenuTracking(true); menu.appearance = NSApp.effectiveAppearance; emit(["type": "opened"]) }
+    func menuWillOpen(_ menu: NSMenu) { card.setMenuTracking(true); menu.appearance = card.appearance ?? NSApp.effectiveAppearance; emit(["type": "opened"]) }
     func menuDidClose(_ menu: NSMenu) { card.setMenuTracking(false); emit(["type": "closed"]) }
     private func readInput() {
         var buffer = [UInt8](repeating: 0, count: 16384)
@@ -408,6 +423,13 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         while let end = pending.firstIndex(of: 10) {
             let line = Data(pending[..<end]); pending.removeSubrange(...end)
             guard let state = try? JSONDecoder().decode(UsageState.self, from: line), state.type == "state", state.schemaVersion == 1, [1, 7, 30].contains(state.days), ["all", "codex", "claude"].contains(state.tool), (state.contents?.count ?? 0) <= MenuBarSection.allCases.count, (state.chart?.count ?? 0) <= 60, state.models.count <= 3 else { continue }
+            guard state.theme == nil || state.theme == "light" || state.theme == "dark" else { continue }
+            if let palette = state.palette {
+                let keys: Set<String> = ["panel", "panel-strong", "panel-soft", "text", "text-secondary", "text-muted", "accent", "accent-hover", "accent-soft", "border", "line", "hover", "hover-strong", "blue", "blue-soft", "purple", "purple-soft", "orange", "orange-soft", "red", "red-soft"]
+                guard Set(palette.keys) == keys, palette.values.allSatisfy({ values in values.count == 4 && values.enumerated().allSatisfy { index, value in value.isFinite && value >= 0 && value <= (index == 3 ? 1 : 255) && (index == 3 || value.rounded() == value) } }) else { continue }
+            }
+            let appearance = state.theme.flatMap { NSAppearance(named: $0 == "dark" ? .darkAqua : .aqua) }
+            menu.appearance = appearance; card.appearance = appearance; card.chart.needsDisplay = true
             card.apply(state); refreshItem.isEnabled = state.canRefresh; menu.update()
             statusItem?.button?.toolTip = "Lumi · 余额 " + state.balance + " · 本期 " + state.cost
             if smoke { emit(["type": "applied", "schemaVersion": 1, "contents": (state.contents ?? MenuBarSection.allCases).map(\.rawValue), "cardHeight": card.frame.height, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }]) }

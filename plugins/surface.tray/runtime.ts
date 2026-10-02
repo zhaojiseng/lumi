@@ -27,7 +27,7 @@ export class TrayRuntime implements DesktopSurfaceControl {
   }
   private selected(){const p=this.env.preferences();return menuBarSelection(p.viewSelections[p.activeSiteId]);}
   private identity(){const p=this.env.preferences();return createHash('sha256').update(JSON.stringify([this.env.identity(),this.selected(),p.menuBarTotalsRange,p.menuBarChartRange,p.menuBarContents.includes('chart'),new Date().toLocaleDateString('sv-SE'),p.managedTokens,p.bindings])).digest('hex');}
-  private state=()=>({...nativeMenuBarState(this.usage.snapshot(),this.selected(),this.env.preferences().menuBarContents),viewKey:this.identity()});
+  private state=()=>({...nativeMenuBarState(this.usage.snapshot(),this.selected(),this.env.preferences().menuBarContents),theme:this.env.theme(),palette:this.env.palette?.(),viewKey:this.identity()});
   private actions={navigate:(page:Parameters<DesktopSurfaceEnvironment['navigate']>[0])=>this.env.navigate(page),refresh:()=>{void this.refresh(true);},quit:()=>this.env.quit()};
   private update(){if(this.closed)return;this.native?.update();this.panel?.update();if(this.menu){const next=menuBarTemplate(this.usage.snapshot(),this.actions,this.env.preferences().menuBarContents);if(this.menu.items.length===next.length)this.menu.items.forEach((item,index)=>{if(next[index]?.label!==undefined)item.label=next[index].label!;item.enabled=next[index]?.enabled!==false;});}}
   private event=async(event:NativeMenuEvent)=>{
@@ -51,7 +51,7 @@ export class TrayRuntime implements DesktopSurfaceControl {
     }
     await this.changed();
   }
-  private createPanel(){return new TrayPanel({root:this.env.root,preload:path.join(this.env.preloadDirectory,'tray-preload.cjs'),devUrl:this.env.devUrl,state:()=>({usage:this.state(),theme:this.env.theme()}),event:this.event});}
+  private createPanel(){return new TrayPanel({root:this.env.root,preload:path.join(this.env.preloadDirectory,'tray-preload.cjs'),devUrl:this.env.devUrl,state:()=>({usage:this.state(),theme:this.env.theme(),palette:this.env.palette?.()}),event:this.event});}
   private fallback(){
     if(this.tray || this.closed || this.env.isQuitting() || this.env.smoke)return;
     this.tray=new Tray(trayImage(this.env.platform,this.env.root));this.tray.setToolTip('Lumi · 余额与用量');this.tray.setIgnoreDoubleClickEvents(true);

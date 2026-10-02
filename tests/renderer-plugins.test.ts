@@ -183,7 +183,7 @@ test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialo
   `,resolveDir:process.cwd(),sourcefile:'renderer-plugin-fixture.tsx',loader:'tsx'},bundle:true,platform:'browser',format:'iife',write:false,loader:{'.svg':'text','.css':'empty'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   const js=renderer.outputFiles.find(file=>file.path.endsWith('.js')) || renderer.outputFiles[0];
   await writeFile(path.join(root,'renderer.js'),js.contents);
-  const styles=await Promise.all(['styles.css','theme.css'].map(file=>readFile(path.resolve('src',file),'utf8')));
+  const styles=await Promise.all(['styles.css','theme-tokens.css','theme.css'].map(file=>readFile(path.resolve('src',file),'utf8')));
   await writeFile(path.join(root,'fixture.css'),styles.join('\n')+'\n.content-scroll {height:240px;overflow:auto;} .settings-page section {min-height:150px;}');
   await writeFile(path.join(root,'fixture.html'),`<!doctype html><html><head><link rel="stylesheet" href="fixture.css"/></head><body><div id="root"></div><script>
     window.fixture={reads:[],writes:[],listeners:new Set(),mounts:0,unmounts:0,settingsMounts:0,errors:[],intervals:[]};

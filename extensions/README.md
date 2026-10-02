@@ -34,7 +34,7 @@ npm run check:extensions -- extensions/packages/extension.lumi.notes
 
 ## 界面插件 v1
 
-界面插件与功能/数据插件独立。内置 `interface.default` 提供标题栏、悬浮侧栏、内容容器、状态栏、搜索和通知；外部界面包以 CSS 调整这些已有区域的布局、间距、颜色和排版，不执行 JavaScript，也不替换 React 组件。
+界面插件与功能/数据插件独立。内置 `interface.default` 提供标题栏、悬浮侧栏、内容容器、搜索和通知；外部界面包以 CSS 调整这些已有区域的布局、间距、颜色和排版，不执行 JavaScript，也不替换 React 组件。
 
 最小清单：
 
@@ -69,8 +69,21 @@ npm run check:extensions -- extensions/packages/extension.lumi.notes
 | 外壳 | `:scope`，`--sidebar-width`、`--shell-inset` |
 | 标题栏 | `:scope > .titlebar`、`.titlebar-actions`、`.breadcrumb` |
 | 侧栏 | `:scope > .sidebar`、`.sidebar-navigation`、`.sidebar-footer`、`.nav-item` |
-| 内容与状态栏 | `.main-area`、`.content-scroll`、`.content-container`、`.app-statusbar` |
-| 配色 | `--accent`、`--accent-soft`、`--accent-hover`；继承默认浅/深色语义变量 |
+| 内容 | `.main-area`、`.content-scroll`、`.content-container` |
+| 配色 | `--accent`、`--accent-soft`、`--accent-hover`、`--accent-foreground`；继承默认浅/深色语义变量 |
+
+配色建议使用 `light-dark()`，分别为浅色和深色指定可读的颜色；宿主也会解析“跟随系统”。例如：
+
+```css
+:scope {
+  --accent: light-dark(#3561b7, #abc4ff);
+  --accent-hover: light-dark(#284d98, #cbdcff);
+  --accent-soft: light-dark(#edf2fc, #263b61);
+  --accent-foreground: light-dark(#fff, #15274a);
+}
+```
+
+工作台/用量曲线及其首个分组系列使用 `--accent`，其它系列使用 `--purple`、`--blue`、`--orange`、`--red` 和 `--chart-series-5/7/8/9/10/11/12`。下拉菜单和弹窗继承当前外壳的语义变量。浮窗、托盘接收宿主解析后的数值颜色（`--panel/--panel-strong/--panel-soft`、`--text/--text-secondary/--text-muted`、`--accent/--accent-hover/--accent-soft`、`--border/--line/--hover/--hover-strong`、`--blue/--purple/--orange/--red` 及对应 `-soft`）；不会执行界面 CSS，也不复制主窗口布局。macOS 原生菜单保持 AppKit 材质，跟随浅/深色并应用文字与图表配色。修改这些共享变量时在 `:scope` 上声明，避免仅为主窗口某个子元素设置颜色。
 
 保留各平台标题栏/窗口控制可用、侧栏悬浮和内容滚动。CSS 文件最多 64 KiB / 1000 条规则，仅支持样式规则（包括嵌套）、`@media` 和 `@supports`。拒绝 `@import`、`@font-face`、URL/image-set 资源、窗口拖动区域属性及高于 1000 或非数值的 z-index（允许 auto）；不加载包内脚本或外部字体/图片。
 

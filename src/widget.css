@@ -13,13 +13,7 @@ button:disabled { cursor: default; }
 button:focus-visible, .widget-data:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 p, dl, dt, dd { margin: 0; padding: 0; }
 .widget-card {
-  --panel: #edf5ef;
-  --text: #203d2c;
-  --muted: #536f5d;
-  --line: #ccdfd1;
-  --accent: #286b45;
-  --hover: #dcece1;
-  color-scheme: light;
+  --muted: var(--text-muted);
   color: var(--text);
   position: relative;
   width: 100%;
@@ -29,15 +23,6 @@ p, dl, dt, dd { margin: 0; padding: 0; }
   border-radius: 8px;
   background: var(--panel);
   overflow: hidden;
-}
-.widget-card[data-theme=dark] {
-  --panel: #20362a;
-  --text: #e4f1e7;
-  --muted: #aec8b5;
-  --line: #395944;
-  --accent: #a9d9b8;
-  --hover: #34533f;
-  color-scheme: dark;
 }
 /* Background and gaps drag; text islands retain tooltips and double-clicks. */
 .widget-header { -webkit-app-region: drag; user-select: none; cursor: move; }

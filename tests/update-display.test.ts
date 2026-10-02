@@ -91,7 +91,7 @@ test('legacy states without packageSize still show full package sizes and honest
 // Render both real components in memory. Effects and bridge actions never run.
 const rendererBundle=build({
   stdin:{contents:"export {UpdateDialogProvider} from './src/components/UpdateDialog'; export {UpdateNotice} from './src/components/UpdateNotice'; export {AppContext} from './src/context';",resolveDir:process.cwd(),loader:'tsx'},
-  bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime'],loader:{'.svg':'text'},logLevel:'silent',
+  bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom'],loader:{'.svg':'text'},logLevel:'silent',
 });
 async function renderUpdate(current:DisplayState){
   const result=await rendererBundle,nodeRequire=createRequire(import.meta.url);

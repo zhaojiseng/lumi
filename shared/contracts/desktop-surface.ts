@@ -5,6 +5,7 @@ export interface DesktopSurfaceEnvironment {
   preferences():Preferences;
   identity():string;
   theme():'light'|'dark';
+  palette?():import('../surface-theme').SurfacePalette|undefined;
   onThemeChanged(listener:()=>void):()=>void;
   patch(input:PreferencePatch):Promise<Preferences>;
   setEnabled(id:string,enabled:boolean):Promise<unknown>;

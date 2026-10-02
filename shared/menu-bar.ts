@@ -23,6 +23,8 @@ export function menuBarPanelHeight(contents:unknown=MENU_BAR_SECTION_IDS,modelCo
 }
 export interface NativeMenuBarState {
   type:'state';schemaVersion:1;phase:string;siteName:string;accountLabel:string;days:number;tool:string;
+  theme?:'light'|'dark';
+  palette?:import('./surface-theme').SurfacePalette;
   contents:MenuBarSectionId[];
   totalsCaption?:string;
   viewKey?:string;

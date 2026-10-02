@@ -13,7 +13,7 @@ import type {CatalogSnapshot} from '../shared/contracts/catalog';
 import type {LumiBridge} from '../shared/types';
 import {builtinManifests} from '../plugins/manifests';
 const cipher={available:()=>true,encrypt:(s:string)=>Buffer.from(s).toString('base64'),decrypt:(s:string)=>Buffer.from(s,'base64').toString()};
-async function fixture(t:{after(fn:()=>Promise<void>):void}){const parent=path.resolve('.test-data');await mkdir(parent,{recursive:true});const root=await mkdtemp(path.join(parent,'plugin-integration-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=new SettingsStore(root,cipher);await store.load();return {root,store};}
+async function fixture(t:{after(fn:()=>Promise<void>):void}){const parent=path.resolve('.test-data');await mkdir(parent,{recursive:true});const root=await mkdtemp(path.join(parent,'plugin-integration-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));const store=new SettingsStore(root,cipher);await store.load();return {root,store};}
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>resolve=r);return {resolve,promise};}
 const request=(store:SettingsStore)=>({siteId:store.activeSite().id,siteUrl:store.activeSite().url});
 function snapshot(store:SettingsStore):CatalogSnapshot{return {...request(store),loggedIn:false,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},status:{system_name:'Fixture',quota_per_unit:1},warnings:[],fetchedAt:1};}

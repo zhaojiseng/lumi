@@ -5,6 +5,8 @@ import {Logo} from './components/ui';
 import {nativeMenuBarState,normalizeMenuBarContents} from '../shared/menu-bar';
 import {trayPanelContentHeight,TRAY_CLOSE_DURATION,type TrayAction,type TrayPanelState} from '../shared/tray';
 import type {MenuBarSelection} from '../shared/types';
+import {surfacePaletteStyle} from '../shared/surface-theme';
+import './theme-tokens.css';
 import './tray.css';
 
 function Value({children}:{children:ReactNode}){
@@ -24,7 +26,7 @@ function TrayApp(){
     let active=true,streamed=false;
     const receive=(next:TrayPanelState)=>{if(!active)return;setState(old=>{const selection=pending.current;
       if(selection && old.usage.viewKey && old.usage.viewKey===next.usage.viewKey){
-        if(next.usage.days!==selection.days || next.usage.tool!==selection.tool)return {...old,theme:next.theme,motion:next.motion,usage:{...old.usage,contents:next.usage.contents}};
+        if(next.usage.days!==selection.days || next.usage.tool!==selection.tool)return {...old,theme:next.theme,palette:next.palette,motion:next.motion,usage:{...old.usage,contents:next.usage.contents}};
         if(['idle','loading'].includes(next.usage.phase))return {...next,usage:{...old.usage,...selection,contents:next.usage.contents,phase:'loading',canRefresh:false,message:'正在刷新用量…'}};
       }
       pending.current=null;return next;
@@ -65,12 +67,12 @@ function TrayApp(){
     const timer=setTimeout(finish,matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : TRAY_CLOSE_DURATION+50);
     return()=>{active=false;clearTimeout(timer);element.removeEventListener('transitionend',ended);};
   },[motionId,motionPhase]);
-  useEffect(()=>{document.documentElement.dataset.theme=state.theme;},[state.theme]);
+  useLayoutEffect(()=>{document.documentElement.dataset.theme=state.theme;},[state.theme]);
   const action=async(event:TrayAction)=>{setError('');try{await window.lumiTray?.action(event);}catch(e){pending.current=null;setError(e instanceof Error ? e.message : '操作失败，请重试。');}};
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();void window.lumiTray?.action({type:'close'});}};addEventListener('keydown',key);return()=>removeEventListener('keydown',key);},[]);
   const data=state.usage,contents=normalizeMenuBarContents(data.contents),choose=(selection:MenuBarSelection)=>{pending.current=selection;setHover(null);setState(old=>({...old,usage:{...old.usage,...selection,phase:'loading',canRefresh:false,message:'正在刷新用量…'}}));void action({type:'select',selection});};
   const points=data.chart,maximum=Math.max(.001,...(points || []).map(p=>p.value)),point=hover===null ? null : points?.[hover];
-  return <main ref={card} className="tray-card" aria-label="Lumi 用量面板">
+  return <main ref={card} className="tray-card" style={surfacePaletteStyle(state.palette)} aria-label="Lumi 用量面板">
     <header className="tray-header"><Logo small/><div><strong title={data.siteName}>{data.siteName}</strong><span title={data.accountLabel}>{data.accountLabel}</span></div><button className="tray-icon" title="打开工作台" aria-label="打开工作台" onClick={()=>void action({type:'navigate',page:'overview'})}><ArrowUpRight size={18}/></button><button className="tray-icon" title="关闭面板" aria-label="关闭面板" onClick={()=>void action({type:'close'})}><X size={16}/></button></header>
     <div className="tray-selectors"><Switch label="统计工具" options={[{label:'全部',value:'all'},{label:'Codex',value:'codex'},{label:'Claude',value:'claude'}] as const} value={data.tool as MenuBarSelection['tool']} select={tool=>choose({tool,days:data.days as MenuBarSelection['days']})}/><Switch label="统计时间" options={[{label:'今日',value:1},{label:'7 天',value:7},{label:'30 天',value:30}] as const} value={data.days as MenuBarSelection['days']} select={days=>choose({days,tool:data.tool as MenuBarSelection['tool']})}/></div>
     {contents.length>0 ? <div className="tray-sections">

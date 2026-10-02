@@ -1,53 +1,53 @@
 /* All Lumi pickers share the same geometry and palette, including the opened list. */
 
 .select-wrap {
-  --choice-fg: #2d6953;
-  --choice-soft: #dfefe5;
-  --choice-hover: #edf6ef;
+  --choice-fg: var(--accent);
+  --choice-soft: var(--accent-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
   min-width: 0;
   max-width: 100%;
 }
 
 .select-wrap[data-tone=blue], select option[data-tone=blue] {
-  --choice-fg: #346b9c;
-  --choice-soft: #e0eef9;
-  --choice-hover: #eef5fc;
+  --choice-fg: var(--blue);
+  --choice-soft: var(--blue-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
 .select-wrap[data-tone=lavender], select option[data-tone=lavender] {
-  --choice-fg: #74609d;
-  --choice-soft: #ece5f7;
-  --choice-hover: #f4effa;
+  --choice-fg: var(--purple);
+  --choice-soft: var(--purple-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
 .select-wrap[data-tone=peach], select option[data-tone=peach] {
-  --choice-fg: #aa603b;
-  --choice-soft: #f8e8dd;
-  --choice-hover: #fff3eb;
+  --choice-fg: var(--orange);
+  --choice-soft: var(--orange-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
 .select-wrap[data-tone=red], select option[data-tone=red] {
-  --choice-fg: #ac4747;
-  --choice-soft: #f8e2e2;
-  --choice-hover: #fff0f0;
+  --choice-fg: var(--red);
+  --choice-soft: var(--red-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
 .select-wrap[data-tone=neutral], select option[data-tone=neutral] {
-  --choice-fg: #66766f;
-  --choice-soft: #e9efeb;
-  --choice-hover: #f1f5f2;
+  --choice-fg: var(--text-secondary);
+  --choice-soft: var(--panel-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
 select option[data-tone=sage] {
-  --choice-fg: #2d6953;
-  --choice-soft: #dfefe5;
-  --choice-hover: #edf6ef;
+  --choice-fg: var(--accent);
+  --choice-soft: var(--accent-soft);
+  --choice-hover: var(--hover);
   --choice-border: var(--border);
 }
 
@@ -198,7 +198,7 @@ select option[data-tone=sage] {
     font-weight: 450;
     background: var(--panel);
     scrollbar-width: thin;
-    scrollbar-color: #88a19355 transparent;
+    scrollbar-color: color-mix(in srgb, var(--text-muted) 35%, transparent) transparent;
     overscroll-behavior: contain;
     position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
     opacity: 0;
@@ -288,68 +288,6 @@ select option[data-tone=sage] {
       opacity: 0;
       transform: translateY(-6px) scale(.98);
     }
-  }
-}
-
-:root[data-theme=dark] .select-wrap {
-  --choice-fg: #a8d3b9;
-  --choice-soft: #2e4d3d;
-  --choice-hover: #293e34;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .select-wrap[data-tone=blue], :root[data-theme=dark] select option[data-tone=blue] {
-  --choice-fg: #a9d1f9;
-  --choice-soft: #29455d;
-  --choice-hover: #263d52;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .select-wrap[data-tone=lavender], :root[data-theme=dark] select option[data-tone=lavender] {
-  --choice-fg: #d4baf5;
-  --choice-soft: #443b5b;
-  --choice-hover: #383448;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .select-wrap[data-tone=peach], :root[data-theme=dark] select option[data-tone=peach] {
-  --choice-fg: #f3bf9c;
-  --choice-soft: #563e30;
-  --choice-hover: #46392e;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .select-wrap[data-tone=red], :root[data-theme=dark] select option[data-tone=red] {
-  --choice-fg: #ffc0ba;
-  --choice-soft: #543a3b;
-  --choice-hover: #443132;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .select-wrap[data-tone=neutral], :root[data-theme=dark] select option[data-tone=neutral] {
-  --choice-fg: #bdcfc4;
-  --choice-soft: #35463d;
-  --choice-hover: #2c3c34;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] select option[data-tone=sage] {
-  --choice-fg: #a8d3b9;
-  --choice-soft: #2e4d3d;
-  --choice-hover: #293e34;
-  --choice-border: var(--border);
-}
-
-:root[data-theme=dark] .sidebar-site .site-switch select {
-  background: var(--input);
-  border-color: var(--border);
-}
-
-@supports (appearance: base-select) {
-
-  :root[data-theme=dark] .select-wrap select::picker(select) {
-    background: var(--panel);
-    border-color: var(--border);
   }
 }
 

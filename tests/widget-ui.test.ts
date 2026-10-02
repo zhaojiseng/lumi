@@ -56,7 +56,7 @@ async function harness(options:{missingBridge?:boolean;reduced?:boolean;subscrib
   const icon=()=>React.createElement('svg',{'aria-hidden':true});
   const windowMock={lumiWidget:options.missingBridge ? undefined : bridge,matchMedia:()=>media};
   for(const key of ['lumi','lumiTray'])Object.defineProperty(windowMock,key,{get(){throw new Error('Widget must use only its narrow bridge');}});
-  runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,window:windowMock,document:{getElementById:()=>null},
+  runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,window:windowMock,document:{getElementById:()=>null,documentElement:{dataset:{}}},
     require:(name:string)=>name==='react' ? hooks : name==='react-dom/client' ? {createRoot:()=>{throw new Error('Unexpected real root');}} : name==='lucide-react' ? new Proxy({},{get:()=>icon}) : nodeRequire(name)});
   const cleanup=(store:Store)=>{for(const slot of store.slots)if(slot && typeof slot.setup==='function')slot.cleanup?.();store.mounted=false;};
   function render() {
@@ -339,7 +339,7 @@ test('244×64 Chromium layout keeps both themes, long values and controls inside
   const renderer=await build({entryPoints:['src/widget.tsx'],bundle:true,platform:'browser',format:'iife',write:false,outfile:'renderer.js',
     define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),renderer.outputFiles.find(file=>file.path.endsWith('.js'))!.contents);
-  await writeFile(path.join(root,'renderer.css'),await readFile('src/widget.css'));
+  await writeFile(path.join(root,'renderer.css'),(await readFile('src/theme-tokens.css','utf8'))+(await readFile('src/widget.css','utf8')));
   await writeFile(path.join(root,'fixture.html'),'<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="renderer.css"></head><body><div id="root"></div><script>'+
     'window.fixtureState='+JSON.stringify(state({latestModel:model('claude-opus-4.6')}))+';window.fixtureActions=[];const listeners=new Set();'+
     'window.fixtureEmit=s=>{window.fixtureState=s;for(const f of listeners)f(s);};'+
@@ -451,7 +451,7 @@ app.whenReady().then(async()=>{
     assert.ok(result.bounds['.widget-consumption'].right<result.bounds['.widget-model-slot'].x);
     assert.ok(result.bounds['.widget-model-slot'].bottom<=result.bounds['.widget-balance'].y);
     assert.ok(data.height<=54);assert.deepEqual(result.fonts,['16px','11px']);
-    const [red,green,blue]=result.background.match(/\d+/g).map(Number);assert.ok(green>red && green>blue,result.background);
+    assert.equal(result.background,result.name==='dark' ? 'rgb(32, 43, 36)' : 'rgb(255, 255, 255)',result.name);
     assert.equal(result.shadow,'none');assert.equal(result.image,'none');assert.equal(result.drag,'drag');assert.equal(result.contentDrag,'drag');
     assert.ok(result.dragRatio>.35,JSON.stringify({name:result.name,dragRatio:result.dragRatio}));
     assert.equal(result.interactive,true);assert.equal(result.closeDrag,'no-drag');

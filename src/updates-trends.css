@@ -5,7 +5,7 @@
 .update-action svg { flex-shrink: 0; }
 .update-action:not(:disabled):hover, .update-cancel:hover { background: var(--panel-soft); color: var(--text); }
 .sidebar-update.available .update-action, .sidebar-update.ready .update-action { color: var(--accent); font-weight: 600; }
-.sidebar-update.error .update-action { color: #ad703c; }
+.sidebar-update.error .update-action { color: var(--orange); }
 .update-action:disabled { cursor: default; }
 .update-cancel { padding: 4px; border-radius: 5px; color: var(--text-muted); }
 .update-progress { height: 3px; background: var(--border); border-radius: 3px; overflow: hidden; margin: 3px 4px 4px; }
@@ -72,7 +72,7 @@
 .recharts-wrapper:focus:not(:focus-visible), .recharts-surface:focus:not(:focus-visible) { outline: none; }
 .recharts-wrapper:focus-visible, .recharts-surface:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 .recharts-tooltip-wrapper:focus { outline: none; }
-:root[data-theme=dark] .trend-chart .recharts-line { filter: brightness(1.2); }
+
 .usage-quality { display: flex; flex-wrap: wrap; gap: 16px 24px; align-items: center; padding: 17px 20px; min-width: 0; border-radius: 12px; }
 .quality-metric { display: flex; flex: 1 1 245px; gap: 12px; align-items: center; min-width: 0; }
 .quality-icon { display: grid; place-items: center; width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }

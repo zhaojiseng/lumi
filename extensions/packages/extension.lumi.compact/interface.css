@@ -1,9 +1,9 @@
-:scope{--sidebar-width:176px;--shell-inset:10px;--accent:#3561b7;--accent-soft:rgba(53,97,183,.11);--accent-hover:#284d98;grid-template-rows:58px minmax(0,1fr)}
+:scope{--sidebar-width:176px;--shell-inset:10px;--accent:light-dark(#3561b7,#abc4ff);--accent-foreground:light-dark(#fff,#15274a);--accent-soft:light-dark(rgba(53,97,183,.11),rgba(171,196,255,.15));--accent-hover:light-dark(#284d98,#cbdcff);grid-template-rows:58px minmax(0,1fr)}
 :scope>.sidebar{border-radius:12px;padding:20px 14px}
 :scope>.titlebar{padding-left:208px}
 :scope.platform-darwin>.titlebar{padding-left:112px}
 .brand-row{padding-bottom:18px}.brand-row strong{font-size:24px}.brand-row p{font-size:10px}
 .nav-item{height:39px;font-size:12px}.sidebar-caption{margin-top:16px;margin-bottom:8px;font-size:9px}.tools-caption{margin-top:22px}
 .content-container{padding:18px 20px}.panel{border-radius:12px}.page-intro{margin-bottom:18px}.page-intro h1{font-size:26px}
-.app-statusbar{font-size:10px}.settings-subnav button{padding:7px 11px}.surface{box-shadow:none}
+.settings-subnav button{padding:7px 11px}.surface{box-shadow:none}
 @media(max-width:1100px){:scope{--sidebar-width:164px}.content-container{padding:16px}.sidebar-site .site-icon{display:none}}

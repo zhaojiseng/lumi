@@ -2,7 +2,9 @@ import {StrictMode,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {X} from 'lucide-react';
 import type {WidgetBridge,WidgetModel,WidgetState} from '../shared/widget';
+import {surfacePaletteStyle} from '../shared/surface-theme';
 import {refreshKeyframes,refreshExitKeyframes,type DataRefreshAnimation} from '../shared/motion';
+import './theme-tokens.css';
 import './widget.css';
 
 declare global {interface Window {lumiWidget?:WidgetBridge;}}
@@ -74,6 +76,7 @@ const initialState:WidgetState={phase:'idle',enabled:false,siteName:'Lumi',balan
 export function WidgetApp() {
   const [received,setState]=useState<WidgetState>(initialState),[error,setError]=useState('');
   const alive=useRef(false),{state,data}=useDataMotion(received);
+  useLayoutEffect(()=>{document.documentElement.dataset.theme=received.theme;},[received.theme]);
   useEffect(()=>{
     alive.current=true;
     const bridge=window.lumiWidget;
@@ -99,7 +102,7 @@ export function WidgetApp() {
   const model=state.latestModel ?? state.models[0];
   const notice=error || (state.phase==='error' ? '用量暂不可用' : '');
   const empty=notice || (state.phase==='loading' || state.phase==='idle' ? '读取中…' : '暂无消费模型');
-  return <main className="widget-card widget-header" data-theme={received.theme} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
+  return <main className="widget-card widget-header" style={surfacePaletteStyle(received.palette)} data-theme={received.theme} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
     <div className="widget-data" ref={data} tabIndex={window.lumiWidget ? 0 : undefined} role="group" aria-label="用量，双击或按 Enter 打开工作台" onKeyDown={event=>{if(event.key==='Enter' && !event.repeat && event.target===event.currentTarget){event.preventDefault();void action('open');}}}>
       <dl className="widget-consumption" title={tooltip}><dt>最近消费</dt><dd><Value value={state.cost}/></dd></dl>
       <div className="widget-details">

@@ -169,7 +169,7 @@ Codex 接入通过主进程能力 `subscriptionUsage.read` 和固定 IPC `readCo
 
 ## 独立界面插件
 
-`plugins/interface.default/` 提供默认外壳的 JSX 和桌面布局，`App.tsx` 通过受限 `InterfaceShellProps` 传入状态与动作，并保留所有账户/请求/偏好管理。标题栏、悬浮侧栏、滚动容器、状态栏、搜索和通知随界面插件维护；系统功能页面仍通过稳定 children 插槽挂载。
+`plugins/interface.default/` 提供默认外壳的 JSX 和桌面布局，`App.tsx` 通过受限 `InterfaceShellProps` 传入状态与动作，并保留所有账户/请求/偏好管理。标题栏、悬浮侧栏、滚动容器、搜索和通知随界面插件维护；系统功能页面仍通过稳定 children 插槽挂载。
 
 外部 `kind: interface` 包以清单/CSS/LICENSE 独立分发，不编译进 EXE。renderer 宿主将 CSSOM 校验后的规则包装到插件专属 `@scope`，一次只能选中一个包。该接口 v1 提供布局/皮肤，不运行外部脚本或替换宿主 React 树。设置切换只更新样式，保留草稿、焦点和滚动；选中包丢失/变更或样式无效时采用默认布局。设置中的“默认界面”可撤回额外样式，样式错误也在该设置区域显示；功能插件及其数据生命周期不受界面切换影响。契约和作者示例见 [额外插件指南](../extensions/README.md#界面插件-v1)。
 
@@ -180,3 +180,10 @@ Codex 接入通过主进程能力 `subscriptionUsage.read` 和固定 IPC `readCo
 清单贡献由 renderer adapter 映射到系统卡片/来源、连接、设置顶栏和侧栏。每个外部界面运行在没有同源权限的 sandbox frame，经专用 lumi-extension 协议读取本次扫描的固定资源。宿主 SDK 通过 nonce/source 校验的消息中转和固定 main handler 调用受控接口，包无法访问主窗口 DOM、preload、Node/文件系统或任意 IPC。网络权限只允许声明来源的公共 HTTPS GET，不跟随重定向，DNS 固定、TLS 校验、超时及大小有界；独立密钥保持系统加密，只允许用于受控请求，不提供明文读取。
 
 外部启用状态、子开关和数据与内置配置分开保存。新包/变更摘要默认停用；启停、重新扫描和账户上下文变化使旧响应失效。关闭包立即撤回全部贡献，重新扫描不重挂载设置页。接口 v1 和作者流程见 [extensions/README.md](../extensions/README.md)。
+
+
+## 界面与桌面表面的主题同步
+
+主窗口、widget、tray 复用 `src/theme-tokens.css` 的浅/深色语义变量。主窗口弹出层挂载到稳定 `.desktop-shell` 以继承外部界面插件的局部样式；曲线、图例和下拉控件使用语义颜色。Windows 顶栏提供 Lumi 标识，主页面不再展示底部站点/同步状态栏。
+
+界面宿主在样式与主题更新后通过 Chromium 解析共享颜色，以固定 `syncSurfaceTheme` IPC 发送有界数值 RGBA；主进程校验发送窗口/框架/地址、完整字段、当前界面 ID 和已解析的主题。颜色只存内存，界面切换或样式变更撤销旧配色，更新浮窗/托盘已有窗口，不重新扫描用量或重启刷新任务。独立 preload 仍只有原来的窄操作；不传 CSS、资源 URL 或账户权限。macOS helper 接收同样的数值颜色和浅/深色状态，保留 AppKit 原生材质。

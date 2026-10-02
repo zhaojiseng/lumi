@@ -194,6 +194,7 @@ export interface CreateTokenInput {
 }
 export interface UpdateTokenInput extends Omit<CreateTokenInput,'tool'> { id:number; }
 export interface LumiBridge {
+  syncSurfaceTheme(input:import('./surface-theme').SurfaceTheme):Promise<void>;
   extensionInventory():Promise<ExtensionInventory>;
   reloadExtensions():Promise<ExtensionInventory>;
   openExtensionsDirectory():Promise<void>;

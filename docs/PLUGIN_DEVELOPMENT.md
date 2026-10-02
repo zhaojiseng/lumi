@@ -2,7 +2,7 @@
 
 本文面向**只有已安装的 Lumi 和本指南，没有 Lumi 程序源码**的插件作者。使用普通文本编辑器即可创建、安装和调试下面的插件；不需要克隆仓库、安装 Lumi 开发依赖、复制源码或重新编译 EXE。本文给出了全部示例文件、清单规范、SDK 调用和返回类型。
 
-接口版本为 v1，适用于 Lumi 0.5.0。先确认常规设置中有“额外插件目录”和“界面插件”入口；缺少入口的旧构建需先升级。`schemaVersion`、`hostApiVersion`、`sdk.apiVersion` 当前均为 `1`。
+接口版本为 v1，适用于 Lumi 0.5.0 及以上；下述主题与桌面配色同步适用于 0.5.1 及以上。先确认常规设置中有“额外插件目录”和“界面插件”入口；缺少入口的旧构建需先升级。`schemaVersion`、`hostApiVersion`、`sdk.apiVersion` 当前均为 `1`。
 
 完成第 2–3 节即可做出功能插件；完成第 2、3 节的 LICENSE 和第 7 节即可做出界面插件。SDK 的完整 TypeScript 声明在第 11 节，可直接复制，不依赖任何外部文件。
 
@@ -11,7 +11,7 @@
 | 类型 | 位置与文件形式 | 能做什么 | 运行方式 |
 | --- | --- | --- | --- |
 | 外部功能插件 | 任意工作目录下的 `<ID>/`，JSON + HTML/JS/CSS + LICENSE | 给工作台、用量、模型、令牌、连接、设置顶栏或侧栏提供自己的内容 | 隔离 iframe，通过 SDK 读取受控数据、网络和独立存储 |
-| 外部界面插件 | 同上，JSON + CSS + LICENSE | 修改标题栏、侧栏、内容区和状态栏的布局与皮肤 | 宿主校验并应用 CSS，一次启用一个 |
+| 外部界面插件 | 同上，JSON + CSS + LICENSE | 修改标题栏、侧栏和内容区的布局与皮肤 | 宿主校验并应用 CSS，一次启用一个 |
 
 这两类插件都是独立目录包，不进入安装 EXE。制作完毕后复制到 Lumi 的额外插件目录即可运行；开发目录没有固定位置。
 
@@ -501,8 +501,7 @@ extension.author.layout/
 | 标题栏 | `:scope > .titlebar`、`.titlebar-actions`、`.breadcrumb` |
 | 侧栏 | `:scope > .sidebar`、`.sidebar-navigation`、`.sidebar-footer`、`.nav-item` |
 | 内容 | `.main-area`、`.content-scroll`、`.content-container` |
-| 状态栏 | `.app-statusbar` |
-| 强调色 | `--accent`、`--accent-soft`、`--accent-hover` |
+| 强调色 | `--accent`、`--accent-soft`、`--accent-hover`、`--accent-foreground`（强调色背景上的文字） |
 
 ### 主题与样式覆盖
 
@@ -535,6 +534,16 @@ extension.author.layout/
 CSS 按标准优先级叠加，`@scope` 不会自动提高选择器权重。外壳几何使用 `:scope > .sidebar`；原有 v1 构建的 Windows 圆角可使用 `:scope.platform-win32 > .sidebar` 覆盖。默认导航和部分文字声明带有 `!important`，应优先修改上述语义变量；需要为选中项单独指定文字颜色时，使用 `.nav-item.active { color: #fff !important; }`，同时选择有足够对比度的选中背景。不要给全部规则加 `!important`。
 
 继承默认浅/深色语义变量，保持窗口控制可点击、内容可滚动和侧栏位于标题栏下方。CSS 文件最多 64 KiB / 1000 条规则，支持普通/嵌套样式、`@media`、`@supports`。拒绝 `@import`、`@font-face`、url/image-set 资源、app-region 拖动区域属性，以及高于 1000 或非数值的 z-index（允许 auto）。不要添加自己的外层 `@scope`、keyframes 或其它 at-rule。
+
+Lumi 0.5.1 起，工作台和用量分析曲线、模型分布及图例的首个系列使用 `--accent`；其它系列使用 `--purple`、`--blue`、`--orange`、`--red` 和 `--chart-series-5/7/8/9/10/11/12`。下拉菜单、更新和日期弹窗继承外壳配色。浮窗、托盘会自动采用下列在 `:scope` 声明的共享变量，无需插件添加脚本或 SDK 调用：
+
+- 表面：`--panel`、`--panel-strong`、`--panel-soft`。
+- 文字：`--text`、`--text-secondary`、`--text-muted`。
+- 强调色：`--accent`、`--accent-hover`、`--accent-soft`。
+- 边线与交互：`--border`、`--line`、`--hover`、`--hover-strong`。
+- 语义色：`--blue`、`--purple`、`--orange`、`--red` 及对应 `-soft` 变量。
+
+宿主解析浅/深色（包括跟随系统）的实际颜色，只发送数值颜色到独立表面，不运行外部 CSS 或复制主窗口布局。macOS 托盘保持 AppKit 原生材质，同时应用浅/深色和文字、图表配色。`--accent-foreground` 应与按钮背景有足够对比，例如 `light-dark(#fff, #15274a)`。
 
 一次启用一个额外界面；选择新的包会原子停用旧包，选择默认界面会停用当前包。切换/扫描仅改样式，保留设置和功能页节点、草稿、焦点及滚动。缺包或文件变化回到默认；非法 CSS 保留默认布局，在设置的“界面插件”中提示错误。恢复时选择设置中的“默认界面”。
 

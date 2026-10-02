@@ -8,6 +8,7 @@ import {defaultInterfacePlugin} from '../../plugins/interface.default/renderer';
 import {defaultInterfaceLayout} from '../../plugins/interface.default/layout';
 import {usePluginSettings} from './plugins';
 import {InterfaceErrorContext} from './interface-settings';
+import {syncSurfaceTheme} from './surface-theme';
 
 export interface InterfaceShellProps {
   bootstrap:Bootstrap;preferences:Preferences;dashboard:Dashboard|null;nav:readonly NavigationItem[];visiblePage:Page;catalogPending:number;status:string;loading:boolean;error:string;refreshDisabled:boolean;
@@ -53,5 +54,11 @@ export function InterfaceHost(props:InterfaceShellProps){
     return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>!ours.includes(sheet));};
   },[style?.id,style?.css]);
   const Shell=defaultInterfacePlugin.component,active=style && !failure ? style.id : DEFAULT_INTERFACE_ID;
+  useLayoutEffect(()=>{
+    const shell=document.querySelector<HTMLElement>('.desktop-shell');if(!shell)return;
+    const sync=()=>syncSurfaceTheme(shell);sync();
+    const observer=new MutationObserver(sync);observer.observe(shell,{attributes:true,attributeFilter:['data-theme','data-interface']});
+    return()=>observer.disconnect();
+  },[style?.id,style?.css,active,props.preferences]);
   return <InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider>;
 }

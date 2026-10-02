@@ -23,7 +23,7 @@ export function pointGroup(point:QuotaPoint,grouping:Exclude<TrendGrouping,'tota
   if(grouping==='model')return {key:point.model_name || '',name:point.model_name || '未标记模型'};
   return {key:point.token_id ? 'id:'+point.token_id : 'name:'+(point.token_name || ''),name:point.token_name || (point.token_id ? '令牌 #'+point.token_id : '未标记令牌')};
 }
-export const TREND_COLORS=['#4a8b76','#8a73bf','#4d8fbd','#b47b47','#8c9b40','#c26080','#457e8f','#b56150','#656fbd','#987b58','#499686','#a276a7'];
+export const TREND_COLORS=['var(--accent)','var(--purple)','var(--blue)','var(--orange)','var(--chart-series-5)','var(--red)','var(--chart-series-7)','var(--chart-series-8)','var(--chart-series-9)','var(--chart-series-10)','var(--chart-series-11)','var(--chart-series-12)'];
 export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,range:RangeQuery|undefined,now:Date,grouping:TrendGrouping,metric:TrendMetric,selected=''){
   const valid=usageSeries(points,days,status,range,now);
   if(grouping==='total')return {rows:valid.map(row=>({...row,values:{} as Record<string,number|null>})),lines:[],options:[],combined:0};
@@ -39,7 +39,7 @@ export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,r
     const ranked=[...shown].sort((a,b)=>b.rows.reduce((n,r)=>n+(metric==='cacheHitRate' ? r.cacheInputTokens : r[metric] || 0),0)-a.rows.reduce((n,r)=>n+(metric==='cacheHitRate' ? r.cacheInputTokens : r[metric] || 0),0));
     const rest=ranked.slice(8);combined=rest.length;
     const merged=rest.length ? usageSeries(rest.flatMap(s=>groups.get(s.key)!.points),days,status,range,now) : valid;
-    shown=[...ranked.slice(0,8),{id:'remaining',key:'',name:'其它'+(grouping==='model' ? '模型' : '令牌')+' ('+rest.length+')',color:'#849298',rows:merged}];
+    shown=[...ranked.slice(0,8),{id:'remaining',key:'',name:'其它'+(grouping==='model' ? '模型' : '令牌')+' ('+rest.length+')',color:'var(--text-muted)',rows:merged}];
   }
   return {rows:valid.map((row,index)=>({...row,values:Object.fromEntries(shown.map(s=>[s.id,s.rows[index][metric]]))})),lines:shown.map(({id,name,color})=>({id,name,color})),options:series.map(({key,name})=>({key,name})),combined};
 }
