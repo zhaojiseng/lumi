@@ -18,10 +18,12 @@ test('today hourly chart stops at current hour and excludes future points within
  assert.equal(rows.length,13);assert.equal(rows[12].label,'12:00');assert.equal(rows[12].requests,1);assert.match(rows[12].tooltipLabel,/12:00–12:30$/);
  const midnight=hourlySeries([],status,undefined,new Date(2026,8,30));assert.equal(midnight.length,1);assert.equal(midnight[0].cost,0);
 });
-test('usage chart selects fine resolution for short windows and respects custom single days',() => {
- assert.equal(usageSeries([],1,status,undefined,now).length,13);
- const custom=usageSeries([],7,status,{startDate:'2026-09-29',endDate:'2026-09-29'},now);assert.equal(custom.length,24);assert.equal(custom[6].label,'06:00');
- const weekly=usageSeries([],7,status,undefined,now);assert.equal(weekly.length,27);assert.equal(weekly.at(-1)?.label,'9/30 12:00');
+test('usage charts use thirty elapsed buckets for today, historical single days and weekly windows',() => {
+ const today=usageSeries([],1,status,undefined,now);assert.equal(today.length,30);assert.equal(today[0].timestamp,stamp(30));assert.equal(today.at(-1)?.label,'9/30 12:05');
+ const custom=usageSeries([],7,status,{startDate:'2026-09-29',endDate:'2026-09-29'},now);assert.equal(custom.length,30);assert.equal(custom[6].timestamp,stamp(29,4,48));assert.equal(custom[6].label,'9/29 04:48');
+ assert.equal(custom.at(-1)?.tooltipLabel,'2026-09-29 23:12 – 2026-09-29 23:59');
+ const weekly=usageSeries([],7,status,undefined,now);assert.equal(weekly.length,30);assert.equal(weekly.at(-1)?.label,'9/30 07:17');
+ assert.ok([...today,...custom,...weekly].every(row=>row.cost===0 && row.tokens===0 && row.requests===0 && row.cacheHitRate===null));
  assert.throws(() => hourlySeries([],status,{startDate:'2026-09-28',endDate:'2026-09-29'},now));
 });
 function catalog() {return normalizeCatalog({data:[{model_name:'x',enable_groups:['standard','premium','free','unknown','auto','blocked']}],usable_group:{standard:'标准',premium:'优惠',unknown:'未知',auto:'自动'},group_ratio:{standard:1,premium:.5,auto:0,blocked:0,free:0},auto_groups:['standard']});}

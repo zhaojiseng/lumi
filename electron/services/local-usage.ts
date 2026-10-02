@@ -4,10 +4,39 @@ import path from 'node:path';
 import os from 'node:os';
 import { createInterface } from 'node:readline';
 import {resolveRange,statisticsFilters,isRollingRange} from '../../shared/range';
-import type { DashboardQuery,LocalUsage, LocalUsageRow, Tool } from '../../shared/types';
+import type { DashboardQuery,LocalUsage, LocalUsageRow, Tool, SiteStatus } from '../../shared/types';
+import type { WidgetUsage, WidgetMinute, WidgetModelUsage } from '../../shared/widget';
 interface Counters { input: number; output: number; cache: number; write: number; }
 const n = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
 function counters(u: any): Counters { return { input: n(u.input_tokens), output: n(u.output_tokens), cache: n(u.cached_input_tokens ?? u.cache_read_input_tokens), write: n(u.cache_creation_input_tokens) }; }
+type LocalWidgetModel = WidgetModelUsage & {sessionIds:Set<string>};
+type LocalWidgetBucket = {start:number;end:number;quota:number;requests:number;models:Map<string,LocalWidgetModel>;latest?:WidgetModelUsage;latestTimestamp?:number;messages:Map<string,{model:string;count:Counters;timestamp:number;session:string}>};
+type LocalWidgetFile = {offset:number;size:number;mtimeMs:number;dev:number;ino:number;previous:Counters;model:string;session:string;lastSignature?:string;partialSize?:number;buckets:Map<number,LocalWidgetBucket>};
+type AppendedLine = {line:string;end:number;complete:boolean};
+
+/**
+ * Read newline-delimited records from an offset without ever opening a
+ * session for writing. The cursor advances only after a complete line (or a
+ * valid final record) has been handed to the caller, so a concurrent writer's
+ * partial record is retried on the next poll.
+ */
+async function* appendedLines(file:string,start:number):AsyncGenerator<AppendedLine>{
+  const stream=createReadStream(file,{flags:'r',start,highWaterMark:64*1024});
+  let pending=Buffer.alloc(0),pendingStart=start;
+  try{
+    for await(const raw of stream){
+      const chunk=Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+      const data=pending.length ? Buffer.concat([pending,chunk]) : chunk;
+      let from=0,index:number;
+      while((index=data.indexOf(0x0a,from))>=0){
+        yield {line:data.subarray(from,index).toString('utf8'),end:pendingStart+index+1,complete:true};
+        from=index+1;
+      }
+      pending=data.subarray(from);pendingStart+=from;
+    }
+    if(pending.length)yield {line:pending.toString('utf8'),end:pendingStart+pending.length,complete:false};
+  }finally{stream.destroy();}
+}
 export function codexDelta(current: Counters, previous: Counters, last?: Counters): Counters {
   // Some Codex versions reset cumulative counters during compaction.
   if (current.input < previous.input || current.output < previous.output) return last || current;
@@ -22,13 +51,14 @@ async function walk(root: string, cutoff: number, warnings: string[], files: str
     const p = path.join(root, e.name);
     if (e.isDirectory() && !e.isSymbolicLink()) await walk(p, cutoff, warnings, files, depth + 1);
     else if (e.isFile() && e.name.endsWith('.jsonl')) {
-      try { const s = await stat(p); if (s.mtimeMs >= cutoff) { if (s.size <= 32 * 1024 * 1024) files.push(p); else warnings.push(`跳过超过 32 MB 的会话：${e.name}`); } } catch { warnings.push(`无法读取会话：${e.name}`); }
+      try { const s = await stat(p); if (s.mtimeMs >= cutoff) files.push(p); } catch { warnings.push(`无法读取会话：${e.name}`); }
     }
   }
 }
 export class LocalUsageService {
   private cache = new Map<string, { at: number; data: LocalUsage }>();
   private inFlight = new Map<string, Promise<LocalUsage>>();
+  private widgetFiles = new Map<string, LocalWidgetFile>();
   private home: string;
   private respectEnvironment: boolean;
   constructor(home?: string) { this.home = home || process.env.LUMI_TEST_HOME || os.homedir(); this.respectEnvironment = !home && !process.env.LUMI_TEST_HOME; }
@@ -39,12 +69,109 @@ export class LocalUsageService {
     const request = this.read(query); this.inFlight.set(key, request);
     try { const data = await request; this.cache.set(key, { at: Date.now(), data });if(this.cache.size>12)this.cache.delete(this.cache.keys().next().value!);return data; } finally { this.inFlight.delete(key); }
   }
+  /**
+   * Incrementally read the completed and current session minutes. Each file
+   * keeps an in-memory read cursor and only the current minute, previous
+   * minute, and newest older minute. The file is opened with flags:'r'; no
+   * session file is ever locked for writing or modified by Lumi.
+   */
+  async widgetUsage(now=Date.now()): Promise<WidgetUsage> {
+    const currentStart=Math.floor(now/60000)*60,targetStart=currentStart-60,cutoff=now-30*86400*1000;
+    const warnings:string[]=[];
+    const status:SiteStatus={system_name:'本地会话',version:'local',quota_per_unit:1,quota_display_type:'TOKEN'};
+    const makeBucket=(start:number):LocalWidgetBucket=>({start,end:start+59,quota:0,requests:0,models:new Map(),messages:new Map()});
+    const normalizeBuckets=(state:LocalWidgetFile)=>{
+      const earlier=[...state.buckets.keys()].filter(start=>start<targetStart).sort((a,b)=>b-a)[0];
+      const keep=new Set([currentStart,targetStart,...(earlier===undefined ? [] : [earlier])]);
+      for(const start of state.buckets.keys())if(!keep.has(start))state.buckets.delete(start);
+    };
+    const bucketFor=(state:LocalWidgetFile,timestamp:number)=>{
+      const start=Math.floor(timestamp/60)*60;if(start>currentStart)return undefined;
+      if(start===currentStart || start===targetStart){let bucket=state.buckets.get(start);if(!bucket){bucket=makeBucket(start);state.buckets.set(start,bucket);}return bucket;}
+      if(start>=targetStart)return undefined;
+      const earlier=[...state.buckets.keys()].filter(value=>value<targetStart).sort((a,b)=>b-a)[0];
+      if(earlier!==undefined && start<earlier)return undefined;
+      if(earlier!==undefined && start===earlier)return state.buckets.get(start);
+      for(const value of state.buckets.keys())if(value<targetStart)state.buckets.delete(value);
+      const bucket=makeBucket(start);state.buckets.set(start,bucket);return bucket;
+    };
+    const currentTimestamp=(bucket:LocalWidgetBucket)=>bucket.latestTimestamp || 0;
+    const setLatest=(bucket:LocalWidgetBucket,model:string,count:Counters,timestamp:number)=>{bucket.latestTimestamp=timestamp;bucket.latest={name:model || 'unknown',quota:count.input+count.output+count.cache+count.write,requests:1,inputTokens:count.input,outputTokens:count.output,cacheReadTokens:count.cache,cacheWriteTokens:count.write};};
+    const addModel=(bucket:LocalWidgetBucket,model:string,count:Counters,session:string,sign:1|-1)=>{
+      const name=(typeof model==='string' && model.trim() ? model.trim() : 'unknown').slice(0,200);
+      const value=bucket.models.get(name) || {name,quota:0,requests:0,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,sessionIds:new Set<string>()};
+      value.quota=Math.max(0,value.quota+sign*(count.input+count.output+count.cache+count.write));value.requests=Math.max(0,value.requests+sign);
+      value.inputTokens=Math.max(0,(value.inputTokens ?? 0)+sign*count.input);value.outputTokens=Math.max(0,(value.outputTokens ?? 0)+sign*count.output);value.cacheReadTokens=Math.max(0,(value.cacheReadTokens ?? 0)+sign*count.cache);value.cacheWriteTokens=Math.max(0,(value.cacheWriteTokens ?? 0)+sign*count.write);
+      if(sign>0)value.sessionIds.add(session);else if(![...bucket.messages.values()].some(message=>message.model===name && message.session===session))value.sessionIds.delete(session);
+      if(value.requests<=0)bucket.models.delete(name);else bucket.models.set(name,value);
+      bucket.quota=Math.max(0,bucket.quota+sign*(count.input+count.output+count.cache+count.write));bucket.requests=Math.max(0,bucket.requests+sign);
+    };
+    const addDirect=(bucket:LocalWidgetBucket,model:string,count:Counters,session:string,timestamp:number)=>{if(!(count.input+count.output+count.cache+count.write))return;addModel(bucket,model,count,session,1);if(!bucket.latest || timestamp>=currentTimestamp(bucket))setLatest(bucket,model,count,timestamp);};
+    const addClaude=(bucket:LocalWidgetBucket,key:string,model:string,count:Counters,session:string,timestamp:number)=>{
+      if(!(count.input+count.output+count.cache+count.write))return;
+      const old=bucket.messages.get(key);if(old && count.output<old.count.output)return;
+      if(old)addModel(bucket,old.model,old.count,old.session,-1);
+      bucket.messages.set(key,{model,count,timestamp,session});addModel(bucket,model,count,session,1);if(!bucket.latest || timestamp>=currentTimestamp(bucket))setLatest(bucket,model,count,timestamp);
+    };
+    const codexRoot=this.respectEnvironment && process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(this.home,'.codex');
+    const claudeRoot=this.respectEnvironment && process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(this.home,'.claude');
+    const codexFiles:string[]=[],claudeFiles:string[]=[];
+    await Promise.all([walk(path.join(codexRoot,'sessions'),cutoff,warnings,codexFiles),walk(path.join(codexRoot,'archived_sessions'),cutoff,warnings,codexFiles),walk(path.join(claudeRoot,'projects'),cutoff,warnings,claudeFiles)]);
+    if(codexFiles.length>=2000 || claudeFiles.length>=2000)warnings.push('本地会话扫描达到 2000 个文件上限，浮窗统计可能不完整。');
+    const activeFiles=new Set([...codexFiles,...claudeFiles]);for(const file of this.widgetFiles.keys())if(!activeFiles.has(file))this.widgetFiles.delete(file);
+    let filesScanned=0;
+    for(const [tool,files] of [['codex',codexFiles],['claude',claudeFiles]] as [Tool,string[]][])for(const file of files){
+      let info;try{info=await stat(file);}catch{warnings.push(`无法读取会话：${path.basename(file)}`);continue;}
+      let state=this.widgetFiles.get(file);
+      const changed=!!state && (state.dev!==info.dev || state.ino!==info.ino || info.size<state.offset || info.mtimeMs<state.mtimeMs);
+      if(!state || changed){state={offset:0,size:0,mtimeMs:0,dev:info.dev,ino:info.ino,previous:{input:0,output:0,cache:0,write:0},model:'unknown',session:path.basename(file),buckets:new Map()};this.widgetFiles.set(file,state);}
+      normalizeBuckets(state);
+      if(state.partialSize===info.size && state.offset<info.size){state.size=info.size;state.mtimeMs=info.mtimeMs;filesScanned++;continue;}
+      try{
+        for await(const item of appendedLines(file,state.offset)){
+          let event:any;try{event=JSON.parse(item.line);}catch{if(item.complete)state.offset=item.end;else state.partialSize=info.size;continue;}
+          state.offset=item.end;state.partialSize=undefined;
+          if(tool==='codex'){
+            if(event.type==='session_meta')state.session=event.payload?.id || state.session;if(event.type==='turn_context')state.model=event.payload?.model || state.model;
+            if(event.type!=='event_msg' || event.payload?.type!=='token_count' || !event.payload.info)continue;
+            const tokenInfo=event.payload.info,timestamp=Date.parse(event.timestamp);if(!Number.isFinite(timestamp))continue;
+            const current=tokenInfo.total_token_usage ? counters(tokenInfo.total_token_usage):undefined,last=tokenInfo.last_token_usage ? counters(tokenInfo.last_token_usage):undefined;if(!current && !last)continue;
+            const delta=current ? codexDelta(current,state.previous,last) : last!;if(current)state.previous=current;
+            const bucket=bucketFor(state,timestamp/1000);if(!bucket)continue;
+            const signature=`${state.session}|${event.timestamp}|${JSON.stringify(current || last)}`;if(state.lastSignature===signature)continue;state.lastSignature=signature;
+            addDirect(bucket,tokenInfo.model || state.model,{...delta,input:Math.max(0,delta.input-delta.cache)},state.session,timestamp/1000);
+          }else{
+            if(event.type!=='assistant' || !event.message?.usage || event.isApiErrorMessage)continue;const message=event.message,id=message.id || event.uuid;if(!id)continue;const timestamp=Date.parse(event.timestamp);if(!Number.isFinite(timestamp))continue;const bucket=bucketFor(state,timestamp/1000);if(!bucket)continue;
+            addClaude(bucket,`${event.sessionId || state.session}|${id}`,message.model || 'unknown',counters(message.usage),event.sessionId || state.session,timestamp/1000);
+          }
+        }
+        state.size=Math.max(info.size,state.offset);state.mtimeMs=info.mtimeMs;filesScanned++;
+      }catch{warnings.push(`会话读取不完整：${path.basename(file)}`);}
+      normalizeBuckets(state);
+    }
+    const aggregate=(bucket:LocalWidgetBucket,source:LocalWidgetBucket)=>{
+      bucket.quota+=source.quota;bucket.requests+=source.requests;
+      for(const model of source.models.values()){
+        const value=bucket.models.get(model.name) || {name:model.name,quota:0,requests:0,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,sessionIds:new Set<string>()};
+        value.quota+=model.quota;value.requests+=model.requests;value.inputTokens=(value.inputTokens ?? 0)+(model.inputTokens ?? 0);value.outputTokens=(value.outputTokens ?? 0)+(model.outputTokens ?? 0);value.cacheReadTokens=(value.cacheReadTokens ?? 0)+(model.cacheReadTokens ?? 0);value.cacheWriteTokens=(value.cacheWriteTokens ?? 0)+(model.cacheWriteTokens ?? 0);bucket.models.set(model.name,value);
+      }
+      if(source.latest && (!bucket.latest || (source.latestTimestamp || 0)>=(bucket.latestTimestamp || 0))){bucket.latest=source.latest;bucket.latestTimestamp=source.latestTimestamp;}
+    };
+    let fallbackStart=-1;for(const state of this.widgetFiles.values())for(const start of state.buckets.keys())if(start<targetStart && start>fallbackStart)fallbackStart=start;
+    let target:LocalWidgetBucket|undefined,fallback:LocalWidgetBucket|undefined;
+    for(const state of this.widgetFiles.values()){
+      const current=state.buckets.get(targetStart);if(current){target ||= makeBucket(targetStart);aggregate(target,current);}
+      const older=state.buckets.get(fallbackStart);if(older){fallback ||= makeBucket(fallbackStart);aggregate(fallback,older);}
+    }
+    const toMinute=(bucket?:LocalWidgetBucket):WidgetMinute|null=>bucket && bucket.requests>0 ? {start:bucket.start,end:bucket.end,quota:bucket.quota,requests:bucket.requests,models:[...bucket.models.values()].map(({sessionIds,...model})=>model).sort((a,b)=>b.quota-a.quota || a.name.localeCompare(b.name)),latestModel:bucket.latest} : null;
+    const minute=toMinute(target),historicalMinute=toMinute(fallback);
+    return {siteId:'local',siteName:'本地会话',status,balance:null,loggedIn:true,minute:minute || historicalMinute,historical:!minute && !!historicalMinute,fetchedAt:Date.now(),warnings:[...new Set(warnings)],source:'local'};
+  }
   private async read(query: DashboardQuery): Promise<LocalUsage> {
     const window=resolveRange(query),filters=statisticsFilters(query),cutoff=window.start_timestamp*1000;
     const warnings: string[] = []; const rows = new Map<string, LocalUsageRow>();
     if(filters.tokenIds?.length)return {rows:[],filesScanned:0,warnings:['本机会话不包含 API 令牌 ID，无法按令牌筛选。清除令牌筛选后查看本地统计。'],scannedAt:Date.now()};
-    const sessions = new Map<string, Set<string>>(); const codexSeen = new Set<string>();
-    const claudeMessages = new Map<string, { timestamp: number; model: string; count: Counters; session: string }>();
+    const sessions = new Map<string, Set<string>>();
     const codexRoot = this.respectEnvironment && process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(this.home, '.codex');
     const claudeRoot = this.respectEnvironment && process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(this.home, '.claude');
     const codexFiles: string[] = []; const claudeFiles: string[] = [];
@@ -61,7 +188,9 @@ export class LocalUsageService {
     for (const [tool, files] of [['codex', codexFiles], ['claude', claudeFiles]] as [Tool, string[]][]) {
       for (const file of files) {
         let previous: Counters = { input: 0, output: 0, cache: 0, write: 0 }; let model = 'unknown'; let session = path.basename(file);
-        const stream = createReadStream(file, { encoding: 'utf8' }); const lines = createInterface({ input: stream, crlfDelay: Infinity });
+        const codexSeen = new Set<string>();
+        const claudeMessages = new Map<string, { timestamp: number; model: string; count: Counters; session: string }>();
+        const stream = createReadStream(file, { encoding: 'utf8', highWaterMark: 64 * 1024 }); const lines = createInterface({ input: stream, crlfDelay: Infinity });
         try {
           for await (const line of lines) {
             let e: any; try { e = JSON.parse(line); } catch { continue; }
@@ -89,11 +218,11 @@ export class LocalUsageService {
               if (!old || c.output >= old.count.output) claudeMessages.set(key, { timestamp, model: msg.model || 'unknown', count: c, session: e.sessionId || session });
             }
           }
+          if (tool === 'claude') for (const m of claudeMessages.values()) add('claude', m.timestamp, m.model, m.count, m.session);
           filesScanned++;
         } catch { warnings.push(`会话读取不完整：${path.basename(file)}`); } finally { lines.close(); stream.destroy(); }
       }
     }
-    for (const m of claudeMessages.values()) add('claude', m.timestamp, m.model, m.count, m.session);
     return { rows: [...rows.values()].sort((a, b) => a.date.localeCompare(b.date)), filesScanned, warnings: [...new Set(warnings)], scannedAt: Date.now() };
   }
 }

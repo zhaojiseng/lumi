@@ -86,10 +86,52 @@ test('widgetMinute aggregates every model and free request exactly once within i
       {name:'model-a',quota:150,requests:2,inputTokens:150,outputTokens:40,cacheReadTokens:25,cacheWriteTokens:15},
       {name:'free-model',quota:0,requests:1,inputTokens:7,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0},
     ],
+    latestModel:{name:'model-b',quota:300,requests:1,inputTokens:400,outputTokens:80,cacheReadTokens:100,cacheWriteTokens:100},
   });
   assert.equal(result.models.reduce((total,model)=>total+model.quota,0),result.quota);
   assert.equal(result.models.reduce((total,model)=>total+model.requests,0),result.requests);
   assert.deepEqual(rows,before,'aggregation must not rewrite the source logs');
+});
+
+test('latestModel selects timestamp then ID and formats one request rather than the highest-cost model',()=>{
+  const rows=[
+    log(999,{created_at:minuteStart+58,model_name:'expensive',quota:900}),
+    log(11,{created_at:minuteStart+59,model_name:'latest',quota:1,prompt_tokens:1200,completion_tokens:35,
+      other:JSON.stringify({cache_tokens:200,cache_creation_tokens:12})}),
+    log(10,{created_at:minuteStart+59,model_name:'latest',quota:20,prompt_tokens:300,completion_tokens:10,
+      other:JSON.stringify({cache_tokens:100,cache_creation_tokens:5})}),
+    log(1000,{created_at:minuteStart+60,model_name:'outside',quota:9999}),
+    log(1001,{created_at:minuteStart+59,type:5,model_name:'error',quota:9999}),
+    log(1002,{created_at:minuteStart-1,model_name:'before',quota:9999}),
+  ];
+  for(const ordered of [rows,[...rows].reverse()]) {
+    const minute=widgetMinute(ordered,minuteStart);
+    assert.equal(minute.models[0].name,'expensive');assert.equal(minute.quota,921);assert.equal(minute.requests,3);
+    assert.deepEqual(minute.latestModel,{name:'latest',quota:1,requests:1,inputTokens:1200,outputTokens:35,cacheReadTokens:200,cacheWriteTokens:12});
+    assert.deepEqual(minute.models[1],{name:'latest',quota:21,requests:2,inputTokens:1500,outputTokens:45,cacheReadTokens:300,cacheWriteTokens:17});
+    const formatted=formattedWidget('ready',usage({minute}),view);
+    assert.equal(formatted.cost,'$9.21');
+    assert.deepEqual(formatted.latestModel,{name:'latest',cost:'$0.01',requests:'1',input:'1.2K',output:'35',cacheRead:'200',cacheWrite:'12'});
+  }
+});
+
+test('latestModel preserves unknown individual tokens and cache even when an earlier request has known counts',()=>{
+  const minute=widgetMinute([
+    log(1,{other:JSON.stringify({cache_tokens:30,cache_creation_tokens:12})}),
+    log(2,{created_at:minuteStart+59,prompt_tokens:NaN,completion_tokens:undefined as unknown as number,other:undefined}),
+  ],minuteStart);
+  assert.deepEqual(minute.latestModel,{name:'model-a',quota:100,requests:1,inputTokens:null,outputTokens:null,cacheReadTokens:null,cacheWriteTokens:null});
+  assert.deepEqual(formattedWidget('ready',usage({minute}),view).latestModel,{
+    name:'model-a',cost:'$1.00',requests:'1',input:'—',output:'—',cacheRead:'—',cacheWrite:'—',
+  });
+});
+
+test('formattedWidget leaves latestModel absent for empty minutes and older snapshots without the optional field',()=>{
+  const {latestModel,...legacyMinute}=widgetMinute([log(1)],minuteStart);
+  assert.ok(latestModel);
+  for(const data of [undefined,usage({minute:null}),usage({minute:widgetMinute([],minuteStart)}),usage({minute:legacyMinute})]) {
+    assert.equal(Object.hasOwn(formattedWidget('ready',data,view),'latestModel'),false);
+  }
 });
 
 test('excluded rows do not reserve an ID or poison the selected minute',()=>{
@@ -121,6 +163,7 @@ test('duplicate IDs never charge a second model or add duplicate token counts',(
   assert.equal(result.models.length,1);
   assert.equal(result.models[0].inputTokens,130);
   assert.equal(result.models[0].outputTokens,35);
+  assert.deepEqual(result.latestModel,{name:'model-a',quota:0,requests:1,inputTokens:120,outputTokens:30,cacheReadTokens:0,cacheWriteTokens:0});
 });
 
 test('model totals are independent of row order and equal costs sort consistently',()=>{
@@ -459,6 +502,19 @@ test('WidgetService honors a custom TTL and keeps an expired in-flight load dedu
   assert.equal(service.snapshot().usage?.balance,20000);
 });
 
+test('WidgetService enforces a minimum interval across minute boundaries for local files',async()=>{
+  let now=(minuteStart+60)*1000+59999,calls=0;
+  const service=new WidgetService({identity:()=>view.viewKey,now:()=>now,ttl:1000,minInterval:1000,
+    load:async()=>{calls++;return usage({fetchedAt:now,balance:calls});}});
+  await service.refresh();
+  now++;
+  await service.refresh();
+  assert.equal(calls,1,'a natural minute boundary must not cause a second file read immediately');
+  now+=999;
+  await service.refresh();
+  assert.equal(calls,2,'the local source may read again after one second');
+});
+
 test('WidgetService snapshots isolate nested models, warnings and status from caller mutations',async()=>{
   const service=new WidgetService({identity:()=>view.viewKey,load:async()=>usage()});
   await service.refresh();
@@ -468,6 +524,7 @@ test('WidgetService snapshots isolate nested models, warnings and status from ca
   snapshot.usage!.warnings.push('Injected warning');
   snapshot.usage!.status.quota_per_unit=1;
   snapshot.usage!.minute!.models[0].quota=99999;
+  snapshot.usage!.minute!.latestModel!.quota=99999;
   snapshot.usage!.minute!.models.push({...snapshot.usage!.minute!.models[0],name:'Injected model'});
   assert.deepEqual(service.snapshot(),{phase:'ready',usage:usage()});
 });
@@ -729,6 +786,8 @@ test('widgetUsage falls back across midnight to the latest charged minute with a
   assert.equal(result.minute?.quota,500);
   assert.equal(result.minute?.requests,3);
   assert.deepEqual(result.minute?.models.map(model=>model.name),['model-b','model-a','free-model']);
+  assert.deepEqual(result.minute?.latestModel,{name:'free-model',quota:0,requests:1,inputTokens:120,outputTokens:30,cacheReadTokens:0,cacheWriteTokens:0});
+  assert.equal(formattedWidget('ready',result,view).latestModel?.cost,'$0.00');
   const requests=f.seen.filter(url=>url.pathname==='/api/log/self');
   assert.deepEqual(requests.map(url=>[
     Number(url.searchParams.get('start_timestamp')),Number(url.searchParams.get('end_timestamp')),
@@ -760,6 +819,7 @@ test('widgetUsage reads every page of the selected minute without multiplying ca
   assert.deepEqual(result.minute?.models.map(model=>[model.quota,model.requests,model.inputTokens,model.outputTokens]),[
     [150,75,750,375],[150,75,750,375],
   ]);
+  assert.deepEqual(result.minute?.latestModel,{name:'model-a',quota:2,requests:1,inputTokens:10,outputTokens:5,cacheReadTokens:0,cacheWriteTokens:0});
   const again=await f.api.widgetUsage(fetchedAt);
   assert.deepEqual(again.minute,result.minute);
   assert.deepEqual(f.seen.filter(url=>url.pathname==='/api/log/self').map(url=>url.searchParams.get('p')),['1','2']);

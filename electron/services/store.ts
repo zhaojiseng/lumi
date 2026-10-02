@@ -3,6 +3,7 @@ import {applyPreferencePatch, normalizeSelections} from '../../shared/selections
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
 import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
+import {refreshAnimation} from '../../shared/motion';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -47,6 +48,8 @@ export class SettingsStore {
     this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
     this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
     this.preferences.widgetEnabled=this.preferences.widgetEnabled===true;
+    this.preferences.widgetDataSource=this.preferences.widgetDataSource==='local' ? 'local' : 'api';
+    this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     if(!this.preferences.widgetPosition || !Number.isSafeInteger(this.preferences.widgetPosition.x) || !Number.isSafeInteger(this.preferences.widgetPosition.y))this.preferences.widgetPosition=null;
     for(const field of ['dismissedUpdateVersion','skippedUpdateVersion'] as const)if (typeof this.preferences[field] !== 'string' || !/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/.test(this.preferences[field]) || this.preferences[field].length>30) this.preferences[field] = '';
     this.encrypted = data.vault || '';
@@ -113,11 +116,13 @@ export class SettingsStore {
     if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     this.preferences = applyPreferencePatch(this.preferences, patch);
+    this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
     this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
     this.preferences.menuBarChartRange=normalizeMenuBarRange(this.preferences.menuBarChartRange);
     this.preferences.refreshInterval=refreshSeconds(this.preferences.refreshInterval);
     this.preferences.menuBarRefreshInterval=refreshSeconds(this.preferences.menuBarRefreshInterval);
+    this.preferences.widgetDataSource=this.preferences.widgetDataSource==='local' ? 'local' : 'api';
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);
   }
   async setToolKey(tool: Tool, key: string, binding?: Partial<ToolBinding>, id = this.preferences.activeSiteId) {

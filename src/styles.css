@@ -968,6 +968,8 @@ h1,h2,h3,h4 {
 .distribution-panel {
   position: relative;
   padding: 21px 20px 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .distribution-panel .section-heading {
@@ -978,6 +980,19 @@ h1,h2,h3,h4 {
   position: relative;
   height: 166px;
   margin-top: -2px;
+}
+
+.distribution-content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.distribution-content .donut-wrap {
+  flex: 1 1 166px;
+  min-height: 166px;
+  height: auto;
 }
 
 .donut-wrap .recharts-pie-sector:focus, .donut-wrap .recharts-sector:focus { outline: none; }
@@ -1051,6 +1066,14 @@ h1,h2,h3,h4 {
 .panel-bottom-link:hover {
   background: var(--hover);
   color: var(--text-secondary);
+}
+
+@media(max-width:1250px) {
+
+  .distribution-panel .panel-bottom-link {
+    width: calc(100% + 34px);
+    margin-left: -17px;
+  }
 }
 
 .section-title-row {

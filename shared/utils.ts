@@ -48,38 +48,23 @@ export function hourlySeries(points: QuotaPoint[], status: SiteStatus, range?: R
   }
   return rows;
 }
-/** Chart resolution follows the selected calendar window; upstream precision is one hour. */
+/** Thirty equal elapsed-time intervals, at one-second minimum precision. */
 export function usageGranularity(days: number) {
-  if(days <= 1/24)return {hours:1/12,days:0,label:'每 5 分钟'};
-  if(days <= 1/4)return {hours:1/4,days:0,label:'每 15 分钟'};
-  if(days <= 1)return {hours:1,days:0,label:'每 1 小时'};
-  if(days <= 3)return {hours:3,days:0,label:'每 3 小时'};
-  if(days <= 7)return {hours:6,days:0,label:'每 6 小时'};
-  if(days <= 31)return {hours:0,days:1,label:'每天'};
-  if(days <= 60)return {hours:0,days:3,label:'每 3 天'};
-  return {hours:0,days:7,label:'每 7 天'};
+  const seconds=Math.max(1,(Number.isFinite(days) && days>0 ? days : 1/86400)*86400/30);
+  const duration=(n:number)=>n.toLocaleString('zh-CN',{maximumFractionDigits:1});
+  const label=seconds<60 ? '约每 '+duration(seconds)+' 秒' : seconds<3600 ? '约每 '+duration(seconds/60)+' 分钟' : seconds<86400 ? '约每 '+duration(seconds/3600)+' 小时' : '约每 '+duration(seconds/86400)+' 天';
+  return {seconds,hours:seconds/3600,days:seconds/86400,label};
 }
 export function usageSeries(points: QuotaPoint[], days: number, status: SiteStatus, range?: RangeQuery, now = new Date()) {
-  const resolved=resolveRange(range || days,now);const grain=usageGranularity(range==='24h' || typeof range==='object' && (range.startTime || range.endTime) ? resolved.durationDays : resolved.days);
-  if(resolved.days === 1 && grain.hours>=1)return hourlySeries(points,status,resolved.range,now);
-  const origin=new Date(resolved.start_timestamp*1000);const buckets:{start:number;end:number}[]=[];
-  if(grain.hours) {
-    for(let start=resolved.start_timestamp;range==='24h' ? start<resolved.end_timestamp : start<=resolved.end_timestamp;start+=grain.hours*3600)
-      buckets.push({start,end:Math.min(start+grain.hours*3600-1,resolved.end_timestamp)});
-    if(range==='24h' && buckets.length)buckets[buckets.length-1].end=resolved.end_timestamp;
-  } else {
-    for(let day=0;day<resolved.days;day+=grain.days) {
-      const start=new Date(origin);start.setDate(start.getDate()+day);
-      const end=new Date(start);end.setDate(end.getDate()+grain.days);
-      buckets.push({start:start.getTime()/1000,end:Math.min(end.getTime()/1000-1,resolved.end_timestamp)});
-    }
-  }
-  const time=(ts:number) => new Date(ts*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+  const resolved=resolveRange(range || days,now),duration=resolved.end_timestamp-resolved.start_timestamp+1,bucketCount=Math.min(30,duration);
+  const edges=Array.from({length:bucketCount+1},(_,i)=>resolved.start_timestamp+Math.floor(i*duration/bucketCount));
+  const buckets=edges.slice(0,-1).map((start,i)=>({start,end:edges[i+1]-1}));
+  const time=(ts:number) => new Date(ts*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',...(duration<1800 ? {second:'2-digit'} : {}),hour12:false});
   const short=(ts:number) => {const d=new Date(ts*1000);return (d.getMonth()+1)+'/'+d.getDate();};
-  const rows=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,
-    label:grain.hours ? short(start)+' '+time(start) : short(start),
-    tooltipLabel:grain.hours ? localDate(start)+' '+time(start)+' – '+localDate(end)+' '+time(end) : localDate(start)+(localDate(start) === localDate(end) ? '' : ' – '+localDate(end)),
-    cost:0,tokens:0,requests:0,codex:0,claude:0}));
+  const rows=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,end_timestamp:end,
+    label:duration/bucketCount<86400 ? short(start)+' '+time(start) : short(start),
+    tooltipLabel:localDate(start)+' '+time(start)+' – '+localDate(end)+' '+time(end),
+    cost:0,tokens:0,requests:0,codex:0,claude:0,cacheInputTokens:0,cacheReadTokens:0,cacheHitRate:null as number|null}));
   const c=currency(status);
   for(const point of points) {
     if(!Number.isFinite(point.created_at) || point.created_at<resolved.start_timestamp || point.created_at>resolved.end_timestamp)continue;
@@ -87,7 +72,9 @@ export function usageSeries(points: QuotaPoint[], days: number, status: SiteStat
     let lo=0,hi=buckets.length-1;
     while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(buckets[mid].start<=point.created_at)lo=mid;else hi=mid-1;}
     const row=rows[lo];if(!row)continue;row.cost+=c.value(point.quota);row.tokens+=point.token_used || 0;row.requests+=point.count || 0;
+    if(typeof point.cacheInputTokens==='number' && Number.isFinite(point.cacheInputTokens) && point.cacheInputTokens>0 && typeof point.cacheReadTokens==='number' && Number.isFinite(point.cacheReadTokens) && point.cacheReadTokens>=0 && point.cacheReadTokens<=point.cacheInputTokens){row.cacheInputTokens+=point.cacheInputTokens;row.cacheReadTokens+=point.cacheReadTokens;}
   }
+  for(const row of rows)row.cacheHitRate=row.cacheInputTokens>0 ? row.cacheReadTokens/row.cacheInputTokens : null;
   return rows;
 }
 export function csvEscape(value: unknown) { const s = String(value ?? ''); const safe = /^[=+@\-]/.test(s) ? `'${s}` : s; return `"${safe.replace(/"/g, '""')}"`; }

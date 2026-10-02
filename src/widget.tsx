@@ -1,112 +1,115 @@
 import {StrictMode,useEffect,useLayoutEffect,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {ArrowUpRight,Clock3,RefreshCw,X} from 'lucide-react';
-import {Logo} from './components/ui';
-import {ProviderIcon} from './components/BrandIcon';
-import type {WidgetAction,WidgetBridge,WidgetModel,WidgetState} from '../shared/widget';
+import {X} from 'lucide-react';
+import type {WidgetBridge,WidgetModel,WidgetState} from '../shared/widget';
+import {refreshKeyframes,refreshExitKeyframes,type DataRefreshAnimation} from '../shared/motion';
 import './widget.css';
 
 declare global {interface Window {lumiWidget?:WidgetBridge;}}
 
-type Motion='snapshot'|'number'|'row';
-function useDataMotion<T extends HTMLElement>(identity:string,kind:Motion,enter=false) {
-  const element=useRef<T>(null),previous=useRef<string|null>(null);
+function useDataMotion(next:WidgetState) {
+  const mode=next.animation || 'slide-up';
+  const [display,setDisplay]=useState(next),element=useRef<HTMLDivElement>(null),latest=useRef(next);
+  const previous=useRef({key:next.dataKey,scope:next.viewKey,mode}),enter=useRef<DataRefreshAnimation|null>(null);
+  latest.current=next;
+  const reset=display.viewKey!==next.viewKey || previous.current.mode!==mode;
+  // Keep the outgoing snapshot equal to what was actually shown, including metadata.
   useLayoutEffect(()=>{
-    const changed=previous.current!==null ? previous.current!==identity : enter;
-    previous.current=identity;
-    const node=element.current;
-    if(!changed || !node || typeof node.animate!=='function')return;
-    const media=window.matchMedia('(prefers-reduced-motion: reduce)');
-    if(media.matches)return;
-    const frames:Keyframe[]=kind==='row'
-      ? [{opacity:.72,backgroundColor:getComputedStyle(node).getPropertyValue('--accent-soft')},{opacity:1,backgroundColor:'transparent'}]
-      : kind==='number' ? [{opacity:.6,transform:'translateY(2px)'},{opacity:1,transform:'translateY(0)'}]
-      : [{opacity:.82},{opacity:1}];
-    // Animate the current DOM only; superseding data cancels the previous emphasis.
-    const animation=node.animate(frames,{duration:kind==='row' ? 220 : kind==='number' ? 180 : 200,easing:'ease-out'});
-    const reduce=()=>{if(media.matches)animation.cancel();};
+    if(display.dataKey===next.dataKey && display.viewKey===next.viewKey && display!==next)setDisplay(next);
+  },[next,display]);
+  useLayoutEffect(()=>{
+    const before=previous.current;
+    previous.current={key:next.dataKey,scope:next.viewKey,mode};
+    const node=element.current,media=window.matchMedia('(prefers-reduced-motion: reduce)');
+    enter.current=null;
+    // Scope and preference changes never retain a previous account or snapshot.
+    if(before.key===next.dataKey || before.scope!==next.viewKey || before.mode!==mode || mode==='none' || media.matches || !node || typeof node.animate!=='function'){
+      setDisplay(latest.current);return;
+    }
+    let active=true;
+    const motion=node.animate(refreshExitKeyframes(mode),{duration:120,easing:'ease-in',fill:'forwards'});
+    const reduce=()=>{if(media.matches && active){active=false;enter.current=null;motion.cancel();media.removeEventListener('change',reduce);setDisplay(latest.current);}};
     media.addEventListener('change',reduce);
-    return ()=>{media.removeEventListener('change',reduce);animation.cancel();};
-  },[identity,kind,enter]);
-  return element;
+    void motion.finished.then(()=>{
+      if(!active)return;
+      active=false;media.removeEventListener('change',reduce);motion.cancel();
+      enter.current=mode;setDisplay(latest.current);
+    },()=>{});
+    return ()=>{active=false;media.removeEventListener('change',reduce);motion.cancel();};
+  },[next.dataKey,next.viewKey,mode]);
+  // Start entry after React has committed the new content into the same DOM.
+  useLayoutEffect(()=>{
+    const kind=enter.current;enter.current=null;
+    const node=element.current,media=window.matchMedia('(prefers-reduced-motion: reduce)');
+    if(!kind || media.matches || !node)return;
+    const motion=node.animate(refreshKeyframes(kind),{duration:kind==='blur' ? 300 : 220,easing:'cubic-bezier(.22,.61,.36,1)'});
+    const reduce=()=>{if(media.matches){motion.cancel();setDisplay(latest.current);}};
+    media.addEventListener('change',reduce);
+    return ()=>{media.removeEventListener('change',reduce);motion.cancel();};
+  },[display.dataKey,display.viewKey,next.dataKey,next.viewKey,mode]);
+  return {data:element,state:reset || display.dataKey===next.dataKey ? next : display};
 }
 
 function Value({value}:{value:string}) {
-  const ref=useDataMotion<HTMLSpanElement>(value,'number');
-  return <span className="widget-value" ref={ref} title={value}>{value}</span>;
+  return <span className="widget-value" title={value}>{value}</span>;
 }
 
-function ModelRow({model}:{model:WidgetModel}) {
-  const identity=JSON.stringify([model.cost,model.requests,model.input,model.output,model.cacheRead,model.cacheWrite]);
-  const ref=useDataMotion<HTMLLIElement>(identity,'row',true);
-  return <li className="widget-model" ref={ref}>
-    <div className="widget-model-heading">
-      <ProviderIcon modelName={model.name} size={16} className="widget-model-icon"/>
-      <h3 title={model.name}>{model.name}</h3>
-      <div className="widget-model-charge"><strong aria-label={'消费 '+model.cost}><Value value={model.cost}/></strong><span><Value value={model.requests}/> 次请求</span></div>
+function ModelDetails({model,notice,tooltip}:{model:WidgetModel;notice:string;tooltip:string}) {
+  const details=[model.name,'模型消费：'+model.cost,'请求数：'+model.requests,'输入：'+model.input,'输出：'+model.output,'缓存读取：'+model.cacheRead,'缓存写入：'+model.cacheWrite,tooltip].join('\n');
+  return <div className="widget-model" title={details}>
+    <div className="widget-model-heading"><span className="widget-model-name">{model.name}</span>{notice && <span className="widget-model-notice" role="status" aria-live="polite">{notice}</span>}</div>
+    <div className="widget-tokens" role="group" aria-label={model.name+' 的 Tokens'}>
+      <div className="widget-token-input">
+        <span className="widget-token-number" aria-label={'输入：'+model.input} title={'输入：'+model.input}><Value value={model.input}/></span>
+        <small className="widget-cache-read" aria-label={'缓存读取：'+model.cacheRead} title={'缓存读取：'+model.cacheRead}><Value value={model.cacheRead}/></small>
+      </div>
+      <span className="widget-token-divider" aria-hidden="true">/</span>
+      <span className="widget-token-number" aria-label={'输出：'+model.output} title={'输出：'+model.output}><Value value={model.output}/></span>
     </div>
-    <dl className="widget-tokens" aria-label={model.name+' 的 Tokens'}>
-      {([['输入',model.input],['输出',model.output],['缓存读取',model.cacheRead],['缓存写入',model.cacheWrite]] as const).map(([label,value])=><div key={label}><dt>{label}</dt><dd><Value value={value}/></dd></div>)}
-    </dl>
-  </li>;
+  </div>;
 }
 
 const initialState:WidgetState={phase:'idle',enabled:false,siteName:'Lumi',balance:'—',cost:'—',minuteLabel:'暂无消费分钟',historical:false,models:[],message:'正在读取用量…',updatedAt:0,viewKey:'',dataKey:'',theme:'light'};
 
 export function WidgetApp() {
-  const [state,setState]=useState<WidgetState>(initialState),[error,setError]=useState(''),[refreshing,setRefreshing]=useState(false);
-  const alive=useRef(false),pending=useRef(false),data=useDataMotion<HTMLDivElement>(state.dataKey,'snapshot');
+  const [received,setState]=useState<WidgetState>(initialState),[error,setError]=useState('');
+  const alive=useRef(false),{state,data}=useDataMotion(received);
   useEffect(()=>{
     alive.current=true;
     const bridge=window.lumiWidget;
-    if(!bridge){setError('请从 Lumi 工作台打开悬浮窗。');return ()=>{alive.current=false;};}
+    if(!bridge){setError('请在工作台打开');return ()=>{alive.current=false;};}
     let active=true,streamed=false;
     const receive=(next:WidgetState)=>{if(active){setState(next);setError('');}};
     // Subscribe first. Any streamed state takes precedence over a late bootstrap.
     const stop=bridge.onState(next=>{streamed=true;receive(next);});
-    void bridge.snapshot().then(next=>{if(!streamed)receive(next);}).catch(()=>{if(active && !streamed)setError('用量暂不可用，请刷新重试。');});
+    void bridge.snapshot().then(next=>{if(!streamed)receive(next);}).catch(()=>{if(active && !streamed)setError('用量暂不可用');});
     return ()=>{active=false;alive.current=false;stop();};
   },[]);
 
-  const action=async(event:WidgetAction)=>{
+  const action=async(type:'open'|'close')=>{
     const bridge=window.lumiWidget;
-    if(!bridge || (event.type==='refresh' && (pending.current || state.phase==='loading')))return;
-    if(event.type==='refresh'){pending.current=true;setRefreshing(true);}
+    if(!bridge)return;
     setError('');
-    try{await bridge.action(event);}
-    catch{if(alive.current)setError(event.type==='refresh' ? '刷新失败，请重试。' : '操作失败，请重试。');}
-    finally{if(event.type==='refresh'){pending.current=false;if(alive.current)setRefreshing(false);}}
+    try{await bridge.action({type});}
+    catch{if(alive.current)setError('操作失败');}
   };
-  const loading=state.phase==='loading' || refreshing;
   const updated=state.updatedAt>0 && Number.isFinite(state.updatedAt) ? new Date(state.updatedAt) : null;
-  const updatedLabel=updated && Number.isFinite(updated.getTime()) ? updated.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}) : null;
-  const costLabel=state.historical ? '最近付费分钟消费' : '上一完整分钟消费';
-  const message=error || state.message;
-  return <main className="widget-card" data-theme={state.theme} aria-label="Lumi 悬浮用量">
-    <header className="widget-header">
-      <Logo small/>
-      <div className="widget-brand"><h1 title={state.siteName}>{state.siteName}</h1><span>分钟用量 · 拖动此处移动</span></div>
-      <nav className="widget-actions" aria-label="悬浮窗操作">
-        <button type="button" title="打开工作台" aria-label="打开工作台" disabled={!window.lumiWidget} onClick={()=>void action({type:'open'})}><ArrowUpRight size={17}/></button>
-        <button type="button" title="关闭悬浮窗" aria-label="关闭悬浮窗" disabled={!window.lumiWidget} onClick={()=>void action({type:'close'})}><X size={16}/></button>
-      </nav>
-    </header>
-    <div className="widget-data" ref={data}>
-      <section className="widget-summary" aria-label="余额与分钟消费">
-        <dl className="widget-totals"><div><dt>账户余额</dt><dd><Value value={state.balance}/></dd></div><div><dt>{costLabel}</dt><dd><Value value={state.cost}/></dd></div></dl>
-        <div className="widget-minute" aria-label="消费分钟" title={state.historical ? '显示最近一次有付费消费的分钟' : '显示上一已结束的完整分钟'}><Clock3 size={12} aria-hidden="true"/><span title={state.minuteLabel}>{state.minuteLabel}</span>{state.historical && <small>历史分钟</small>}</div>
-      </section>
-      <section className="widget-models" aria-labelledby="widget-models-title">
-        <div className="widget-models-heading"><h2 id="widget-models-title">模型用量</h2><span>Tokens · {state.models.length} 个模型</span></div>
-        <div className="widget-model-scroll" tabIndex={0} role="region" aria-label="分钟内全部模型用量">
-          {state.models.length>0 ? <ul className="widget-model-list">{state.models.map(model=><ModelRow key={model.name} model={model}/>)}</ul> : <p className="widget-empty">{loading ? '正在读取模型用量…' : state.phase==='error' || error ? '模型用量暂不可用' : '暂无消费模型'}</p>}
-        </div>
-      </section>
+  const updatedLabel=updated && Number.isFinite(updated.getTime()) ? updated.toLocaleString('zh-CN') : '尚未更新';
+  const tooltip=[state.siteName,(state.historical ? '最近付费分钟：' : '上一完整分钟：')+state.minuteLabel,'消费：'+state.cost,'余额：'+state.balance,'更新：'+updatedLabel,error || state.message].filter(Boolean).join('\n');
+  const model=state.latestModel ?? state.models[0];
+  const notice=error || (state.phase==='error' ? '用量暂不可用' : '');
+  const empty=notice || (state.phase==='loading' || state.phase==='idle' ? '读取中…' : '暂无消费模型');
+  return <main className="widget-card widget-header" data-theme={received.theme} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
+    <div className="widget-data" ref={data} tabIndex={window.lumiWidget ? 0 : undefined} role="group" aria-label="用量，双击或按 Enter 打开工作台" onKeyDown={event=>{if(event.key==='Enter' && !event.repeat && event.target===event.currentTarget){event.preventDefault();void action('open');}}}>
+      <dl className="widget-consumption" title={tooltip}><dt>{state.source==='local' ? '最近用量' : '最近消费'}</dt><dd><Value value={state.cost}/></dd></dl>
+      <div className="widget-details">
+        <section className="widget-model-slot" aria-label="最近模型">
+          {model ? <ModelDetails model={model} notice={notice} tooltip={tooltip}/> : <p className="widget-empty" role="status" aria-live="polite">{empty}</p>}
+        </section>
+        <dl className="widget-balance" title={tooltip}><dt>余额</dt><dd><Value value={state.balance}/></dd></dl>
+      </div>
     </div>
-    <footer className="widget-footer">
-      <div className="widget-status"><p role="status" aria-live="polite" title={message}>{loading && <i className="widget-loading" aria-hidden="true"/>}<span>{message}</span></p><span title={updated ? updated.toLocaleString('zh-CN') : undefined}>{updatedLabel ? '更新于 '+updatedLabel : '尚未更新'}</span></div>
-      <button type="button" className="widget-refresh" disabled={!window.lumiWidget || loading} aria-label="刷新用量" onClick={()=>void action({type:'refresh'})}><RefreshCw size={13}/><span>{loading ? '同步中' : '刷新'}</span></button>
-    </footer>
+    <button type="button" className="widget-close" title="关闭悬浮窗" aria-label="关闭悬浮窗" disabled={!window.lumiWidget} onDoubleClick={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();void action('close');}}><X size={12} aria-hidden="true"/></button>
   </main>;
 }
 

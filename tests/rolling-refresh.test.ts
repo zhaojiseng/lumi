@@ -29,18 +29,25 @@ test('24h follows the current clock across midnight; 1 day starts at local midni
   assert.equal(midnight.end_timestamp-midnight.start_timestamp,86400);
 });
 
-test('saved rolling selection stays relative, has 24 hourly buckets and preserves filtered totals',()=>{
+test('saved rolling selection stays relative, partitions all 86401 seconds and preserves filtered totals',()=>{
   const prefs=applyPreferencePatch(structuredClone(DEFAULT_PREFERENCES),{selection:{siteId:DEFAULT_PREFERENCES.activeSiteId,values:{'statistics.range':'24h'}}});
   assert.equal(selectionValue(prefs,'statistics.range',7,q=>{try{resolveRange(q);return true;}catch{return false;}}),'24h');
   const now=new Date(2026,9,2,12,34,56),w=resolveRange('24h',now);
   const points=[w.start_timestamp-1,w.start_timestamp,w.start_timestamp+3600,w.end_timestamp,w.end_timestamp+1].map(created_at=>({created_at,model_name:'model-a',quota:100,token_used:5,count:1}));
   const status={system_name:'Fixture',quota_per_unit:100};
   const rows=usageSeries(points,2,status,'24h',now);
-  assert.equal(rows.length,24);assert.equal(rows.reduce((s,r)=>s+r.cost,0),3);
-  assert.equal(rows[0].label,'10/1 12:34');assert.equal(rows.at(-1)?.requests,1);
+  assert.equal(rows.length,30);assert.deepEqual(rows.reduce((s,r)=>[s[0]+r.cost,s[1]+r.tokens,s[2]+r.requests],[0,0,0]),[3,15,3]);
+  assert.deepEqual(rows.map(row=>row.timestamp),Array.from({length:30},(_,i)=>w.start_timestamp+i*2880));
+  assert.equal(rows[0].end_timestamp,w.start_timestamp+2879);assert.equal(rows.at(-1)?.end_timestamp,w.end_timestamp);
+  assert.equal(rows.at(-1)!.end_timestamp-rows.at(-1)!.timestamp+1,2881);
+  assert.equal(rows[0].label,'10/1 12:34');assert.equal(rows[0].timestamp,w.start_timestamp);assert.equal(new Date(rows[0].timestamp*1000).getSeconds(),56);
+  assert.equal(rows[1].requests,1);assert.equal(rows.at(-1)?.requests,1);
+  assert.equal(rows.at(-1)?.tooltipLabel,'2026-10-02 11:46 – 2026-10-02 12:34');
+  const shifted=usageSeries([],2,status,'24h',new Date(now.getTime()+90*60000));
+  assert.deepEqual(shifted.map(row=>row.timestamp),rows.map(row=>row.timestamp+5400));
   const chart=groupedTrend(points,2,status,'24h',now,'model','cost');
-  assert.equal(chart.rows.length,24);assert.equal(chart.lines.length,1);
-  assert.equal(chart.rows.reduce((s,r)=>s+r.values[chart.lines[0].id],0),3);
+  assert.equal(chart.rows.length,30);assert.equal(chart.lines.length,1);
+  assert.deepEqual(chart.rows.map(row=>row.values[chart.lines[0].id]),rows.map(row=>row.cost));
 });
 
 test('refresh controls preserve disabled intervals, accept configured intervals and bound invalid values',()=>{
@@ -88,7 +95,8 @@ test('rolling dashboard and log filters use request timestamps rather than parti
     assert.equal(Number(requests[0].searchParams.get('end_timestamp'))-Number(requests[0].searchParams.get('start_timestamp')),86400);
     const detail=await api.logs({range:'24h',days:2,page:1,pageSize:15,models:['model-a']});
     assert.equal(detail.total,1);assert.equal(seen.filter(url=>url.pathname==='/api/log/self').length,1);
-    assert.equal(usageSeries(dashboard.series,2,dashboard.status,'24h',new Date(dashboard.fetchedAt)).length,24);
+    const trend=usageSeries(dashboard.series,2,dashboard.status,'24h',new Date(dashboard.fetchedAt));
+    assert.equal(trend.length,30);assert.deepEqual(trend.reduce((s,r)=>[s[0]+r.cost,s[1]+r.tokens,s[2]+r.requests],[0,0,0]),[2,240,2]);
     const filtered=await api.dashboard({range:'24h',models:['absent-model'],tokenIds:[1]});
     assert.deepEqual(filtered.interval,{quota:0,tokens:0,requests:0});assert.equal(filtered.logs.total,0);assert.equal(filtered.series.length,0);
     const matched=await api.dashboard({range:'24h',models:['model-b'],tokenIds:[2]});

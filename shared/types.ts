@@ -1,3 +1,4 @@
+import type {DataRefreshAnimation} from './motion';
 export type Tool = 'codex' | 'claude';
 export type Page = 'overview' | 'usage' | 'models' | 'tools' | 'tokens' | 'settings';
 export type Theme = 'light' | 'dark' | 'system';
@@ -15,8 +16,9 @@ export const DEFAULT_LOG_COLUMNS: LogColumnId[] = ['time','model','reasoning','t
 export const MENU_BAR_SECTION_IDS = ['balance','totals','tokenDetail','efficiency','chart','models'] as const;
 export type MenuBarSectionId = typeof MENU_BAR_SECTION_IDS[number];
 export type MenuBarRange = 'follow' | '24h' | 1 | 7 | 30;
+export type WidgetDataSource = 'api' | 'local';
 export interface Preferences {
-  widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null;
+  widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null; widgetDataSource:WidgetDataSource; dataRefreshAnimation:DataRefreshAnimation;
   sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
   refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
@@ -26,7 +28,7 @@ export interface Preferences {
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'widgetEnabled' | 'widgetPosition' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
+export type PreferencePatch = Partial<Pick<Preferences, 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -54,14 +56,14 @@ export interface StatisticsQuery { range: RangeQuery; models?: string[]; tokenId
 export type DashboardQuery = RangeQuery | StatisticsQuery;
 export interface LogQuery { range?: RangeQuery; days: number; page: number; pageSize: number; model?: string; tokenName?: string; models?: string[]; tokenIds?: number[]; type?: number; }
 export interface LogPage { items: UsageLog[]; total: number; page: number; pageSize: number; }
-export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; }
+export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; cacheInputTokens?:number; cacheReadTokens?:number; }
 export interface UsageQuality {
   requestCount:number;cacheSamples:number;speedSamples:number;inputTokens:number;cacheReadTokens:number;
   outputTokens:number;durationSeconds:number;cacheHitRate:number|null;averageTokenSpeed:number|null;fetchedAt:number;
 }
 export interface TokenUsage { points: QuotaPoint[]; quality:UsageQuality; logCount: number; fetchedAt: number; }
 export type TrendGrouping = 'total' | 'model' | 'token';
-export type TrendMetric = 'cost' | 'tokens' | 'requests';
+export type TrendMetric = 'cost' | 'tokens' | 'requests' | 'cacheHitRate';
 export interface UpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error' | 'unsupported';
   currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;
@@ -208,7 +210,7 @@ export interface LumiBridge {
 export const DEFAULT_SITE_ID = 'cyg-default';
 export const DEFAULT_SITE_URL = 'https://api.example.com';
 export const DEFAULT_PREFERENCES: Preferences = {
-  widgetEnabled:false,widgetPosition:null,
+  widgetEnabled:false,widgetPosition:null,widgetDataSource:'api',dataRefreshAnimation:'slide-up',
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
   activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
   logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, bindings: [

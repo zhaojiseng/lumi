@@ -25,6 +25,7 @@ import {TrayPanel} from './services/tray-panel';
 import {WidgetPanel} from './services/widget-panel';
 import {WidgetService} from './services/widget';
 import {formattedWidget} from '../shared/widget';
+import {DATA_REFRESH_ANIMATIONS} from '../shared/motion';
 import {menuBarSelection,nativeMenuBarState,menuBarNeedsDetails} from '../shared/menu-bar';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
@@ -57,7 +58,7 @@ const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema,
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const barRangeSchema=z.union([z.literal('follow'),z.literal('24h'),z.literal(1),z.literal(7),z.literal(30)]);
-const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
+const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
 function trustedFrame(event: Electron.IpcMainInvokeEvent) {
@@ -122,11 +123,14 @@ async function start() {
   const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
   const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
   const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
-  const widgetIdentity=()=>{const site=store.activeSite(),s=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,s.userId,s.sessionId,s.sessionAuth ? null : s.accessToken,s.sessionId ? null : s.cookies])).digest('hex');};
-  const widgetUsage=new WidgetService({identity:widgetIdentity,load:()=>api.widgetUsage(),changed:()=>widgetPanel.update()});
+  const widgetIdentity=()=>{const site=store.activeSite(),s=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,s.userId,s.sessionId,s.sessionAuth ? null : s.accessToken,s.sessionId ? null : s.cookies,store.preferences.widgetDataSource])).digest('hex');};
+  const loadWidgetUsage=async()=>{
+    return store.preferences.widgetDataSource==='local' ? usage.widgetUsage() : api.widgetUsage();
+  };
+  const widgetUsage=new WidgetService({identity:widgetIdentity,load:loadWidgetUsage,minInterval:()=>store.preferences.widgetDataSource==='local' ? 1000 : 0,ttl:()=>store.preferences.widgetDataSource==='local' ? 1000 : 60000,changed:()=>widgetPanel.update()});
   let widgetTimer:ReturnType<typeof setTimeout>|undefined;
   let widgetSchedule=0;
-  const widgetPanel=new WidgetPanel({root,preload:path.join(__dirname,'widget-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>{const s=widgetUsage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:store.preferences.widgetEnabled,viewKey:widgetIdentity(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,error:s.error});},event:async e=>{
+  const widgetPanel=new WidgetPanel({root,preload:path.join(__dirname,'widget-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>{const s=widgetUsage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:store.preferences.widgetEnabled,viewKey:widgetIdentity(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,animation:store.preferences.dataRefreshAnimation,error:s.error});},event:async e=>{
     if(e.type==='close'){await store.update({widgetEnabled:false});await syncWidget();if(!win.isDestroyed())win.webContents.send('lumi:widgetVisibility',false);}
     else if(e.type==='open')navigate('overview');
     else await widgetUsage.refresh();
@@ -136,8 +140,9 @@ async function start() {
     clearTimeout(widgetTimer);widgetPanel.update();await widgetPanel.setVisible(store.preferences.widgetEnabled,store.preferences.widgetPosition);
     if(generation!==widgetSchedule || !store.preferences.widgetEnabled || quitting)return;
     void widgetUsage.refresh();
-    const tick=async()=>{if(generation!==widgetSchedule || !store.preferences.widgetEnabled || quitting)return;await widgetUsage.refresh();if(generation===widgetSchedule && store.preferences.widgetEnabled && !quitting){widgetTimer=setTimeout(tick,60000-Date.now()%60000+2000);widgetTimer.unref();}};
-    widgetTimer=setTimeout(tick,60000-Date.now()%60000+2000);widgetTimer.unref();
+    const nextDelay=()=>store.preferences.widgetDataSource==='local' ? 1000 : 60000-Date.now()%60000+2000;
+    const tick=async()=>{if(generation!==widgetSchedule || !store.preferences.widgetEnabled || quitting)return;await widgetUsage.refresh();if(generation===widgetSchedule && store.preferences.widgetEnabled && !quitting){widgetTimer=setTimeout(tick,nextDelay());widgetTimer.unref();}};
+    widgetTimer=setTimeout(tick,nextDelay());widgetTimer.unref();
   }
   let activeStatusMenu:Electron.Menu|undefined;
   let nativeBar:NativeMenuBar|undefined,trayPanel:TrayPanel|undefined,menuOpen=false;
@@ -174,7 +179,7 @@ async function start() {
   handle('browserLogin', noPayload, async () => { if (loginPending) throw new Error('登录窗口已打开。'); loginPending=browserLogin(win,store,api); try { return await loginPending; } finally { loginPending=null; } });
   handle('logout', z.string().max(100), async id => {const p=await api.logout(id);updatePanels();return p;});
   handle('removeSite', z.string().max(100), async id => {const p=await store.removeSite(id);updatePanels();return p;});
-  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {const p=await store.update(patch);scheduleMenuRefresh();updatePanels();await syncWidget();if(menuOpen)void refreshMenu();return p;});
+  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,dataRefreshAnimation:z.enum(DATA_REFRESH_ANIMATIONS).optional(),widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {const p=await store.update(patch);scheduleMenuRefresh();updatePanels();await syncWidget();if(menuOpen)void refreshMenu();return p;});
   handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await api.dashboard(input.query,input.force);

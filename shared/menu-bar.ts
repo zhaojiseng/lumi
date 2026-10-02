@@ -1,4 +1,4 @@
-import {compact,currency,formatMoney,usageSeries,hourlySeries,dailySeries} from './utils';
+import {compact,currency,formatMoney,hourlySeries,dailySeries} from './utils';
 import {barPeriodLabel} from './menu-bar-periods';
 import {MENU_BAR_SECTION_IDS,type MenuBarSectionId,type MenuBarSelection,type MenuBarUsage} from './types';
 
@@ -42,7 +42,7 @@ export function nativeMenuBarState(state:Snapshot,selection:MenuBarSelection,con
   const quality=details?.quality,points=period?.points,chartPeriod=data?.chartPeriod || period,chartSelection=chartPeriod?.selection || selection,models=new Map<string,number>();
   if(showModels)for(const p of points || [])if(Number.isFinite(p.quota) && p.quota>=0)models.set(p.model_name,(models.get(p.model_name)||0)+p.quota);
   const total=[...models.values()].reduce((a,b)=>a+b,0),chartPoints=chartPeriod?.points,now=new Date(data?.fetchedAt || Date.now());
-  const rows=showChart && chartPoints && data ? chartSelection.range==='24h' ? usageSeries(chartPoints,1,data.status,'24h',now) : chartSelection.days===1 ? hourlySeries(chartPoints,data.status,undefined,now) : dailySeries(chartPoints,chartSelection.days,data.status,undefined,now) : null;
+  const rows=showChart && chartPoints && data ? chartSelection.range==='24h' ? hourlySeries(chartPoints,data.status,'24h',now) : chartSelection.days===1 ? hourlySeries(chartPoints,data.status,undefined,now) : dailySeries(chartPoints,chartSelection.days,data.status,undefined,now) : null;
   const scope=selection.tool==='all' ? '全部请求' : selection.tool==='codex' ? 'Codex 专用令牌' : 'Claude 专用令牌';
   const message=state.phase==='loading' ? '正在刷新用量…' : state.phase==='error' ? state.error || '用量暂不可用' : data && !data.user ? '登录站点后查看用量' : needsDetails && state.detailsLoading ? '正在读取详细统计…' : needsDetails && state.detailsError ? '详细统计暂不可用' : data?.warnings.length ? '部分统计暂不可用' : scope+' · New API';
   return {type:'state',schemaVersion:1,phase:state.phase,siteName:text(data?.siteName || 'Lumi'),accountLabel:text(data?.user?.display_name || data?.user?.username || '尚未登录'),days:selection.days,tool:selection.tool,

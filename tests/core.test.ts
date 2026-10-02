@@ -67,6 +67,13 @@ test('skipping an update is separate from hiding its notice and persists through
   await again.update({dismissedUpdateVersion:''});assert.equal(again.preferences.skippedUpdateVersion,'1.2.3');await again.update({skippedUpdateVersion:''});
   const restored=new SettingsStore(path.join(root,'app'),cipher);await restored.load();assert.equal(restored.preferences.skippedUpdateVersion,'');
 });
+test('floating widget data source persists and invalid values fall back to API',async()=>{
+  const {root,store}=await fixture();assert.equal(store.preferences.widgetDataSource,'api');
+  await store.update({widgetDataSource:'local'});
+  const saved=new SettingsStore(path.join(root,'app'),cipher);await saved.load();assert.equal(saved.preferences.widgetDataSource,'local');
+  const file=path.join(root,'app','settings.json'),raw=JSON.parse(await readFile(file,'utf8'));raw.preferences.widgetDataSource='invalid';await writeFile(file,JSON.stringify(raw));
+  const migrated=new SettingsStore(path.join(root,'app'),cipher);await migrated.load();assert.equal(migrated.preferences.widgetDataSource,'api');
+});
 test('Codex direct config preserves unrelated TOML and official login, keeping the gateway token in its provider', () => {
   const before = '[projects."/sample"]\ntrust_level = "trusted"\n\n[mcp_servers.docs]\ncommand = "sample"\n';
   const r = buildCodex(before, JSON.stringify({ auth_mode: 'chatgpt', tokens: { access_token: 'old-token' }, custom: 3 }), request, 'https://gateway.invalid', 'sk-config-only');

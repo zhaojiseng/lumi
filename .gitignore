@@ -30,6 +30,8 @@ vault*.json
 .claude/
 .cc-switch/
 .lumi/
+.Lumi.qoder.site
+web/
 .ssh/
 .aws/
 .azure/

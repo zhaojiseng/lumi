@@ -3,12 +3,16 @@ import assert from 'node:assert/strict';
 import {build} from 'esbuild';
 import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
+import {existsSync} from 'node:fs';
+import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {spawn} from 'node:child_process';
+import path from 'node:path';
 import * as React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import type {WidgetAction,WidgetBridge,WidgetModel,WidgetState} from '../shared/widget';
 
-// The actual renderer is bundled in memory. Only hooks, DOM animation targets,
-// and the narrow widget bridge are mocked; no account, app or CLI is contacted.
+// Hook tests bundle the actual renderer in memory with controlled animation promises.
+// The Chromium case uses a hidden sandboxed page. All bridges and profiles are fixtures.
 const bundle=build({entryPoints:['src/widget.tsx'],bundle:true,platform:'node',format:'cjs',write:false,
   external:['react','react/jsx-runtime','react-dom/client','lucide-react'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent'});
 function deferred<T>() {
@@ -18,21 +22,20 @@ function deferred<T>() {
 }
 const model=(name:string,patch:Partial<WidgetModel>={}):WidgetModel=>({name,cost:'$0.0123',requests:'2',input:'1.2K',output:'240',cacheRead:'—',cacheWrite:'0',...patch});
 const state=(patch:Partial<WidgetState>={}):WidgetState=>({phase:'ready',enabled:true,siteName:'隔离测试站点',balance:'$23.45',cost:'$0.0123',minuteLabel:'10/02 09:41',historical:false,
-  models:[model('gpt-6'),model('claude-opus-4.6')],message:'上一分钟',updatedAt:1790905320000,viewKey:'isolated-account',dataKey:'minute-1',theme:'light',...patch});
-type Element=React.ReactElement<Record<string,any>>;
+  models:[model('gpt-6'),model('claude-opus-4.6')],message:'上一分钟',updatedAt:1790905320000,viewKey:'isolated-account',dataKey:'minute-1',theme:'light',animation:'none',...patch});
 type Effect={deps?:React.DependencyList;setup:()=>void|(()=>void);cleanup?:()=>void;dirty:boolean;layout:boolean};
 type Store={slots:any[];mounted:boolean};
-type AnimationRecord={frames:Keyframe[];options:KeyframeAnimationOptions;cancelled:boolean;cancel():void};
-type Native={props:Record<string,any>;scrollTop:number;animations:AnimationRecord[];animate(frames:Keyframe[],options:KeyframeAnimationOptions):AnimationRecord};
+type AnimationRecord={frames:Keyframe[];options:KeyframeAnimationOptions;finished:Promise<void>;cancelled:boolean;cancel():void;finish():void};
+type Native={props:Record<string,any>;animations:AnimationRecord[];animate(frames:Keyframe[],options:KeyframeAnimationOptions):AnimationRecord};
 const equalDeps=(a?:React.DependencyList,b?:React.DependencyList)=>!!a && !!b && a.length===b.length && a.every((value,index)=>Object.is(value,b[index]));
 
-async function harness(options:{missingBridge?:boolean;reduced?:boolean}={}) {
+async function harness(options:{missingBridge?:boolean;reduced?:boolean;subscribeState?:WidgetState}={}) {
   const snapshot=deferred<WidgetState>(),listeners=new Set<(next:WidgetState)=>void>(),mediaListeners=new Set<()=>void>();
   const actions:WidgetAction[]=[],events:string[]=[],stores=new Map<string,Store>(),nodes=new Map<string,Native>();
   let actionHandler:WidgetBridge['action']=async()=>{},owner:Store,cursor=0,dirty=false,staleWrites=0,tree:React.ReactNode,nativeOrder:Native[]=[];
   const media={matches:!!options.reduced,addEventListener:(_event:string,fn:()=>void)=>mediaListeners.add(fn),removeEventListener:(_event:string,fn:()=>void)=>mediaListeners.delete(fn)};
   const bridge:WidgetBridge={snapshot:()=>{events.push('snapshot');return snapshot.promise;},action:event=>{actions.push(event);return actionHandler(event);},
-    onState:fn=>{events.push('subscribe');listeners.add(fn);return ()=>listeners.delete(fn);}};
+    onState:fn=>{events.push('subscribe');listeners.add(fn);if(options.subscribeState)fn(options.subscribeState);return ()=>listeners.delete(fn);}};
   const nextSlot=(initial:()=>any)=>{const index=cursor++;if(!(index in owner.slots))owner.slots[index]=initial();return index;};
   const effect=(layout:boolean,setup:Effect['setup'],deps?:React.DependencyList)=>{
     const index=nextSlot(()=>({setup,deps,dirty:true,layout} satisfies Effect)),slot=owner.slots[index] as Effect;
@@ -52,8 +55,8 @@ async function harness(options:{missingBridge?:boolean;reduced?:boolean}={}) {
   const module={exports:{} as {WidgetApp:()=>React.ReactNode}},nodeRequire=createRequire(import.meta.url);
   const icon=()=>React.createElement('svg',{'aria-hidden':true});
   const windowMock={lumiWidget:options.missingBridge ? undefined : bridge,matchMedia:()=>media};
+  for(const key of ['lumi','lumiTray'])Object.defineProperty(windowMock,key,{get(){throw new Error('Widget must use only its narrow bridge');}});
   runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,window:windowMock,document:{getElementById:()=>null},
-    getComputedStyle:()=>({getPropertyValue:()=>media.matches ? '#2a4535' : '#e8f3ec'}),
     require:(name:string)=>name==='react' ? hooks : name==='react-dom/client' ? {createRoot:()=>{throw new Error('Unexpected real root');}} : name==='lucide-react' ? new Proxy({},{get:()=>icon}) : nodeRequire(name)});
   const cleanup=(store:Store)=>{for(const slot of store.slots)if(slot && typeof slot.setup==='function')slot.cleanup?.();store.mounted=false;};
   function render() {
@@ -68,7 +71,7 @@ async function harness(options:{missingBridge?:boolean;reduced?:boolean}={}) {
         assert.equal(typeof value.type,'string');
         const id=path+'/'+value.type;usedNodes.add(id);
         let node=nodes.get(id);
-        if(!node){node={props:value.props,scrollTop:0,animations:[],animate(frames,options){const animation={frames,options,cancelled:false,cancel(){this.cancelled=true;}};this.animations.push(animation);return animation;}};nodes.set(id,node);}
+        if(!node){node={props:value.props,animations:[],animate(frames,options){const done=deferred<void>();void done.promise.catch(()=>{});const animation={frames,options,finished:done.promise,cancelled:false,cancel(){this.cancelled=true;done.reject(new Error('Animation cancelled'));},finish(){done.resolve();}};this.animations.push(animation);return animation;}};nodes.set(id,node);}
         nativeOrder.push(node);node.props=value.props;if(value.props.ref)value.props.ref.current=node;
         const children=React.Children.toArray(value.props.children).map((child,index)=>visit(child,id+'/'+(React.isValidElement(child) && child.key!==null ? child.key : index)));
         return React.cloneElement(value,{ref:undefined},...children);
@@ -86,9 +89,11 @@ async function harness(options:{missingBridge?:boolean;reduced?:boolean}={}) {
   render();
   const matching=(name:string)=>nativeOrder.filter(node=>String(node.props.className || '').split(' ').includes(name));
   const flush=async()=>{await Promise.resolve();await Promise.resolve();render();};
+  const visible=(value:React.ReactNode):string=>React.Children.toArray(value).map(child=>React.isValidElement<Record<string,any>>(child) ? visible(child.props.children) : String(child)).join('');
   return {snapshot,actions,events,listeners,mediaListeners,render,flush,
     emit:(next:WidgetState)=>{for(const fn of listeners)fn(next);render();},
     html:()=>renderToStaticMarkup(render()),nodes:matching,
+    text:()=>visible(render()),
     button:(label:string)=>{render();const node=[...nodes.values()].find(node=>node.props['aria-label']===label && typeof node.props.onClick==='function');assert.ok(node,label);return node.props;},
     setAction:(fn:WidgetBridge['action'])=>{actionHandler=fn;},
     reduced:(matches:boolean)=>{media.matches=matches;for(const fn of mediaListeners)fn();},
@@ -97,73 +102,339 @@ async function harness(options:{missingBridge?:boolean;reduced?:boolean}={}) {
   };
 }
 
-test('subscription wins over delayed initial snapshots and failures, and unmount stops delivery',async()=>{
-  for(const reject of [false,true]){
-    const h=await harness();assert.deepEqual(h.events,['subscribe','snapshot']);
-    h.emit(state({siteName:'订阅中的新站点',viewKey:'new-site',balance:'—'}));
+test('subscription wins over late bootstrap success or failure, including synchronous delivery',async()=>{
+  for(const synchronous of [false,true])for(const reject of [false,true]){
+    const latest=state({siteName:'订阅中的新站点',viewKey:'new-site',balance:'—',latestModel:model('latest-request')});
+    const h=await harness(synchronous ? {subscribeState:latest} : {});
+    assert.deepEqual(h.events,['subscribe','snapshot']);
+    if(!synchronous)h.emit(latest);
+    const data=h.nodes('widget-data')[0];
     if(reject)h.snapshot.reject(new Error('stale bootstrap failed'));else h.snapshot.resolve(state({siteName:'过时站点',balance:'$999'}));
-    await h.flush();const html=h.html();assert.match(html,/订阅中的新站点/);assert.doesNotMatch(html,/过时站点|\$999|刷新重试/);
+    await h.flush();
+    assert.match(h.html(),/订阅中的新站点/);assert.match(h.text(),/latest-request/);
+    assert.doesNotMatch(h.html(),/过时站点|\$999|用量暂不可用/);
+    assert.equal(data.animations.length,0);
     h.unmount();assert.equal(h.listeners.size,0);assert.equal(h.mediaListeners.size,0);assert.equal(h.staleWrites(),0);
   }
-  const h=await harness();h.unmount();h.snapshot.resolve(state());await Promise.resolve();await Promise.resolve();assert.equal(h.listeners.size,0);assert.equal(h.staleWrites(),0);
-});
-
-test('all formatted models, cache read/write and unknown values render with accurate minute labels',async()=>{
-  const h=await harness(),models=Array.from({length:12},(_,i)=>model('isolated-model-'+i,{input:i===0 ? '—' : '1K',cacheRead:'—',cacheWrite:i===0 ? '—' : '0'}));
-  h.emit(state({models,balance:'—',cost:'—'}));
-  let html=h.html();assert.match(html,/上一完整分钟消费/);assert.match(html,/10\/02 09:41/);assert.match(html,/Tokens · 12 个模型/);
-  assert.equal(h.nodes('widget-model').length,12);assert.equal(h.nodes('widget-model-list').length,1);
-  for(const label of ['输入','输出','缓存读取','缓存写入'])assert.equal(html.split('<dt>'+label+'</dt>').length-1,12);
-  assert.match(html,/账户余额<\/dt><dd><span[^>]*title="—">—<\/span>/);assert.doesNotMatch(html,/NaN|undefined|null/);
-  assert.match(html,/<dt>缓存读取<\/dt><dd><span[^>]*title="—">—<\/span>/);
-  assert.match(html,/<dt>缓存写入<\/dt><dd><span[^>]*title="—">—<\/span>/);
-  h.emit(state({models,historical:true,minuteLabel:'09/30 17:26',message:'最近有消耗的一分钟',dataKey:'historical'}));
-  html=h.html();assert.match(html,/最近付费分钟消费/);assert.match(html,/历史分钟/);assert.match(html,/09\/30 17:26/);assert.doesNotMatch(html,/上一完整分钟消费/);h.unmount();
-});
-
-test('new data animates one existing list; metadata preserves rows, scroll and active animation',async()=>{
-  const h=await harness(),first=state();h.emit(first);
-  const scroll=h.nodes('widget-model-scroll')[0],list=h.nodes('widget-model-list')[0],rows=h.nodes('widget-model'),data=h.nodes('widget-data')[0];scroll.scrollTop=37;
-  const counts=[data,...rows,...h.nodes('widget-value')].map(node=>node.animations.length),initialFade=data.animations.at(-1)!;
-  for(const patch of [{phase:'loading' as const,message:'正在同步…'},{updatedAt:first.updatedAt+1000},{theme:'dark' as const},{phase:'error' as const,message:'保留上次结果'}]){
-    h.emit({...first,...patch});assert.strictEqual(h.nodes('widget-model-list')[0],list);assert.strictEqual(h.nodes('widget-model')[0],rows[0]);assert.equal(scroll.scrollTop,37);
-    assert.deepEqual([data,...rows,...h.nodes('widget-value')].map(node=>node.animations.length),counts);assert.equal(initialFade.cancelled,false);
+  for(const reject of [false,true]){
+    const h=await harness();h.unmount();
+    if(reject)h.snapshot.reject(new Error('late bootstrap failure'));else h.snapshot.resolve(state());
+    await Promise.resolve();await Promise.resolve();await Promise.resolve();
+    assert.equal(h.listeners.size,0);assert.equal(h.staleWrites(),0);
   }
-  const next={...first,balance:'$23.40',cost:'$0.0200',models:[model('gpt-6',{cost:'$0.0200',output:'320'}),first.models[1]],dataKey:'minute-2'};
-  h.emit(next);assert.equal(initialFade.cancelled,true);assert.strictEqual(h.nodes('widget-model-list')[0],list);assert.strictEqual(h.nodes('widget-model')[0],rows[0]);assert.equal(scroll.scrollTop,37);
-  assert.equal(rows[0].animations.length,counts[1]+1);assert.equal(rows[1].animations.length,counts[2]);
-  assert.equal(h.nodes('widget-model-list').length,1);assert.equal(h.nodes('widget-model').length,2);assert.match(h.html(),/\$23.40/);
-  const fade=data.animations.at(-1)!;h.emit({...next,balance:'$23.30',dataKey:'minute-3'});assert.equal(fade.cancelled,true);
-  for(const node of [data,...h.nodes('widget-model'),...h.nodes('widget-value')])for(const animation of node.animations)assert.ok(Number(animation.options.duration)>=150 && Number(animation.options.duration)<=250);
+});
+
+test('compressed markup shows unlabeled input/output and subtle cache read, with other metadata only in tooltips',async()=>{
+  const h=await harness(),latest=model('latest-request',{cost:'$0.000007',requests:'7139',input:'—',output:'240',cacheRead:'—',cacheWrite:'0'});
+  const models=Array.from({length:12},(_,i)=>model('cost-ranked-'+i));
+  h.emit(state({models,latestModel:latest}));
+  const html=h.html(),text=h.text();
+  assert.equal(text,'最近消费$0.0123latest-request——/240余额$23.45');
+  assert.equal(h.nodes('widget-model').length,1);assert.equal(h.nodes('widget-model-slot').length,1);
+  assert.equal(h.nodes('widget-data').length,1);assert.equal(h.nodes('widget-value').length,5);
+  assert.doesNotMatch(html,/<(?:header|footer|h[1-6]|ul|li|nav)\b|cost-ranked-|widget-refresh|widget-model-list|widget-model-scroll/);
+  assert.equal((html.match(/<button\b/g) || []).length,1);
+  assert.doesNotMatch(text,/输入|输出|缓存|站点|Lumi|Tokens|请求|7139|0\.000007|10\/02|09:41|上一分钟|更新|同步|刷新/);
+  const tooltip=h.nodes('widget-model')[0].props.title;
+  for(const detail of ['latest-request','模型消费：$0.000007','请求数：7139','输入：—','输出：240','缓存读取：—','缓存写入：0','上一完整分钟：10/02 09:41','隔离测试站点','更新：'])assert.ok(tooltip.includes(detail),detail);
+  assert.doesNotMatch(html,/NaN|undefined|null/);
+  h.emit(state({models,latestModel:latest,historical:true,minuteLabel:'09/30 17:26',dataKey:'historical'}));
+  assert.match(h.nodes('widget-model')[0].props.title,/最近付费分钟：09\/30 17:26/);
+  assert.doesNotMatch(h.text(),/历史|分钟|09\/30|17:26/);
+  h.unmount();
+});
+
+test('legacy model fallback and latest-only DTO keep one current model with honest unknown values',async()=>{
+  const h=await harness(),first=state({balance:'—',cost:'—',models:[model('legacy-first',{input:'—',cacheRead:'—',cacheWrite:'—'}),model('legacy-second')]});
+  h.emit(first);
+  assert.match(h.text(),/最近消费—legacy-first——\/240余额—/);
+  assert.doesNotMatch(h.html(),/legacy-second/);
+  const data=h.nodes('widget-data')[0],slot=h.nodes('widget-model-slot')[0],current=h.nodes('widget-model')[0];
+  h.emit({...first,models:[first.models[1],first.models[0]],dataKey:'reordered'});
+  assert.strictEqual(h.nodes('widget-data')[0],data);assert.strictEqual(h.nodes('widget-model-slot')[0],slot);assert.strictEqual(h.nodes('widget-model')[0],current);
+  assert.match(h.text(),/legacy-second/);assert.doesNotMatch(h.html(),/legacy-first/);assert.equal(h.nodes('widget-model').length,1);
+  h.emit({...first,models:[],latestModel:model('latest-only'),dataKey:'latest-only'});
+  assert.match(h.text(),/latest-only/);assert.equal(h.nodes('widget-model').length,1);assert.doesNotMatch(h.html(),/legacy-/);
+  h.emit({...first,models:[],dataKey:'empty'});
+  assert.equal(h.nodes('widget-model').length,0);assert.match(h.text(),/暂无消费模型/);assert.doesNotMatch(h.html(),/latest-only/);
+  h.unmount();
+});
+
+test('data changes exit, swap one tree, then enter; metadata never replays and superseded updates lose',async()=>{
+  const h=await harness(),first=state({animation:'slide-up',latestModel:model('first-request')});
+  h.emit(first);
+  const data=h.nodes('widget-data')[0],modelNode=h.nodes('widget-model')[0];
+  assert.equal(data.animations.length,0);
+  const next={...first,balance:'$23.40',latestModel:model('next-request'),dataKey:'minute-2'};
+  h.emit(next);
+  const exit=data.animations[0];
+  assert.equal(data.animations.length,1);assert.equal(exit.options.duration,120);assert.equal(exit.options.fill,'forwards');
+  assert.match(h.text(),/first-request/);assert.match(h.text(),/余额\$23.45/);assert.doesNotMatch(h.text(),/next-request|\$23.40/);
+  for(const patch of [
+    {phase:'loading' as const,message:'正在同步…'},{updatedAt:next.updatedAt+1000},{theme:'dark' as const},
+    {phase:'error' as const,message:'保留上次结果'},{siteName:'另一个站点'},
+    {models:[first.models[1],first.models[0]]},{latestModel:{...next.latestModel,requests:'999',output:'321'}},
+  ]){
+    h.emit({...next,...patch});
+    assert.strictEqual(h.nodes('widget-data')[0],data);assert.strictEqual(h.nodes('widget-model')[0],modelNode);
+    assert.equal(data.animations.length,1);assert.equal(exit.cancelled,false);
+  }
+  exit.finish();await h.flush();
+  assert.equal(exit.cancelled,true);assert.equal(data.animations.length,2);assert.equal(data.animations[1].options.duration,220);
+  assert.match(h.text(),/next-request1.2K—\/321/);assert.match(h.text(),/余额\$23.40/);assert.doesNotMatch(h.html(),/first-request/);
+  const entry=data.animations[1];
+  h.emit({...next,balance:'$23.30',latestModel:model('superseded-request'),dataKey:'minute-3'});
+  assert.equal(entry.cancelled,true);const superseded=data.animations[2];
+  h.emit({...next,balance:'$23.20',latestModel:model('newest-request'),dataKey:'minute-4'});
+  assert.equal(superseded.cancelled,true);assert.match(h.text(),/next-request/);
+  superseded.finish();await h.flush();assert.doesNotMatch(h.html(),/superseded-request|newest-request/);
+  data.animations[3].finish();await h.flush();
+  assert.equal(data.animations.length,5);assert.match(h.text(),/newest-request/);assert.match(h.text(),/余额\$23.20/);
+  assert.equal(h.nodes('widget-data').length,1);assert.equal(h.nodes('widget-model').length,1);assert.strictEqual(h.nodes('widget-model')[0],modelNode);
+  assert.ok([...h.nodes('widget-model'),...h.nodes('widget-value')].every(node=>node.animations.length===0));
+  h.unmount();assert.equal(h.mediaListeners.size,0);assert.ok(data.animations.every(animation=>animation.cancelled));
+});
+
+test('each refresh preset performs full exit and entry on the whole strip; none applies immediately',async()=>{
+  const h=await harness(),data=h.nodes('widget-data')[0];h.emit(state({animation:undefined}));
+  const presets=[undefined,'slide-up','slide-down','blur','fade','scale','none'] as const;
+  for(const [index,animation] of presets.entries()){
+    const base=state({animation,dataKey:'preset-base-'+index,balance:'$base'});
+    // Changing just the preference cancels motion without starting another one.
+    h.emit({...base,dataKey:index===0 ? 'minute-1' : 'preset-'+(index-1)});
+    const count=data.animations.length;
+    h.emit({...base,dataKey:'preset-'+index,balance:'$'+index});
+    if(animation==='none'){assert.equal(data.animations.length,count);assert.match(h.text(),/余额\$6/);continue;}
+    assert.equal(data.animations.length,count+1);
+    const exit=data.animations.at(-1)!;
+    assert.ok(Number(exit.frames[0].opacity)>Number(exit.frames.at(-1)!.opacity));assert.equal(exit.options.duration,120);
+    if(!animation || animation==='slide-up')assert.equal(exit.frames.at(-1)!.transform,'translateY(-8px)');
+    if(animation==='slide-down')assert.equal(exit.frames.at(-1)!.transform,'translateY(8px)');
+    if(animation==='blur'){assert.equal(exit.frames[0].filter,'blur(0)');assert.equal(exit.frames.at(-1)!.filter,'blur(5px)');}
+    if(animation==='scale')assert.equal(exit.frames.at(-1)!.transform,'scale(.96)');
+    assert.match(h.text(),/余额\$base/);
+    exit.finish();await h.flush();
+    assert.equal(data.animations.length,count+2);
+    const motion=data.animations.at(-1)!,start=motion.frames[0],end=motion.frames.at(-1)!;
+    assert.ok(Number(start.opacity)<Number(end.opacity));assert.equal(end.opacity,1);
+    if(!animation || animation==='slide-up'){assert.equal(start.transform,'translateY(10px)');assert.equal(end.transform,'translateY(0)');}
+    if(animation==='slide-down'){assert.equal(start.transform,'translateY(-10px)');assert.equal(end.transform,'translateY(0)');}
+    if(animation==='blur'){assert.equal(start.filter,'blur(5px)');assert.equal(end.filter,'blur(0)');}
+    if(animation==='scale'){assert.equal(start.transform,'scale(.96)');assert.equal(end.transform,'scale(1)');}
+    if(animation==='fade'){assert.equal(start.transform,undefined);assert.equal(start.filter,undefined);}
+    assert.equal(motion.options.duration,animation==='blur' ? 300 : 220);
+    assert.match(h.text(),new RegExp('余额\\$'+index));
+    assert.equal(h.nodes('widget-data').length,1);assert.equal(h.nodes('widget-model').length,1);
+    assert.ok([...h.nodes('widget-model'),...h.nodes('widget-value')].every(node=>node.animations.length===0));
+  }
+  h.unmount();assert.ok(data.animations.every(animation=>animation.cancelled));assert.equal(h.mediaListeners.size,0);
+});
+
+test('account scope and animation changes immediately apply latest data and invalidate pending completion',async()=>{
+  const h=await harness(),first=state({animation:'slide-up',latestModel:model('account-a')});h.emit(first);
+  const data=h.nodes('widget-data')[0],next={...first,balance:'$20',dataKey:'minute-2'};
+  h.emit(next);const pending=data.animations.at(-1)!;assert.match(h.text(),/余额\$23.45/);
+  h.emit({...next,animation:'blur'});assert.equal(pending.cancelled,true);assert.match(h.text(),/余额\$20/);assert.equal(data.animations.length,1);
+  pending.finish();await h.flush();assert.equal(data.animations.length,1);
+  h.emit({...next,animation:'blur',dataKey:'minute-3',balance:'$19'});const previousAccount=data.animations.at(-1)!;
+  h.emit({...next,animation:'blur',viewKey:'account-b',dataKey:'account-b-data',balance:'—',cost:'—',models:[],latestModel:undefined});
+  assert.equal(previousAccount.cancelled,true);assert.equal(h.text(),'最近消费—暂无消费模型余额—');
+  previousAccount.finish();await h.flush();assert.doesNotMatch(h.html(),/account-a|\$19|\$20|\$23.45/);assert.equal(data.animations.length,2);
+  // Scope reset must also work when a bridge happens to reuse the data key.
+  h.emit({...next,viewKey:'account-c',dataKey:'account-b-data',latestModel:model('account-c')});
+  assert.match(h.text(),/account-c/);assert.equal(data.animations.length,2);
+  h.emit({...next,viewKey:'account-c',dataKey:'account-c-next',latestModel:model('account-c'),animation:'blur'});
+  data.animations.at(-1)!.finish();await h.flush();const entering=data.animations.at(-1)!,count=data.animations.length;
+  h.emit({...next,viewKey:'account-c',dataKey:'account-c-next',latestModel:model('account-c'),animation:'none'});
+  assert.equal(entering.cancelled,true);assert.equal(data.animations.length,count);assert.match(h.text(),/account-c/);
   h.unmount();assert.equal(h.mediaListeners.size,0);
 });
 
-test('model insertion, deletion and reordering keep surviving rows and never render outgoing duplicates',async()=>{
-  const h=await harness(),first=state();h.emit(first);const rows=h.nodes('widget-model'),list=h.nodes('widget-model-list')[0];
-  h.emit({...first,models:[first.models[1],model('gemini-3'),first.models[0]],dataKey:'insert'});
-  assert.strictEqual(h.nodes('widget-model-list')[0],list);assert.strictEqual(h.nodes('widget-model')[0],rows[1]);assert.strictEqual(h.nodes('widget-model')[2],rows[0]);
-  h.emit({...first,models:[first.models[1]],dataKey:'delete'});assert.equal(h.nodes('widget-model').length,1);assert.strictEqual(h.nodes('widget-model')[0],rows[1]);assert.doesNotMatch(h.html(),/gpt-6|gemini-3/);h.unmount();
+test('reduced motion skips transitions and toggling it immediately applies the latest pending snapshot',async()=>{
+  const h=await harness({reduced:true}),data=h.nodes('widget-data')[0],first=state({animation:'slide-up'});
+  h.emit(first);h.emit({...first,dataKey:'reduced',balance:'$12'});
+  assert.equal(data.animations.length,0);assert.equal(h.mediaListeners.size,0);assert.match(h.text(),/余额\$12/);
+  h.reduced(false);h.emit({...first,balance:'$11',dataKey:'motion',animation:'blur'});
+  assert.equal(data.animations.length,0); // Preference switch applies immediately.
+  h.emit({...first,balance:'$10',dataKey:'motion-2',animation:'blur'});
+  assert.equal(data.animations.length,1);assert.match(h.text(),/余额\$11/);const exit=data.animations[0];
+  h.reduced(true);h.render();assert.equal(exit.cancelled,true);assert.match(h.text(),/余额\$10/);
+  exit.finish();await h.flush();assert.equal(data.animations.length,1);
+  h.emit({...first,balance:'—',dataKey:'no-motion',animation:'blur'});
+  assert.equal(data.animations.length,1);assert.equal(h.mediaListeners.size,0);assert.match(h.text(),/余额—/);
+  h.reduced(false);h.emit({...first,dataKey:'enter-motion',animation:'blur'});
+  data.animations.at(-1)!.finish();await h.flush();const entry=data.animations.at(-1)!;
+  h.reduced(true);h.render();assert.equal(entry.cancelled,true);assert.match(h.text(),/余额\$23.45/);
+  h.unmount();assert.equal(h.mediaListeners.size,0);
 });
 
-test('reduced motion skips new-data animations and cancels any running emphasis immediately',async()=>{
-  const h=await harness({reduced:true});h.emit(state());
-  assert.ok([...h.nodes('widget-data'),...h.nodes('widget-model'),...h.nodes('widget-value')].every(node=>node.animations.length===0));
-  h.reduced(false);h.emit(state({balance:'$12',dataKey:'motion'}));const animations=[...h.nodes('widget-data'),...h.nodes('widget-value')].flatMap(node=>node.animations);assert.ok(animations.length>0);
-  h.reduced(true);assert.ok(animations.every(animation=>animation.cancelled));
-  const count=animations.length;h.emit(state({balance:'—',dataKey:'no-motion'}));assert.equal([...h.nodes('widget-data'),...h.nodes('widget-value')].flatMap(node=>node.animations).length,count);assert.match(h.html(),/title="—">—/);h.unmount();
+test('unmount during exit prevents a late animation completion from writing state',async()=>{
+  const h=await harness(),first=state({animation:'slide-up'});h.emit(first);
+  h.emit({...first,dataKey:'pending-exit',balance:'$1'});const exit=h.nodes('widget-data')[0].animations.at(-1)!;
+  h.unmount();assert.equal(exit.cancelled,true);exit.finish();
+  await Promise.resolve();await Promise.resolve();assert.equal(h.staleWrites(),0);assert.equal(h.mediaListeners.size,0);
+});
+test('double-click and keyboard open, close stops propagation, and actions stay within the narrow bridge',async()=>{
+  const h=await harness();h.emit(state());
+  const root=h.nodes('widget-card')[0].props,content=h.nodes('widget-data')[0];
+  root.onDoubleClick();
+  let prevented=0;
+  content.props.onKeyDown({key:'Enter',repeat:false,target:content,currentTarget:content,preventDefault(){prevented++;}});
+  for(const event of [{key:'Enter',repeat:true,target:content},{key:'Escape',repeat:false,target:content},{key:'Enter',repeat:false,target:{}}])
+    content.props.onKeyDown({...event,currentTarget:content,preventDefault(){throw new Error('Unexpected key interception');}});
+  let stopped=false;
+  const event={stopPropagation(){stopped=true;}},close=h.button('关闭悬浮窗');
+  close.onDoubleClick(event);if(!stopped)root.onDoubleClick();
+  assert.equal(stopped,true);stopped=false;close.onClick(event);assert.equal(stopped,true);
+  await h.flush();
+  assert.equal(prevented,1);assert.deepEqual(JSON.parse(JSON.stringify(h.actions)),[{type:'open'},{type:'open'},{type:'close'}]);
+  assert.equal((h.html().match(/<button\b/g) || []).length,1);assert.equal(close.disabled,false);
+  const pending=deferred<void>();h.setAction(()=>pending.promise);root.onDoubleClick();
+  pending.reject(new Error('isolated action failure'));await h.flush();
+  assert.match(h.text(),/操作失败/);assert.equal(h.nodes('widget-model-notice').length,1);assert.match(h.text(),/余额\$23.45/);
+  h.emit(state());assert.doesNotMatch(h.text(),/操作失败/);
+  const late=deferred<void>();h.setAction(()=>late.promise);root.onDoubleClick();h.unmount();late.reject(new Error('late failure'));
+  await Promise.resolve();await Promise.resolve();assert.equal(h.staleWrites(),0);
 });
 
-test('only close, open and refresh actions are sent; pending refresh locks and failures retain real data',async()=>{
-  const h=await harness();h.emit(state());h.button('打开工作台').onClick();h.button('关闭悬浮窗').onClick();await h.flush();
-  const pending=deferred<void>();h.setAction(()=>pending.promise);const refresh=h.button('刷新用量');refresh.onClick();refresh.onClick();h.render();assert.equal(h.button('刷新用量').disabled,true);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.actions)),[{type:'open'},{type:'close'},{type:'refresh'}]);
-  pending.reject(new Error('isolated action failure'));await h.flush();assert.match(h.html(),/刷新失败，请重试/);assert.match(h.html(),/\$23.45/);assert.equal(h.button('刷新用量').disabled,false);
-  h.setAction(async()=>{});h.button('刷新用量').onClick();await h.flush();assert.doesNotMatch(h.html(),/刷新失败/);
-  const late=deferred<void>();h.setAction(()=>late.promise);h.button('刷新用量').onClick();h.unmount();late.reject(new Error('late failure'));await Promise.resolve();await Promise.resolve();assert.equal(h.staleWrites(),0);
+test('missing bridge, empty data and errors use concise model-slot messages and retain known totals',async()=>{
+  const missing=await harness({missingBridge:true});
+  assert.match(missing.text(),/最近消费—请在工作台打开余额—/);assert.equal(missing.button('关闭悬浮窗').disabled,true);
+  missing.nodes('widget-card')[0].props.onDoubleClick();await missing.flush();assert.equal(missing.actions.length,0);missing.unmount();
+  const h=await harness();assert.match(h.text(),/读取中…/);
+  h.snapshot.reject(new Error('isolated bootstrap failure'));await h.flush();assert.match(h.text(),/用量暂不可用/);
+  assert.doesNotMatch(h.text(),/刷新|同步|更新/);assert.equal(h.nodes('widget-empty').length,1);
+  h.emit(state({phase:'ready',models:[],balance:'$23.45',cost:'—',minuteLabel:'暂无消费分钟',message:'尚无额度消耗',updatedAt:NaN}));
+  assert.match(h.text(),/暂无消费模型/);assert.doesNotMatch(h.text(),/用量暂不可用|尚无额度消耗/);assert.doesNotMatch(h.html(),/NaN|Invalid Date/);
+  h.emit(state({phase:'error',models:[],message:'隔离的完整错误详情',updatedAt:Infinity}));
+  assert.match(h.text(),/用量暂不可用/);assert.doesNotMatch(h.text(),/完整错误详情/);assert.match(h.nodes('widget-card')[0].props.title,/隔离的完整错误详情/);
+  assert.match(h.text(),/余额\$23.45/);assert.doesNotMatch(h.html(),/Infinity|Invalid Date/);
+  h.emit(state({phase:'loading',models:[]}));assert.match(h.text(),/读取中…/);assert.doesNotMatch(h.text(),/用量暂不可用/);
+  h.emit(state());assert.equal(h.nodes('widget-empty').length,0);assert.doesNotMatch(h.text(),/读取中|上一分钟/);
+  h.unmount();
 });
 
-test('missing bridge and failed bootstrap show honest placeholders and useful recovery',async()=>{
-  const missing=await harness({missingBridge:true});assert.match(missing.html(),/请从 Lumi 工作台打开悬浮窗/);assert.equal(missing.button('刷新用量').disabled,true);assert.match(missing.html(),/title="—">—/);missing.unmount();
-  const failed=await harness();failed.snapshot.reject(new Error('isolated bootstrap failure'));await failed.flush();assert.match(failed.html(),/用量暂不可用，请刷新重试/);assert.equal(failed.button('刷新用量').disabled,false);
-  failed.emit(state({models:[],balance:'—',cost:'—',minuteLabel:'暂无消费分钟',message:'尚无额度消耗'}));assert.doesNotMatch(failed.html(),/刷新重试/);assert.match(failed.html(),/暂无消费模型/);failed.unmount();
+
+test('244×64 Chromium layout keeps both themes, long values and controls inside the strip', {timeout:20000},async t=>{
+  let electron:string;
+  try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron runtime unavailable');}
+  if(!existsSync(electron))return t.skip('Electron runtime unavailable');
+  await mkdir('.test-data',{recursive:true});
+  const root=await mkdtemp(path.resolve('.test-data/widget-ui-'));
+  t.after(async()=>{
+    const relative=path.relative(path.resolve('.test-data'),root);
+    assert.ok(relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+    await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  });
+  const renderer=await build({entryPoints:['src/widget.tsx'],bundle:true,platform:'browser',format:'iife',write:false,outfile:'renderer.js',
+    define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
+  await writeFile(path.join(root,'renderer.js'),renderer.outputFiles.find(file=>file.path.endsWith('.js'))!.contents);
+  await writeFile(path.join(root,'renderer.css'),await readFile('src/widget.css'));
+  await writeFile(path.join(root,'fixture.html'),'<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="renderer.css"></head><body><div id="root"></div><script>'+
+    'window.fixtureState='+JSON.stringify(state({latestModel:model('claude-opus-4.6')}))+';window.fixtureActions=[];const listeners=new Set();'+
+    'window.fixtureEmit=s=>{window.fixtureState=s;for(const f of listeners)f(s);};'+
+    'window.lumiWidget={snapshot:async()=>window.fixtureState,action:async e=>{window.fixtureActions.push(e);},onState:f=>{listeners.add(f);return()=>listeners.delete(f);}};'+
+    '</script><script src="renderer.js"></script></body></html>');
+  // This executable opens only a hidden, sandboxed fixture page and isolated profile.
+  await writeFile(path.join(root,'audit.cjs'),String.raw`
+const {app,BrowserWindow}=require('electron');
+const fs=require('node:fs/promises'),path=require('node:path');
+for(const name of ['userData','sessionData','logs','crashDumps']){
+  const folder=path.join(__dirname,name);require('node:fs').mkdirSync(folder,{recursive:true});app.setPath(name,folder);
+}
+app.disableHardwareAcceleration();
+app.whenReady().then(async()=>{
+  const win=new BrowserWindow({width:244,height:64,useContentSize:true,show:false,frame:false,thickFrame:false,resizable:false,hasShadow:false,transparent:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});
+  await win.loadFile(path.join(__dirname,'fixture.html'));
+  for(let i=0;i<40;i++){if(await win.webContents.executeJavaScript("!!document.querySelector('.widget-model-name')"))break;await new Promise(r=>setTimeout(r,25));}
+  const results=[];
+  for(const [name,patch] of [
+    ['light',{theme:'light'}],['dark',{theme:'dark'}],
+    ['long',{theme:'light',cost:'$0.00000012',balance:'$123,456,789.99',latestModel:{name:'isolated-very-long-latest-model-name-with-a-provider-prefix',cost:'$0.00000001',requests:'12345',input:'123.45M',output:'456.78K',cacheRead:'789.01M',cacheWrite:'234.56K'}}],
+    ['empty',{models:[],latestModel:undefined}],
+    ['error',{phase:'error',message:'isolated permission details'}],
+  ]){
+    await win.webContents.executeJavaScript('window.fixtureEmit({...window.fixtureState,...'+JSON.stringify(patch)+(name==='empty' ? ',latestModel:undefined' : '')+'});');
+    await new Promise(r=>setTimeout(r,30));
+    results.push(await win.webContents.executeJavaScript('('+function inspect(){
+      const rect=node=>{const r=node.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,right:r.right,bottom:r.bottom};};
+      const card=document.querySelector('.widget-card'),data=document.querySelector('.widget-data');
+      const bounds=Object.fromEntries(['.widget-card','.widget-data','.widget-consumption','.widget-details','.widget-model-slot','.widget-balance'].map(s=>[s,rect(document.querySelector(s))]));
+      const textBounds=[...data.querySelectorAll('dt, dd, .widget-model-name, .widget-model-notice, .widget-empty')].map(node=>({className:node.className,tag:node.tagName,...rect(node)}));
+      const style=getComputedStyle(card);
+      return {viewport:[innerWidth,innerHeight],document:[document.documentElement.scrollWidth,document.documentElement.scrollHeight],
+        bounds,textBounds,text:data.textContent,background:style.backgroundColor,shadow:style.boxShadow,image:style.backgroundImage,
+        drag:style.getPropertyValue('-webkit-app-region'),contentDrag:getComputedStyle(data).getPropertyValue('-webkit-app-region'),
+        closeOpacity:getComputedStyle(document.querySelector('.widget-close')).opacity,
+        fonts:[getComputedStyle(document.querySelector('.widget-consumption dd')).fontSize,getComputedStyle(document.querySelector('.widget-balance dd')).fontSize],
+        models:document.querySelectorAll('.widget-model').length,content:document.querySelectorAll('.widget-data').length};
+    }.toString()+')()'));
+    results.at(-1).name=name;
+    if(process.env.LUMI_WIDGET_CAPTURE_DIR && (name==='light' || name==='dark' || name==='long')){
+      const image=await win.webContents.capturePage();
+      await fs.mkdir(process.env.LUMI_WIDGET_CAPTURE_DIR,{recursive:true});
+      await fs.writeFile(path.join(process.env.LUMI_WIDGET_CAPTURE_DIR,'widget-'+name+'.png'),image.toPNG());
+    }
+  }
+  const transition=await win.webContents.executeJavaScript('('+async function transition(){
+    const next={...window.fixtureState,phase:'ready',viewKey:'animation-fixture',dataKey:'real-1',animation:'slide-up',balance:'$old',latestModel:{name:'old-model',cost:'$1',requests:'1',input:'1',output:'1',cacheRead:'0',cacheWrite:'0'}};
+    const wait=()=>new Promise(r=>setTimeout(r,10));
+    const data=document.querySelector('.widget-data');
+    window.fixtureEmit(next);await wait();
+    window.fixtureEmit({...next,dataKey:'real-2',balance:'$new',latestModel:{...next.latestModel,name:'new-model'}});await wait();
+    const outgoing=data.textContent,exit=data.getAnimations()[0],exitDuration=exit?.effect.getTiming().duration;
+    exit?.finish();await wait();
+    const incoming=data.textContent,entry=data.getAnimations()[0],entryDuration=entry?.effect.getTiming().duration;
+    window.fixtureEmit({...next,dataKey:'real-3',balance:'$superseded'});await wait();
+    const superseded=data.getAnimations()[0];
+    window.fixtureEmit({...next,dataKey:'real-4',balance:'$latest'});await wait();
+    const supersededState=superseded?.playState;
+    data.getAnimations()[0]?.finish();await wait();const latest=data.textContent;
+    window.fixtureEmit({...next,viewKey:'new-account',dataKey:'new-account',balance:'—',cost:'—',models:[],latestModel:undefined});await wait();
+    return {outgoing,incoming,exitDuration,entryDuration,supersededState,latest,reset:data.textContent,remaining:data.getAnimations().length,content:document.querySelectorAll('.widget-data').length};
+  }.toString()+')()');
+  const controls=await win.webContents.executeJavaScript('('+function controls(){
+    const data=document.querySelector('.widget-data'),close=document.querySelector('.widget-close');
+    data.focus();const focusedOpacity=getComputedStyle(close).opacity;
+    data.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));
+    data.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    close.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));close.click();
+    return {focusedOpacity,actions:window.fixtureActions,wideBridge:typeof window.lumi,require:typeof require};
+  }.toString()+')()');
+  process.stdout.write('WIDGET_LAYOUT_RESULT '+JSON.stringify({results,transition,controls})+'\n');
+  win.destroy();app.exit(0);
+}).catch(error=>{process.stderr.write(String(error.stack || error));app.exit(1);});
+`);
+  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+  const child=spawn(electron,[path.join(root,'audit.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});
+  let stdout='',stderr='';
+  child.stdout.on('data',chunk=>{stdout+=chunk;});child.stderr.on('data',chunk=>{stderr+=chunk;});
+  const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
+  assert.equal(code,0,stderr);
+  const line=stdout.split(/\r?\n/).find(line=>line.startsWith('WIDGET_LAYOUT_RESULT '));assert.ok(line,stdout+stderr);
+  const {results,transition,controls}=JSON.parse(line.slice('WIDGET_LAYOUT_RESULT '.length));
+  for(const result of results){
+    assert.deepEqual(result.viewport,[244,64],result.name);assert.deepEqual(result.document,[244,64],result.name);
+    const card=result.bounds['.widget-card'],data=result.bounds['.widget-data'];
+    assert.equal(result.content,1);assert.ok(result.models<=1);
+    for(const bounds of [...Object.values(result.bounds),...result.textBounds] as {x:number;y:number;right:number;bottom:number}[]){
+      assert.ok(bounds.x>=card.x && bounds.y>=card.y && bounds.right<=card.right+.5 && bounds.bottom<=card.bottom+.5,JSON.stringify({name:result.name,bounds,card}));
+    }
+    assert.ok(result.bounds['.widget-consumption'].right<result.bounds['.widget-model-slot'].x);
+    assert.ok(result.bounds['.widget-model-slot'].bottom<=result.bounds['.widget-balance'].y);
+    assert.ok(data.height<=54);assert.deepEqual(result.fonts,['16px','11px']);
+    const [red,green,blue]=result.background.match(/\d+/g).map(Number);assert.ok(green>red && green>blue,result.background);
+    assert.equal(result.shadow,'none');assert.equal(result.image,'none');assert.equal(result.drag,'drag');assert.equal(result.contentDrag,'no-drag');
+    assert.equal(result.closeOpacity,'0');
+  }
+  assert.equal(results.find((result:any)=>result.name==='long').models,1);
+  assert.match(results.find((result:any)=>result.name==='empty').text,/暂无消费模型/);
+  assert.match(results.find((result:any)=>result.name==='error').text,/用量暂不可用/);
+  assert.match(transition.outgoing,/old-model/);assert.match(transition.outgoing,/余额\$old/);assert.doesNotMatch(transition.outgoing,/new-model|\$new/);
+  assert.match(transition.incoming,/new-model/);assert.match(transition.incoming,/余额\$new/);
+  assert.equal(transition.exitDuration,120);assert.equal(transition.entryDuration,220);assert.equal(transition.supersededState,'idle');
+  assert.match(transition.latest,/余额\$latest/);assert.doesNotMatch(transition.latest,/\$superseded/);
+  assert.equal(transition.reset,'最近消费—暂无消费模型余额—');assert.equal(transition.remaining,0);assert.equal(transition.content,1);
+  assert.equal(controls.focusedOpacity,'1');assert.deepEqual(controls.actions,[{type:'open'},{type:'open'},{type:'close'}]);
+  assert.equal(controls.wideBridge,'undefined');assert.equal(controls.require,'undefined');
 });
