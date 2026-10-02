@@ -263,7 +263,7 @@ async function start() {
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
         const local=await window.lumi.localUsage(1,requestId);stopProgress();
-        let snapshotValid=false;
+        let snapshotValid=false,localSessionChecks={sessionFound:!!local.sessions?.length};
         if(local.sessions?.length){
           const requestId=crypto.randomUUID(),progress=[];const stop=window.lumi.onLocalSessionProgress(value=>{if(value.requestId===requestId)progress.push(value);});
           const snapshot=await window.lumi.loadLocalSession({sessionId:local.sessions[0].id,query:1,requestId});stop();
@@ -272,10 +272,12 @@ async function start() {
           const raw=await window.lumi.localSessionRaw({snapshotId:snapshot.snapshotId,eventId:content.items[0].id,offset:0});
           let invalidRaw=false;try{await window.lumi.localSessionRaw({snapshotId:snapshot.snapshotId,eventId:'../auth.json',offset:0});}catch{invalidRaw=true;}
           await window.lumi.releaseLocalSession({snapshotId:snapshot.snapshotId});let released=false;try{await window.lumi.localSessionRecords({snapshotId:snapshot.snapshotId,page:1,pageSize:50});}catch{released=true;}
-          snapshotValid=snapshot.total===1 && records.items.length===1 && content.items.some(item=>item.text.includes('本地消息检查')) && raw.totalBytes>0 && snapshot.metadata.title==='桌面会话检查' && progress.some(value=>value.phase==='complete') && invalidRaw && released;
+          Object.assign(localSessionChecks,{oneCall:snapshot.total===1,oneRecord:records.items.length===1,content:content.items.some(item=>item.text.includes('本地消息检查')),raw:raw.totalBytes>0,title:snapshot.metadata.title==='桌面会话检查',snapshotProgress:progress.some(value=>value.phase==='complete'),invalidRaw,released});
+          snapshotValid=Object.values(localSessionChecks).every(Boolean);
         }
         const changed=await window.lumi.updatePreferences({widgetInputMode:'uncached',widgetPeriod:'latest'});
-        const localSessionIpcValid=snapshotValid && invalidDetails && Array.isArray(local.sessions) && progress.some(value=>value.phase==='complete') && changed.widgetInputMode==='uncached' && changed.widgetPeriod==='latest';
+        Object.assign(localSessionChecks,{invalidDetails,sessions:Array.isArray(local.sessions),scanProgress:progress.some(value=>value.phase==='complete'),inputMode:changed.widgetInputMode==='uncached',period:changed.widgetPeriod==='latest'});
+        const localSessionIpcValid=snapshotValid && Object.values(localSessionChecks).every(Boolean);
         await window.lumi.updatePreferences({widgetInputMode:'total',widgetPeriod:60});
         const cacheBefore=await window.lumi.appCache(),cleared=await window.lumi.clearAppCache();
         const appCacheValid=Number.isFinite(cacheBefore.totalBytes) && cleared.freedBytes>=0 && Array.isArray(cleared.cache.warnings);
@@ -283,7 +285,7 @@ async function start() {
         const header=document.querySelector('.titlebar'),sidebar=document.querySelector('.sidebar'),rect=header?.getBoundingClientRect(),side=sidebar?.getBoundingClientRect();
         const platformLayout=!!rect && !!side && (rect.x===0 && Math.abs(rect.width-innerWidth)<1 && side.top>=rect.bottom && parseFloat(getComputedStyle(sidebar).borderTopLeftRadius)>0);
         const titlebarGeometry=platformLayout && rect.y===0 && header.parentElement.classList.contains('desktop-shell') && getComputedStyle(header).getPropertyValue('-webkit-app-region')==='drag' && getComputedStyle(document.querySelector('.titlebar-actions')).getPropertyValue('-webkit-app-region')==='no-drag';
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,pluginIpcValid,localSessionIpcValid,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,pluginIpcValid,localSessionIpcValid,localSessionChecks,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
       await win.webContents.executeJavaScript(String.raw`(async()=>{
@@ -304,7 +306,7 @@ async function start() {
       const oldGeneration=extensions.statuses().find(s=>s.manifest.id==='extension.lumi.notes')!.generation!;
       await win.webContents.executeJavaScript(String.raw`(async()=>{document.querySelector('[aria-label="启用工作台便笺"]').click();const end=performance.now()+4000;while(document.querySelector('iframe[src^="lumi-extension:"]')){if(performance.now()>end)throw new Error('Revoked extension frame retained');await new Promise(r=>setTimeout(r,20));}})()`);
       result.externalPluginValid=externalIsolation && extensions.statuses().find(s=>s.manifest.id==='extension.lumi.notes')!.state==='disabled' && !extensions.asset('lumi-extension://extension.lumi.notes/'+oldGeneration+'/index.html');
-      result.interfacePluginValid=await win.webContents.executeJavaScript(String.raw`(async()=>{
+      result.interfacePluginChecks=await win.webContents.executeJavaScript(String.raw`(async()=>{
         const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface smoke timed out: '+label+'; selected='+document.querySelector('.desktop-shell')?.dataset.interface+'; '+(document.querySelector('.plugin-settings [role=alert]')?.textContent || document.querySelector('.interface-settings [role=alert]')?.textContent || ''));await new Promise(r=>setTimeout(r,20));}};
         const settings=document.querySelector('.settings-page'),input=document.querySelector('[aria-label="余额提醒阈值"]'),scroll=document.querySelector('.content-scroll'),shell=document.querySelector('.desktop-shell');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'34.5');input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();scroll.scrollTop=80;
@@ -312,15 +314,16 @@ async function start() {
         Array.from(document.querySelectorAll('[role=radio]')).find(e=>e.textContent==='紧凑界面').click();
         await until(()=>shell.dataset.interface==='extension.lumi.compact','enable');
         const saved=(await window.lumi.extensionInventory()).interfaceStyle?.id==='extension.lumi.compact';
-        const retained=document.querySelector('.settings-page')===settings && input.value==='34.5' && document.activeElement===input && scroll.scrollTop===80 && document.querySelector('.sidebar').getBoundingClientRect().width<width;
+        const checks={saved,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
         document.querySelector('.extension-manager .button:last-child').click();
         await new Promise(r=>setTimeout(r,20));
         await until(()=>!document.querySelector('.extension-manager .button:last-child').disabled,'reload');
         const reloadRetained=shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===settings && input.value==='34.5';
         const noOverlay=!document.querySelector('.interface-recovery');Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面').click();
         await until(()=>shell.dataset.interface==='interface.default','recover');
-        return saved && retained && reloadRetained && noOverlay && !(await window.lumi.extensionInventory()).interfaceStyle && document.querySelector('.sidebar').getBoundingClientRect().width===width && document.querySelector('.settings-page')===settings && input.value==='34.5';
+        return {...checks,reloadRetained,noOverlay,defaultSelected:!(await window.lumi.extensionInventory()).interfaceStyle,defaultWidth:document.querySelector('.sidebar').getBoundingClientRect().width===width,recoveredSettings:document.querySelector('.settings-page')===settings,recoveredDraft:input.value==='34.5'};
       })()`);
+      result.interfacePluginValid=Object.values(result.interfacePluginChecks).every(Boolean);
       await plugins.setEnabled('surface.widget',true);
       result.widgetPanel=await plugins.require('surface.widget','surface.control').smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);
       await plugins.setEnabled('surface.widget',false);
