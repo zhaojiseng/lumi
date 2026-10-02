@@ -43,7 +43,7 @@ export class PluginResource {
     if(this.state.busyId)throw new Error('插件状态正在更新，请稍后再试。');
     const previous=this.state.statuses,version=++this.version;
     this.publish({...this.state,busyId:id,error:'',statuses:previous.map(status=>status.manifest.id===id ? {...status,state:enabled ? 'activating' : 'deactivating',error:undefined} : status)});
-    try{const statuses=await this.bridge.setPluginEnabled(id,enabled);if(version===this.version)this.publish({...this.state,statuses,busyId:null});}
+    try{const statuses=await this.bridge.setPluginEnabled(id,enabled),extensions=await this.bridge.extensionInventory?.();if(version===this.version){if(extensions)this.registerExtensions?.(extensions);this.publish({...this.state,statuses,extensions:extensions || this.state.extensions,busyId:null});}}
     catch(error:unknown){
       let statuses=previous;
       try{statuses=await this.bridge.listPlugins();}catch{/* Failed write keeps the last known persisted state. */}

@@ -56,6 +56,26 @@ test('external manifest registers all interface slots and withdraws without alte
   await f.host.setView(id,'workbench',false);assert.equal(workbenchContributions(f.host.statuses()).length,0);assert.equal(settingsTabContributions(f.host.statuses()).length,1);
   await f.host.setEnabled(id,false);assert.equal(connectionContributions(f.host.statuses()).length,0);assert.equal(rendererNavigation([],f.host.statuses()).length,0);
 });
+test('interface packages select exclusively, persist atomically and fall back when updated or missing',async t=>{
+  const f=await fixture(t),compact='extension.lumi.compact',other='extension.lumi.other';
+  await cp('extensions/packages/'+compact,path.join(f.options.directory,compact),{recursive:true});
+  await cp('extensions/packages/'+compact,path.join(f.options.directory,other),{recursive:true});
+  const raw=JSON.parse(await readFile(path.join(f.options.directory,other,'plugin.json'),'utf8'));raw.id=other;await writeFile(path.join(f.options.directory,other,'plugin.json'),JSON.stringify(raw));
+  await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
+  await f.host.setEnabled(compact,true);assert.equal(f.host.inventory().interfaceStyle?.id,compact);assert.match(f.host.inventory().interfaceStyle!.css,/sidebar/);
+  await f.host.setEnabled(other,true);assert.equal(f.host.statuses().find(p=>p.manifest.id===compact)?.state,'disabled');assert.equal(f.host.inventory().interfaceStyle?.id,other);
+  const restarted=new ExtensionHost(f.options);await restarted.start();t.after(()=>restarted.dispose());assert.equal(restarted.inventory().interfaceStyle?.id,other);
+  await f.host.setEnabled(other,false);assert.equal(f.host.inventory().interfaceStyle,undefined);
+  await f.host.setEnabled(compact,true);await writeFile(path.join(f.options.directory,compact,'interface.css'),':scope{--sidebar-width:190px}');await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
+  await f.host.setEnabled(compact,true);await rm(path.join(f.options.directory,compact),{recursive:true});await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
+  await f.host.setEnabled(other,true);await rm(f.root,{recursive:true});await writeFile(f.root,'blocked settings directory');await assert.rejects(f.host.setEnabled(other,false));assert.equal(f.host.inventory().interfaceStyle?.id,other);
+});
+test('interface packages require bounded CSS and cannot declare data or script contributions',async t=>{
+  const f=await fixture(t),raw=JSON.parse(await readFile('extensions/packages/extension.lumi.compact/plugin.json','utf8'));
+  assert.throws(()=>parseExtensionManifest({...raw,permissions:['network.read']}));assert.throws(()=>parseExtensionManifest({...raw,contributions:[{id:'main',slot:'sidebar',title:'Main',entry:'main.html'}]}));
+  assert.throws(()=>parseExtensionManifest({...raw,interface:{stylesheet:'../bad.css'}}));
+  const directory=path.join(f.options.directory,raw.id);await cp('extensions/packages/'+raw.id,directory,{recursive:true});await rm(path.join(directory,'interface.css'));await assert.rejects(readExtensionPackage(directory),/界面样式/);
+});
 test('network port only permits declared public HTTPS destinations and never follows redirects',async()=>{
   for(const address of ['127.0.0.1','10.0.0.1','172.16.0.1','192.168.1.1','169.254.169.254','100.64.0.1','::1','::ffff:127.0.0.1','fc00::1','fe80::1'])assert.equal(publicExtensionAddress(address),false,address);
   assert.equal(publicExtensionAddress('8.8.8.8'),true);assert.equal(publicExtensionAddress('2606:4700::1111'),true);

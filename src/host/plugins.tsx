@@ -31,7 +31,7 @@ export function PluginSettingsSection(){
   return <section className="surface panel plugin-settings" aria-label="内置插件设置"><div className="section-heading"><div><h2>插件</h2><p>按接入和桌面功能管理插件，子项控制显示内容。</p></div></div>
     {loading && <p role="status">正在读取插件状态…</p>}{error && <p className="warning-banner error-banner" role="alert">{error}</p>}
     <h3 className="plugin-kind-heading">内置插件</h3>
-    {[...items.filter(item=>item.status.origin!=='external'),...items.filter(item=>item.status.origin==='external')].map((item,index,array)=>{
+    {[...items.filter(item=>item.status.origin!=='external'),...items.filter(item=>item.status.origin==='external' && !extensions?.plugins.some(p=>p.manifest.id===item.id && p.manifest.kind==='interface'))].map((item,index,array)=>{
       const enabled=item.status.state==='active' || item.status.state==='activating';
       const pending=item.status.state==='activating' || item.status.state==='deactivating',locked=!!busyId || pending;
       const label=pending ? '正在更新' : item.status.state==='failed' ? '启用失败' : enabled ? '已启用' : '已停用';

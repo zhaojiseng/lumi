@@ -110,6 +110,10 @@ Vite emits `dist/`; esbuild emits CommonJS main/preload bundles in `dist-electro
 `npm run build` must retain `scripts/generate-notices.mjs`: it collects complete production-dependency LICENSE/NOTICE text into `dist/third-party/` and fails when required text is missing. New runtime dependencies need collectible license text. Vite's public-asset copy also carries reference-project licenses from `public/third-party/`; preserve that distribution chain and the native helper's attribution. See `THIRD_PARTY_NOTICES.md`, `docs/ARCHITECTURE.md`, and `docs/RELEASING.md` for the corresponding design/distribution details.
 
 
+## Interface plugins
+
+`plugins/interface.default/` owns desktop chrome JSX and shell geometry; App retains data, preferences and navigation. `InterfaceShellProps` is the trusted renderer contract. `src/host/interface.tsx` keeps shell/page nodes stable and applies a selected external `kind: interface` package as scoped, validated CSS. Only one external interface is active; changes/missing packages fall back to default. Recovery lives outside the CSS scope. Preserve Settings drafts/focus/scroll when switching/reloading. External interface v1 has no script, feature contributions, SDK or data permissions; it adjusts existing layout/skin, not arbitrary React replacement. Author selectors/limits: `extensions/README.md`; regression: `tests/interface-plugin-ui.test.ts`.
+
 ## Built-in plugins and independent sources
 
 `plugins/manifests.ts` contains metadata only; `electron/host/plugins.ts` and `src/host/renderer-registry.ts` assemble trusted main/renderer implementations separately. Fixed typed IPC remains the security boundary. Workbench, Usage, Models and Tokens are presentation shells with provider-owned content contributions. New API owns its account cards, billing/log views, tokens and dedicated-token policy; local sessions own the independent local Usage view. New API owns concrete Models/Tokens views; Codex/Claude adapters contribute tool-specific options while the Tools system owns transactions; former page/service paths are compatibility exports.

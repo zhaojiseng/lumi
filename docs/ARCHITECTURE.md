@@ -167,6 +167,12 @@ Codex 接入通过主进程能力 `subscriptionUsage.read` 和固定 IPC `readCo
 
 两个表面的 runtime 位于各自插件内，拥有受限面板 IPC、缓存、计时器、主题订阅和平台图标/helper。主进程只提供平台环境及操作接口，插件宿主经通用 `surface.control` 发出更新通知。停用完整释放资源，重新启用创建新 runtime；不从主窗口的挂载状态读取数据。
 
+## 独立界面插件
+
+`plugins/interface.default/` 提供默认外壳的 JSX 和桌面布局，`App.tsx` 通过受限 `InterfaceShellProps` 传入状态与动作，并保留所有账户/请求/偏好管理。标题栏、悬浮侧栏、滚动容器、状态栏、搜索和通知随界面插件维护；系统功能页面仍通过稳定 children 插槽挂载。
+
+外部 `kind: interface` 包以清单/CSS/LICENSE 独立分发，不编译进 EXE。renderer 宿主将 CSSOM 校验后的规则包装到插件专属 `@scope`，一次只能选中一个包。该接口 v1 提供布局/皮肤，不运行外部脚本或替换宿主 React 树。设置切换只更新样式，保留草稿、焦点和滚动；选中包丢失/变更或样式无效时采用默认布局。作用域外的恢复按钮可撤回额外样式，功能插件及其数据生命周期不受界面切换影响。契约和作者示例见 [额外插件指南](../extensions/README.md#界面插件-v1)。
+
 ## 独立分发的额外插件
 
 `extensions/packages/` 与 `plugins/` 分开：前者是 JSON 清单和自包含 web 文件包，不参与 Vite/esbuild，不进入安装 EXE/app.asar，打包后单独输出到 release 的 extensions 目录。应用扫描用户数据的 extensions 目录；开发时还扫描仓库包，安装后也支持 resources/extensions 旁置包。作者可直接提交独立包，无需修改内置注册表或重新构建宿主。

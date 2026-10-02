@@ -4,7 +4,7 @@
 
 ## 制作与运行
 
-复制 `packages/extension.lumi.notes/`，将文件夹及 `plugin.json` 的 ID 改为 `extension.<作者>.<名称>`。每个包至少包含 `plugin.json`、完整 `LICENSE` 和贡献声明的 HTML 入口；普通 JavaScript/CSS/图片/字体可同包发布。React/Vue/TypeScript 也可使用，但作者需将其构建成自包含 web 资源，不能 import Lumi 源码或要求用户安装依赖。
+功能插件复制 `packages/extension.lumi.notes/`，界面插件复制 `packages/extension.lumi.compact/`，将文件夹及 `plugin.json` 的 ID 改为 `extension.<作者>.<名称>`。每个包包含 `plugin.json`、完整 `LICENSE`，以及对应的 HTML 入口或界面 CSS。功能插件的普通 JavaScript/CSS/图片/字体可同包发布；React/Vue/TypeScript 需构建成自包含 web 资源，不能 import Lumi 源码或要求用户安装依赖。
 
 开发桌面应用自动扫描本仓库 `extensions/packages/`。已安装应用：在设置 → 插件 → 额外插件目录，打开目录并复制完整包文件夹，点击“重新扫描”，然后启用。新包默认停用；重新扫描到字节变化时也停用，重新启用代表接受当前清单和权限。启停和扫描保持设置页实例，无需重启或重新编译 EXE。
 
@@ -17,7 +17,7 @@ npm run check:extensions -- extensions/packages/extension.lumi.notes
 
 ## 清单与贡献
 
-以示例 `plugin.json` 为起点，`schemaVersion` 和 `hostApiVersion` 均为 1。`switches` 申请功能滑块；`contributions` 可声明多个条目，每项包括 `id`、`slot`、`title`、`entry`，以及可选 `order`、`scope`、`switch`、`section`。
+以示例 `plugin.json` 为起点，`schemaVersion` 和 `hostApiVersion` 均为 1。`kind: "feature"` 是兼容默认值。`switches` 申请功能滑块；`contributions` 可声明多个条目，每项包括 `id`、`slot`、`title`、`entry`，以及可选 `order`、`scope`、`switch`、`section`。
 
 | slot | 放置位置 |
 | --- | --- |
@@ -30,7 +30,51 @@ npm run check:extensions -- extensions/packages/extension.lumi.notes
 
 `scope: site` 跟随当前站点重挂载；`independent`（默认）保留独立界面。`switch` 必须引用本包声明的子开关；父插件关闭时全部贡献撤回。宿主生成 `plugin:<包ID>:<贡献ID>`，包不能覆盖内置页面。外部 UI 是独立隔离 frame，不能直接使用宿主 React context。
 
-## SDK v1
+## 界面插件 v1
+
+界面插件与功能/数据插件独立。内置 `interface.default` 提供标题栏、悬浮侧栏、内容容器、状态栏、搜索和通知；外部界面包以 CSS 调整这些已有区域的布局、间距、颜色和排版，不执行 JavaScript，也不替换 React 组件。
+
+最小清单：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "extension.author.layout",
+  "kind": "interface",
+  "name": "我的界面",
+  "version": "1.0.0",
+  "hostApiVersion": 1,
+  "description": "自定义布局和皮肤",
+  "author": "Author",
+  "license": "MIT",
+  "interface": {"stylesheet": "interface.css"}
+}
+```
+
+在同目录提供 `interface.css` 和完整 `LICENSE`。此类包不能声明 `permissions`、`networkOrigins`、`contributions` 或 `switches` 的非空内容；无需 SDK 或 HTML 入口。安装方式与功能插件相同，在常规设置的“界面插件”中选择。一次只启用一个额外界面包，选择默认界面会停用当前包。选中状态独立持久化，重启后恢复。
+
+宿主将样式包装在 `@scope (.desktop-shell[data-interface="<插件ID>"])` 内。用 `:scope` 指向外壳，不使用 `:root`、`html` 或 `body` 修改整个文档：
+
+```css
+:scope { --sidebar-width: 180px; --shell-inset: 12px; --accent: #3561b7; }
+:scope > .sidebar { border-radius: 12px; }
+.content-container { padding: 18px 20px; }
+@media (max-width: 1100px) { :scope { --sidebar-width: 164px; } }
+```
+
+| 区域 | 选择器 / 可用变量 |
+| --- | --- |
+| 外壳 | `:scope`，`--sidebar-width`、`--shell-inset` |
+| 标题栏 | `:scope > .titlebar`、`.titlebar-actions`、`.breadcrumb` |
+| 侧栏 | `:scope > .sidebar`、`.sidebar-navigation`、`.sidebar-footer`、`.nav-item` |
+| 内容与状态栏 | `.main-area`、`.content-scroll`、`.content-container`、`.app-statusbar` |
+| 配色 | `--accent`、`--accent-soft`、`--accent-hover`；继承默认浅/深色语义变量 |
+
+保留各平台标题栏/窗口控制可用、侧栏悬浮和内容滚动。CSS 文件最多 64 KiB / 1000 条规则，仅支持样式规则（包括嵌套）、`@media` 和 `@supports`。拒绝 `@import`、`@font-face`、URL/image-set 资源、窗口拖动区域属性及高于 1000 或非数值的 z-index（允许 auto）；不加载包内脚本或外部字体/图片。
+
+界面切换及重新扫描只更新样式，设置页、草稿、焦点、滚动和功能插件继续运行。选中包变更或丢失时回到默认；非法样式保留默认布局并提示错误。右下角“恢复默认界面”在插件作用域外，无法被插件样式隐藏；写入失败保留先前选择并显示错误。完整示例见 `packages/extension.lumi.compact/`。
+
+## 功能插件 SDK v1
 
 HTML 引入宿主提供的脚本，不能在包里覆盖它：
 

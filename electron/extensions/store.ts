@@ -26,4 +26,9 @@ export class ExtensionStore {
     try{const hasSecrets=Object.values(this.secrets).some(v=>Object.keys(v).length);if(hasSecrets && !this.cipher.available())throw new Error('系统加密存储不可用。');await atomicWrite(path.join(this.directory,'extension-settings.json'),JSON.stringify({version:1,plugins:this.states,vault:hasSecrets ? this.cipher.encrypt(JSON.stringify(this.secrets)) : ''}));}
     catch(error){if(previous)this.states[id]=previous;else delete this.states[id];this.secrets=previousSecrets;throw error;}
   }
+  async changeEnabled(states:{id:string;enabled:boolean;digest:string}[]){
+    const previous=structuredClone(this.states);for(const state of states)this.states[state.id]={...this.get(state.id),enabled:state.enabled,digest:state.digest};
+    try{if(this.vaultError)throw new Error('扩展凭据无法解密。');const hasSecrets=Object.values(this.secrets).some(v=>Object.keys(v).length);if(hasSecrets && !this.cipher.available())throw new Error('系统加密存储不可用。');await atomicWrite(path.join(this.directory,'extension-settings.json'),JSON.stringify({version:1,plugins:this.states,vault:hasSecrets ? this.cipher.encrypt(JSON.stringify(this.secrets)) : ''}));}
+    catch(error){this.states=previous;throw error;}
+  }
 }

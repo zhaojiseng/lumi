@@ -26,6 +26,7 @@ export async function readExtensionPackage(directory:string):Promise<ExtensionPa
   if(!files.get('LICENSE')?.length)throw new Error('插件必须附带完整 LICENSE 文件。');
   if(files.has('lumi-sdk.js'))throw new Error('lumi-sdk.js 由宿主提供，请勿覆盖。');
   for(const view of manifest.contributions)if(!files.has(view.entry))throw new Error('缺少界面入口：'+view.entry);
+  if(manifest.interface){const css=files.get(manifest.interface.stylesheet);if(!css || css.length>65536)throw new Error('缺少界面样式或超过 64 KiB 限制。');}
   const hash=createHash('sha256');for(const [name,data] of files){hash.update(name+'\0');hash.update(data);hash.update('\0');}
   return {manifest,digest:hash.digest('hex'),files,size};
 }

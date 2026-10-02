@@ -104,7 +104,7 @@ Git 忽略凭据、配置备份、会话、日志、数据库、测试生成文�
 ## 参与项目
 
 - [贡献指南](CONTRIBUTING.md)
-- [额外插件开发与安装](extensions/README.md)：独立文件包、SDK、连接/设置/侧栏贡献与仓库提交方式；插件包不编译进 EXE。
+- [额外插件开发与安装](extensions/README.md)：独立功能/界面包、SDK、布局/皮肤、连接/设置/侧栏贡献与仓库提交方式；插件包不编译进 EXE。
 - [行为准则](CODE_OF_CONDUCT.md)
 - [安全问题报告](SECURITY.md)
 - [更新记录](CHANGELOG.md)

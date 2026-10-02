@@ -20,7 +20,7 @@ export class ExtensionHost {
   constructor(private options:ExtensionHostOptions){this.store=new ExtensionStore(options.settingsDirectory,options.cipher);}
   async start(){await mkdir(this.options.directory,{recursive:true});await this.store.load();await this.reload();}
   private serial<T>(job:()=>Promise<T>):Promise<T>{if(this.closing)return Promise.reject(new Error('扩展宿主正在退出。'));const result=this.queue.catch(()=>{}).then(()=>{if(this.closing)throw new Error('扩展宿主正在退出。');return job();});this.queue=result;return result;}
-  inventory():ExtensionInventory{return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest})),diagnostics:this.diagnostics};}
+  inventory():ExtensionInventory{const selected=[...this.packages.values()].find(p=>p.enabled && p.pkg.manifest.kind==='interface'),stylesheet=selected?.pkg.manifest.interface?.stylesheet;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest})),diagnostics:this.diagnostics,interfaceStyle:selected && stylesheet ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(stylesheet)!.toString('utf8')} : undefined};}
   statuses(){return [...this.packages.values()].map(p=>extensionStatus(p.pkg.manifest,p.enabled,p.generation,this.store.get(p.pkg.manifest.id).views));}
   has(id:string){return this.packages.has(id);}
   reload(){return this.serial(async()=>{
@@ -28,10 +28,17 @@ export class ExtensionHost {
     for(const item of this.packages.values())item.controller.abort();
     this.packages.clear();this.diagnostics=scanned.diagnostics;
     for(const pkg of scanned.packages){const saved=this.store.get(pkg.manifest.id);this.packages.set(pkg.manifest.id,{pkg,enabled:saved.enabled && saved.digest===pkg.digest,generation:++this.epoch,controller:new AbortController(),pending:0});}
+    let selected=false;for(const item of this.packages.values())if(item.enabled && item.pkg.manifest.kind==='interface'){if(selected)item.enabled=false;selected=true;}
     return this.inventory();
   });}
   setEnabled(id:string,enabled:boolean){return this.serial(async()=>{
     const item=this.packages.get(id);if(!item)throw new Error('额外插件不存在，请重新扫描。');
+    if(item.pkg.manifest.kind==='interface'){
+      const changed=[item,...enabled ? [...this.packages.values()].filter(other=>other!==item && other.enabled && other.pkg.manifest.kind==='interface') : []],previous=changed.map(p=>p.enabled);
+      changed.forEach(p=>{p.controller.abort();p.controller=new AbortController();p.generation=++this.epoch;p.enabled=p===item && enabled;});
+      try{await this.store.changeEnabled(changed.map(p=>({id:p.pkg.manifest.id,enabled:p.enabled,digest:p.pkg.digest})));}catch(error){changed.forEach((p,index)=>{p.enabled=previous[index];p.generation=++this.epoch;});throw error;}
+      return;
+    }
     const previous=item.enabled;item.controller.abort();item.controller=new AbortController();item.generation=++this.epoch;item.enabled=enabled;
     try{await this.store.change(id,{enabled,digest:item.pkg.digest});}catch(error){item.enabled=previous;item.generation=++this.epoch;throw error;}
   });}

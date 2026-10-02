@@ -34,7 +34,7 @@ for(const directory of ['dist','dist-electron']){
 for(const name of ['Lumi-LICENSE.txt','dependencies-LICENSES.txt','THIRD_PARTY_NOTICES.md','lobe-icons-LICENSE.txt','cc-switch-LICENSE.txt','codexbar-LICENSE.txt','victory-vendor-LICENSE.txt','electron-builder-LICENSE.txt'])assert.ok(extract('dist/third-party/'+name).length>100,'Missing license notice: '+name);
 for(const name of ['LICENSE.electron.txt','LICENSES.chromium.html'])assert.ok((await readFile(path.join(mac ? path.join(resources,'licenses') : appDirectory,name))).length>100,'Missing runtime license notice: '+name);
 assert.ok(!listing.some(name=>/\/(?:\.test-data|\.research|\.cache|node_modules|tests)(\/|$)/.test(name)),'Local data or source dependencies must not ship');
-assert.ok(!listing.some(name=>/\/(?:extensions|extension\.lumi\.notes)(\/|$)/.test(name)),'External plugin packages must remain separate from the EXE');
+assert.ok(!listing.some(name=>/\/(?:extensions|extension\.[a-z0-9.-]+)(\/|$)/.test(name)),'External plugin packages must remain separate from the EXE');
 const {tsImport}=await import('tsx/esm/api');
 const {scanExtensionPackages}=await tsImport('../electron/extensions/packages.ts',import.meta.url);
 const sourceExtensions=await scanExtensionPackages(['extensions/packages']);

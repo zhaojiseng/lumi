@@ -1,4 +1,4 @@
-# 内置插件架构
+# 插件架构
 
 Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的显示界面、设置选项和侧栏入口。`plugins/` 是静态构建的内置插件；`extensions/packages/` 是独立分发的额外插件，不编译进 EXE。设置分别显示内置/额外插件；额外包在运行时扫描并经隔离 web 界面和 SDK 接入，无需修改内置注册表。作者格式、权限、开发/安装和贡献流程见 [extensions/README.md](../extensions/README.md)。
 
@@ -16,6 +16,14 @@ Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的
 `feature.workbench`、`feature.usage`、`feature.models`、`feature.tokens` 和 `feature.tool-config` 是固定的统一系统模块，负责页面壳、插槽和操作编排。它们不作为设置页的大项开关。New API 拥有实际协议、账户、缓存、令牌服务/编辑器和专用令牌复用策略；工具配置通过 `toolCredential.provision` 消费能力，不引用令牌页面。
 
 `source.local-sessions`、Codex/Claude CLI 适配器和默认主题保持固定基础模块。工具专属字段和配置格式由 `adapter.tool.codex`、`adapter.tool.claude` 提供；事务、加密备份、冲突检查、原子写入和回滚由 ConfigService 协调。停用 NewAPI 后，本地工具检测、安装、配置检查和备份恢复仍可使用，在线配钥/预览/应用不可用。
+
+## 独立界面插件
+
+`interface.default` 是固定内置界面插件，拥有标题栏、悬浮侧栏、内容滚动容器、状态栏、搜索、弹窗及通知的 JSX 与外壳布局。`App.tsx` 保留账户、数据请求、导航和偏好状态，通过 `InterfaceShellProps` 提供展示数据与受控动作；界面不创建服务或请求账户数据。
+
+`src/host/interface.tsx` 保持默认 React 外壳及页面节点稳定，外部 `kind: "interface"` 包经独立 CSS 接口覆盖布局和皮肤。界面包只有清单、CSS 和许可，不获得功能插件的 SDK/权限；一次选中一个，启用新界面会原子停用旧界面。功能插件仍通过自己的系统插槽或隔离 frame 显示内容。
+
+样式经 CSSOM 检查后放入以插件 ID 限定的 `@scope`，限制大小、规则类型、资源引用、拖动区域和 z-index。恢复默认按钮位于作用域外；非法样式、缺包或摘要变化回退到默认。切换和扫描不重挂载设置、功能页或修改其草稿。外部接口 v1 支持 CSS 布局/皮肤，尚不提供任意外部 React/JavaScript 替换整套界面的接口。包格式和选择器见 [作者指南](../extensions/README.md#界面插件-v1)。
 
 ## 插件贡献接口
 
@@ -81,4 +89,4 @@ settings: {
 
 运行 `npm run pretest` 后，可针对 `plugin-host`、`plugin-catalog`、`plugin-integration`、`renderer-plugins`、`codex-subscription`、`workbench-sources-ui`、`plugin-layout-ui`、`desktop-plugin-lifecycle` 测试文件检查生命周期、设置迁移、持久化回滚、内容/侧栏/连接/设置标签贡献、实际配置预览撤销、浏览器权限及构建边界。隐藏 Chromium 用真实设置组件验证四个父开关、五个子开关及编辑状态保留；真实 App/CSS 在 1280/1100 宽度检查页面间距、溢出及标题栏下方的悬浮圆角侧栏。构建后的 `npm run test:desktop` 验证固定 IPC、提供者重启、设置持久化、受限浮窗/托盘的关闭重建及本地详情。
 
-测试使用隔离目录、模拟 CLI/服务和假凭据。现有 AppContext/Dashboard 仍有兼容数据路径；子项隐藏不代表停止所有目录/用量请求。主题暂为默认语义 token 模块，无第三方皮肤导入。Codex 历史同步和工具事务继续由 ConfigService 管理，不能把只读统计与显式 apply/restore 写入混淆。
+`extensions` 与 `interface-plugin-ui` 回归验证界面清单、独占选择、原子持久化、更新/缺包回退、受限 CSS、真实 App 布局及设置草稿/焦点/滚动保留；桌面 smoke 验证实际 IPC、启停、扫描及恢复。测试使用隔离目录、模拟 CLI/服务和假凭据。现有 AppContext/Dashboard 仍有兼容数据路径；子项隐藏不代表停止所有目录/用量请求。默认主题继续提供语义 token；外部界面样式在其上覆盖。Codex 历史同步和工具事务继续由 ConfigService 管理，不能把只读统计与显式 apply/restore 写入混淆。

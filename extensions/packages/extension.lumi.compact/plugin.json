@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "id": "extension.lumi.compact",
+  "kind": "interface",
+  "name": "紧凑界面",
+  "version": "1.0.0",
+  "hostApiVersion": 1,
+  "description": "独立界面插件：更窄的悬浮侧栏、紧凑间距和蓝色强调色，保留所有系统页面。",
+  "author": "Lumi contributors",
+  "license": "MIT",
+  "interface": {"stylesheet": "interface.css"}
+}
