@@ -421,3 +421,13 @@ macOS 取消 frame 动画、加载快照保留实际模型行数、连续切换 
 内置浏览器验证 251 条调用的末页、完整内容、原始分块 / 返回开头和同轮说明；文本中的 HTML / script 作为纯文字显示，未生成内联图片或事件处理器，当前窄窗无溢出。真实隐藏 Chromium 覆盖 390 px 窄窗、分页与迟到响应；测试截图与 fixture 留在 Git 忽略目录。生产构建、Windows 隔离桌面 IPC 检查及 npm audit 通过；macOS / Linux 自动检查和 Windows / macOS ARM64 打包由发布 CI 执行。
 
 最终本机全量自动检查 560 项：558 通过、2 项 macOS 平台检查跳过、0 失败。补充旧版 Claude UUID 回退、异常时间戳与缺少 Codex 轮次标识时不伪造关联的检查。
+
+
+### v0.4.34 Claude Code 归属标头与上下文窗口
+
+日期：2026-10-02（Asia/Shanghai），本机 Windows x64，使用隔离测试配置和占位凭据。
+
+- 全量自动测试 564 项：562 通过、2 项平台检查跳过、0 失败；依赖审计 0 个已知漏洞。
+- Claude 配置默认写入字符串 `CLAUDE_CODE_ATTRIBUTION_HEADER="false"` 与 `CLAUDE_CODE_MAX_CONTEXT_TOKENS="256000"`；验证关闭标头、自定义窗口、非法长度、保留无关配置、预览不写入本机配置、应用持久化、配置读取及加密备份恢复。
+- 类型检查、生产构建和 Windows 隐藏桌面启动检查通过；未读写真实 CLI 配置或访问真实账户。
+- macOS ARM64 编译、三平台检查及发行包完整性验证由该版本 GitHub 标签工作流执行。

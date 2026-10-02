@@ -54,6 +54,9 @@ export function buildClaude(content: string | null, req: ConfigRequest, baseUrl:
     ANTHROPIC_DEFAULT_HAIKU_MODEL: req.haiku || req.model,
   };
   delete doc.env.ANTHROPIC_API_KEY;
+  doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS=String(req.contextWindow ?? 256000);
+  if(req.disableAttributionHeader!==false)doc.env.CLAUDE_CODE_ATTRIBUTION_HEADER='false';
+  else delete doc.env.CLAUDE_CODE_ATTRIBUTION_HEADER;
   doc.model = req.model;
   return JSON.stringify(doc, null, 2) + '\n';
 }
@@ -86,7 +89,7 @@ export class ConfigService {
         const active=tool==='codex' && typeof doc.profile==='string' ? {...doc,...doc.profiles?.[doc.profile]} : doc;
         const auth = tool === 'codex' ? await readOptional(files[1]) : null;
         const credentials = auth?.trim() ? JSON.parse(auth) : {};
-        return { tool, path: files[0], exists: content !== null, model: tool === 'codex' ? active.model : doc.env?.ANTHROPIC_MODEL || doc.model, baseUrl: tool === 'codex' ? doc.model_providers?.[active.model_provider]?.base_url : doc.env?.ANTHROPIC_BASE_URL, keyConfigured: tool === 'codex' ? !!(credentials.OPENAI_API_KEY || doc.model_providers?.[active.model_provider]?.experimental_bearer_token) : !!(doc.env?.ANTHROPIC_AUTH_TOKEN || doc.env?.ANTHROPIC_API_KEY),contextWindow:tool==='codex' ? active.model_context_window : undefined };
+        return { tool, path: files[0], exists: content !== null, model: tool === 'codex' ? active.model : doc.env?.ANTHROPIC_MODEL || doc.model, baseUrl: tool === 'codex' ? doc.model_providers?.[active.model_provider]?.base_url : doc.env?.ANTHROPIC_BASE_URL, keyConfigured: tool === 'codex' ? !!(credentials.OPENAI_API_KEY || doc.model_providers?.[active.model_provider]?.experimental_bearer_token) : !!(doc.env?.ANTHROPIC_AUTH_TOKEN || doc.env?.ANTHROPIC_API_KEY),contextWindow:tool==='codex' ? active.model_context_window : (/^[0-9]+$/.test(doc.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS || '') && Number.isSafeInteger(Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)) ? Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) : undefined) };
       } catch { return { tool, path: files[0], exists: content !== null, keyConfigured: false, error: '配置文件读取或解析失败，请检查文件大小、权限和 JSON / TOML 语法。' }; }
     }));
   }
@@ -96,7 +99,7 @@ export class ConfigService {
     const site = structuredClone(this.store.activeSite());
     if (site.url.startsWith('http:') && !site.allowHttp) throw new Error('请先在站点设置中允许使用 HTTP。');
     if (!this.resolveToken) throw new Error('自动配钥服务不可用。');
-    if(req.tool==='codex' && req.contextWindow!==undefined && (!Number.isInteger(req.contextWindow) || req.contextWindow<4096 || req.contextWindow>10000000))throw new Error('上下文窗口请输入 4096–10000000 的整数 Tokens。');
+    if(req.contextWindow!==undefined && (!Number.isInteger(req.contextWindow) || req.contextWindow<4096 || req.contextWindow>10000000))throw new Error('上下文窗口请输入 4096–10000000 的整数 Tokens。');
     const paths = await this.paths(req.tool);
     const before = await Promise.all(paths.map(async p => ({ path:p,content:await readOptional(p) })));
     try {
@@ -123,7 +126,7 @@ export class ConfigService {
       files: files.slice(0,paths.length).map((f, i) => ({ path: f.path, before: redact(before[i].content || '# 文件尚不存在'), after: redact(f.content || '# 文件尚不存在') })),
       changes: [],
     };
-    preview.changes=req.tool==='codex' ? [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 272000} Tokens`,`渠道：${req.group}`,`直连接口：${site.url}/v1`,`固定 custom provider，专用密钥写入 provider 表；保留现有官方登录。`,`应用时同步相关旧对话及索引，包含归档的 Lumi / 当前 custom 对话。`,`只更新渠道和最近保存的模型设置，历史请求、用量与提示词保持原样。`,`配置与会话设置变更加密备份；请先关闭 Codex，再应用并重新打开原对话。`] : [`模型：${req.model}`,`渠道：${req.group}`,`Claude Code CLI 直连：${site.url}`,`专用令牌：${token.tokenName}`,`仅写入 Claude Code CLI 的 settings.json。`,`保留已有 MCP、权限与其他配置；应用后重新启动 Claude Code。`];
+    preview.changes=req.tool==='codex' ? [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 272000} Tokens`,`渠道：${req.group}`,`直连接口：${site.url}/v1`,`固定 custom provider，专用密钥写入 provider 表；保留现有官方登录。`,`应用时同步相关旧对话及索引，包含归档的 Lumi / 当前 custom 对话。`,`只更新渠道和最近保存的模型设置，历史请求、用量与提示词保持原样。`,`配置与会话设置变更加密备份；请先关闭 Codex，再应用并重新打开原对话。`] : [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 256000} Tokens（CLAUDE_CODE_MAX_CONTEXT_TOKENS）`,`渠道：${req.group}`,`Claude Code CLI 直连：${site.url}`,`专用令牌：${token.tokenName}`,req.disableAttributionHeader!==false ? `禁用归属标头：CLAUDE_CODE_ATTRIBUTION_HEADER="false"。` : `移除归属标头配置，恢复 Claude Code 默认行为。`,`仅写入 Claude Code CLI 的 settings.json。`,`保留已有 MCP、权限与其他配置；应用后重新启动 Claude Code。`];
     this.pending.set(preview.id, { preview, files, before, rows,request: req, key, siteId: site.id, siteUrl: site.url,token,userId:account.userId,sessionId:account.sessionId,authIdentity:authIdentity(account) });this.report({tool:req.tool,operation:'preview',phase:'done'}); return preview;
   }
   private async transaction(before: Snapshot[], after: Snapshot[]) {
@@ -202,7 +205,7 @@ export class ConfigService {
         await this.transaction(p.before, p.files);configApplied=true;
         for(const session of prepared){await commitSession(session);applied.push(session.change);}
         applyStateChanges(history.rows);stateApplied=true;
-        await this.store.setToolKey(p.request.tool,p.key,{tool:p.request.tool,model:p.request.model,group:p.request.group,contextWindow:p.request.tool==='codex' ? p.request.contextWindow ?? 272000 : undefined,tokenName:p.token.tokenName,tokenId:p.token.tokenId,sonnet:p.request.sonnet,opus:p.request.opus,haiku:p.request.haiku,siteId:p.siteId,appliedAt:Date.now()},p.siteId);
+        await this.store.setToolKey(p.request.tool,p.key,{tool:p.request.tool,model:p.request.model,group:p.request.group,contextWindow:p.request.contextWindow ?? (p.request.tool==='codex' ? 272000 : 256000),tokenName:p.token.tokenName,tokenId:p.token.tokenId,sonnet:p.request.sonnet,opus:p.request.opus,haiku:p.request.haiku,disableAttributionHeader:p.request.tool==='claude' ? p.request.disableAttributionHeader!==false : undefined,siteId:p.siteId,appliedAt:Date.now()},p.siteId);
       } catch (e) {
         const failures:string[]=[],causes:unknown[]=[e];
         if(stateApplied)try{applyStateChanges(history.rows,true);}catch(cause){failures.push('会话索引');causes.push(cause);}

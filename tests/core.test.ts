@@ -87,6 +87,53 @@ test('Claude config merge preserves permission settings and replaces conflicting
   const r = JSON.parse(buildClaude(JSON.stringify({ permissions: { allow: ['Read'] }, env: { CUSTOM_VAR: 'kept', ANTHROPIC_API_KEY: 'old' } }), { ...request, tool: 'claude', model: 'custom-sonnet', opus: 'custom-opus' }, 'https://gateway.invalid', 'sk-claude-only'));
   assert.deepEqual(r.permissions.allow, ['Read']); assert.equal(r.env.CUSTOM_VAR, 'kept'); assert.equal(r.env.ANTHROPIC_API_KEY, undefined);
   assert.equal(r.env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'custom-opus'); assert.equal(r.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'custom-sonnet');
+  assert.equal(r.env.CLAUDE_CODE_ATTRIBUTION_HEADER,'false');
+});
+
+test('Claude attribution option writes a string by default and removes only that setting when disabled',()=>{
+  const original={permissions:{allow:['Read']},env:{CUSTOM_VAR:'kept',CLAUDE_CODE_ATTRIBUTION_HEADER:'true'}};
+  for(const disableAttributionHeader of [undefined,true,false]){
+    const result=JSON.parse(buildClaude(JSON.stringify(original),{...request,tool:'claude',disableAttributionHeader},'https://gateway.invalid','fixture-key'));
+    assert.equal(result.env.CLAUDE_CODE_ATTRIBUTION_HEADER,disableAttributionHeader===false ? undefined : 'false');
+    assert.equal(result.env.CUSTOM_VAR,'kept');assert.deepEqual(result.permissions,original.permissions);
+  }
+});
+
+test('Claude context window defaults to 256k and custom values override the old window without changing unrelated settings',()=>{
+  const original={permissions:{allow:['Read']},env:{CUSTOM_VAR:'kept',CLAUDE_CODE_MAX_CONTEXT_TOKENS:'200000'}};
+  for(const contextWindow of [undefined,256000,1000000,4096]){
+    const result=JSON.parse(buildClaude(JSON.stringify(original),{...request,tool:'claude',contextWindow},'https://gateway.invalid','fixture-key'));
+    assert.equal(result.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,String(contextWindow ?? 256000));
+    assert.equal(result.env.CUSTOM_VAR,'kept');assert.deepEqual(result.permissions,original.permissions);
+  }
+});
+
+test('Claude custom context is previewed, applied, inspected, persisted and restored; invalid lengths do not provision tokens',async()=>{
+  const {configs,home,store}=await fixture(),dir=path.join(home,'.claude');await mkdir(dir);
+  const file=path.join(dir,'settings.json'),original=JSON.stringify({env:{CLAUDE_CODE_MAX_CONTEXT_TOKENS:'200000',CUSTOM_VAR:'kept'}});await writeFile(file,original);
+  for(const contextWindow of [0,4095,10000001,256000.5,NaN,Infinity])await assert.rejects(configs.preview({...request,tool:'claude',contextWindow}),/4096/);
+  const preview=await configs.preview({...request,tool:'claude',contextWindow:1000000});
+  assert.ok(preview.changes.some(change=>change.includes('1000000') && change.includes('CLAUDE_CODE_MAX_CONTEXT_TOKENS')));assert.equal(await readFile(file,'utf8'),original);
+  await configs.apply(preview.id);
+  assert.equal(JSON.parse(await readFile(file,'utf8')).env.CLAUDE_CODE_MAX_CONTEXT_TOKENS,'1000000');
+  assert.equal((await configs.inspect()).find(state=>state.tool==='claude')?.contextWindow,1000000);
+  assert.equal(store.preferences.bindings.find(binding=>binding.tool==='claude')?.contextWindow,1000000);
+  await configs.restore((await configs.backups())[0].id);assert.equal(await readFile(file,'utf8'),original);
+});
+
+test('Claude attribution choice survives preview/apply and backup restores the original settings',async()=>{
+  const {configs,home,store}=await fixture(),dir=path.join(home,'.claude');await mkdir(dir);
+  const file=path.join(dir,'settings.json'),original=JSON.stringify({env:{CUSTOM_VAR:'kept'},permissions:{allow:['Read']}});await writeFile(file,original);
+  const preview=await configs.preview({...request,tool:'claude'});assert.ok(preview.changes.some(change=>change.includes('CLAUDE_CODE_ATTRIBUTION_HEADER')));assert.equal(await readFile(file,'utf8'),original);
+  await configs.apply(preview.id);assert.equal(JSON.parse(await readFile(file,'utf8')).env.CLAUDE_CODE_ATTRIBUTION_HEADER,'false');
+  const enabledBackup=(await configs.backups())[0];
+  assert.equal(store.preferences.bindings.find(binding=>binding.tool==='claude')?.disableAttributionHeader,true);
+  const disabled=await configs.preview({...request,tool:'claude',disableAttributionHeader:false});await configs.apply(disabled.id);
+  assert.equal(JSON.parse(await readFile(file,'utf8')).env.CLAUDE_CODE_ATTRIBUTION_HEADER,undefined);
+  assert.equal(store.preferences.bindings.find(binding=>binding.tool==='claude')?.disableAttributionHeader,false);
+  const disabledBackup=(await configs.backups()).find(backup=>backup.id!==enabledBackup.id)!;
+  await configs.restore(disabledBackup.id);assert.equal(JSON.parse(await readFile(file,'utf8')).env.CLAUDE_CODE_ATTRIBUTION_HEADER,'false');
+  await configs.restore(enabledBackup.id);assert.equal(await readFile(file,'utf8'),original);
 });
 test('all displayed config credentials are redacted', () => {
   const input = 'OPENAI_API_KEY = "sk-abc"\nexperimental_bearer_token = "custom-secret"\n{"tokens":{"access_token":"oauth-a","refresh_token":"oauth-r","id_token":"oauth-id"},"ANTHROPIC_AUTH_TOKEN":"sk-claude"}';

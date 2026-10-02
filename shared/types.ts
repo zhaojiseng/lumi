@@ -9,7 +9,7 @@ export interface SiteProfile {
 }
 export interface ToolBinding {
   tool: Tool; model: string; group: string; tokenName: string; tokenId?: number; siteId: string;
-  sonnet?: string; opus?: string; haiku?: string; appliedAt?: number; contextWindow?:number;
+  sonnet?: string; opus?: string; haiku?: string; appliedAt?: number; contextWindow?:number; disableAttributionHeader?:boolean;
 }
 export const LOG_COLUMN_IDS = ['time','model','reasoning','token','input','output','cacheRead','cacheWrite','cost','duration','speed','channel','status','firstToken','group','requestId','stream','tool'] as const;
 export type LogColumnId = typeof LOG_COLUMN_IDS[number];
@@ -164,7 +164,7 @@ export interface LocalUsageProgress {
   requestId:string;phase:'discover'|'read'|'complete';filesDone:number;filesTotal:number;bytesRead:number;bytesTotal:number;
 }
 export interface ConfigRequest {
-  tool: Tool; model: string; group: string; sonnet?: string; opus?: string; haiku?: string; contextWindow?:number;
+  tool: Tool; model: string; group: string; sonnet?: string; opus?: string; haiku?: string; contextWindow?:number; disableAttributionHeader?:boolean;
 }
 export interface ConfigPreview {
   id: string; tool: Tool; files: { path: string; before: string; after: string }[];
