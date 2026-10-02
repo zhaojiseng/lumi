@@ -74,7 +74,7 @@ npm run check:extensions -- extensions/packages/extension.lumi.notes
 
 保留各平台标题栏/窗口控制可用、侧栏悬浮和内容滚动。CSS 文件最多 64 KiB / 1000 条规则，仅支持样式规则（包括嵌套）、`@media` 和 `@supports`。拒绝 `@import`、`@font-face`、URL/image-set 资源、窗口拖动区域属性及高于 1000 或非数值的 z-index（允许 auto）；不加载包内脚本或外部字体/图片。
 
-界面切换及重新扫描只更新样式，设置页、草稿、焦点、滚动和功能插件继续运行。选中包变更或丢失时回到默认；非法样式保留默认布局并提示错误。右下角“恢复默认界面”在插件作用域外，无法被插件样式隐藏；写入失败保留先前选择并显示错误。完整示例见 `packages/extension.lumi.compact/`。
+界面切换及重新扫描只更新样式，设置页、草稿、焦点、滚动和功能插件继续运行。选中包变更或丢失时回到默认；非法样式保留默认布局，在设置的“界面插件”中提示错误。恢复时选择设置中的“默认界面”；写入失败保留先前选择并显示错误。完整示例见 `packages/extension.lumi.compact/`。
 
 ## 功能插件 SDK v1
 

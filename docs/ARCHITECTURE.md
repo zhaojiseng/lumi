@@ -171,7 +171,7 @@ Codex 接入通过主进程能力 `subscriptionUsage.read` 和固定 IPC `readCo
 
 `plugins/interface.default/` 提供默认外壳的 JSX 和桌面布局，`App.tsx` 通过受限 `InterfaceShellProps` 传入状态与动作，并保留所有账户/请求/偏好管理。标题栏、悬浮侧栏、滚动容器、状态栏、搜索和通知随界面插件维护；系统功能页面仍通过稳定 children 插槽挂载。
 
-外部 `kind: interface` 包以清单/CSS/LICENSE 独立分发，不编译进 EXE。renderer 宿主将 CSSOM 校验后的规则包装到插件专属 `@scope`，一次只能选中一个包。该接口 v1 提供布局/皮肤，不运行外部脚本或替换宿主 React 树。设置切换只更新样式，保留草稿、焦点和滚动；选中包丢失/变更或样式无效时采用默认布局。作用域外的恢复按钮可撤回额外样式，功能插件及其数据生命周期不受界面切换影响。契约和作者示例见 [额外插件指南](../extensions/README.md#界面插件-v1)。
+外部 `kind: interface` 包以清单/CSS/LICENSE 独立分发，不编译进 EXE。renderer 宿主将 CSSOM 校验后的规则包装到插件专属 `@scope`，一次只能选中一个包。该接口 v1 提供布局/皮肤，不运行外部脚本或替换宿主 React 树。设置切换只更新样式，保留草稿、焦点和滚动；选中包丢失/变更或样式无效时采用默认布局。设置中的“默认界面”可撤回额外样式，样式错误也在该设置区域显示；功能插件及其数据生命周期不受界面切换影响。契约和作者示例见 [额外插件指南](../extensions/README.md#界面插件-v1)。
 
 ## 独立分发的额外插件
 

@@ -305,7 +305,7 @@ async function start() {
       await win.webContents.executeJavaScript(String.raw`(async()=>{document.querySelector('[aria-label="启用工作台便笺"]').click();const end=performance.now()+4000;while(document.querySelector('iframe[src^="lumi-extension:"]')){if(performance.now()>end)throw new Error('Revoked extension frame retained');await new Promise(r=>setTimeout(r,20));}})()`);
       result.externalPluginValid=externalIsolation && extensions.statuses().find(s=>s.manifest.id==='extension.lumi.notes')!.state==='disabled' && !extensions.asset('lumi-extension://extension.lumi.notes/'+oldGeneration+'/index.html');
       result.interfacePluginValid=await win.webContents.executeJavaScript(String.raw`(async()=>{
-        const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface smoke timed out: '+label+'; selected='+document.querySelector('.desktop-shell')?.dataset.interface+'; '+(document.querySelector('.plugin-settings [role=alert]')?.textContent || document.querySelector('.interface-recovery [role=alert]')?.textContent || ''));await new Promise(r=>setTimeout(r,20));}};
+        const until=async(fn,label)=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface smoke timed out: '+label+'; selected='+document.querySelector('.desktop-shell')?.dataset.interface+'; '+(document.querySelector('.plugin-settings [role=alert]')?.textContent || document.querySelector('.interface-settings [role=alert]')?.textContent || ''));await new Promise(r=>setTimeout(r,20));}};
         const settings=document.querySelector('.settings-page'),input=document.querySelector('[aria-label="余额提醒阈值"]'),scroll=document.querySelector('.content-scroll'),shell=document.querySelector('.desktop-shell');
         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'34.5');input.dispatchEvent(new Event('input',{bubbles:true}));input.focus();scroll.scrollTop=80;
         const width=document.querySelector('.sidebar').getBoundingClientRect().width;
@@ -317,9 +317,9 @@ async function start() {
         await new Promise(r=>setTimeout(r,20));
         await until(()=>!document.querySelector('.extension-manager .button:last-child').disabled,'reload');
         const reloadRetained=shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===settings && input.value==='34.5';
-        const recovery=document.querySelector('.interface-recovery button'),outside=!!recovery && !shell.contains(recovery);recovery.click();
+        const noOverlay=!document.querySelector('.interface-recovery');Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面').click();
         await until(()=>shell.dataset.interface==='interface.default','recover');
-        return saved && retained && reloadRetained && outside && !(await window.lumi.extensionInventory()).interfaceStyle && document.querySelector('.sidebar').getBoundingClientRect().width===width && document.querySelector('.settings-page')===settings && input.value==='34.5';
+        return saved && retained && reloadRetained && noOverlay && !(await window.lumi.extensionInventory()).interfaceStyle && document.querySelector('.sidebar').getBoundingClientRect().width===width && document.querySelector('.settings-page')===settings && input.value==='34.5';
       })()`);
       await plugins.setEnabled('surface.widget',true);
       result.widgetPanel=await plugins.require('surface.widget','surface.control').smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);

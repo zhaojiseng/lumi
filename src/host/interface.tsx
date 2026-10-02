@@ -7,6 +7,7 @@ import type {NavigationItem} from './renderer-registry';
 import {defaultInterfacePlugin} from '../../plugins/interface.default/renderer';
 import {defaultInterfaceLayout} from '../../plugins/interface.default/layout';
 import {usePluginSettings} from './plugins';
+import {InterfaceErrorContext} from './interface-settings';
 
 export interface InterfaceShellProps {
   bootstrap:Bootstrap;preferences:Preferences;dashboard:Dashboard|null;nav:readonly NavigationItem[];visiblePage:Page;catalogPending:number;status:string;loading:boolean;error:string;refreshDisabled:boolean;
@@ -43,7 +44,7 @@ export function scopedInterfaceSheet(style:InterfaceStyle){
   return sheet;
 }
 export function InterfaceHost(props:InterfaceShellProps){
-  const {extensions,setEnabled,busyId,error:operationError}=usePluginSettings(),[failure,setFailure]=useState('');
+  const {extensions}=usePluginSettings(),[failure,setFailure]=useState('');
   const style=extensions?.interfaceStyle;
   useLayoutEffect(()=>{
     const base=new CSSStyleSheet();base.replaceSync(defaultInterfaceLayout);let extra:CSSStyleSheet|undefined;
@@ -52,6 +53,5 @@ export function InterfaceHost(props:InterfaceShellProps){
     return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>!ours.includes(sheet));};
   },[style?.id,style?.css]);
   const Shell=defaultInterfacePlugin.component,active=style && !failure ? style.id : DEFAULT_INTERFACE_ID;
-  const restore=()=>{if(style)void setEnabled(style.id,false).catch(()=>{});};
-  return <><Shell {...props} interfaceId={active}/>{style && <div className="interface-recovery" style={{position:'fixed',right:12,bottom:12,zIndex:2147483647}}><button type="button" className="button" disabled={!!busyId} onClick={restore}>恢复默认界面</button>{(failure || operationError) && <span role="alert">{failure || operationError}</span>}</div>}</>;
+  return <InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider>;
 }
