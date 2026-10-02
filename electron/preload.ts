@@ -6,6 +6,10 @@ async function call(channel: string, payload?: unknown) {
   return response.data;
 }
 const bridge: LumiBridge = {
+  extensionInventory:()=>call('extensionInventory'),reloadExtensions:()=>call('reloadExtensions'),openExtensionsDirectory:()=>call('openExtensionsDirectory'),extensionRequest:input=>call('extensionRequest',input),
+  readCodexUsage:input=>call('readCodexUsage',input),
+  readCatalog:input=>call('readCatalog',input),listPlugins:()=>call('listPlugins'),setPluginEnabled:(id,enabled)=>call('setPluginEnabled',{id,enabled}),
+  setPluginView:(id,view,enabled)=>call('setPluginView',{id,view,enabled}),
   onWidgetVisibility:listener=>{const receive=(_event:Electron.IpcRendererEvent,enabled:boolean)=>listener(enabled);ipcRenderer.on('lumi:widgetVisibility',receive);return()=>ipcRenderer.removeListener('lumi:widgetVisibility',receive);},
   bootstrap: () => call('bootstrap'), saveSite: p => call('saveSite', p), removeSite: id => call('removeSite', id),
   inspectConfigs:()=>call('inspectConfigs'),

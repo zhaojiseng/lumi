@@ -2,9 +2,14 @@ import { readFile, mkdir, readdir, unlink,stat } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
-import { parse, stringify } from 'smol-toml';
+import {parse} from 'smol-toml';
+import {buildCodex} from '../../plugins/adapter.tool.codex/build';
+import {buildClaude} from '../../plugins/adapter.tool.claude/build';
+export {buildCodex} from '../../plugins/adapter.tool.codex/build';
+export {buildClaude} from '../../plugins/adapter.tool.claude/build';
+import type {ToolConfigAdapter} from '../../shared/contracts/tool-adapter';
 import { atomicWrite, type SettingsStore } from './store';
-import type { ResolvedToolToken } from './new-api';
+import type { ResolvedToolToken } from '../../shared/contracts/tool-credentials';
 import {planDirectHistory,planDirectIndexes,applyStateChanges,type StateChange} from './codex-direct';
 import {assertCodexIdle} from './codex-sessions';
 import {prepareSession,commitSession,discardSessions,rollbackSessions,reverseSession,type SessionChange,type PreparedSession} from './codex-session-files';
@@ -14,51 +19,11 @@ interface Pending { preview: ConfigPreview; files: Snapshot[]; before: Snapshot[
 interface Backup extends BackupInfo { before: Snapshot[]; after: Snapshot[]; rows?:StateChange[]; sessions?:SessionChange[]; }
 const authIdentity = (s:ReturnType<SettingsStore['credentials']>) => s.sessionAuth && s.sessionId ? 'session:' + s.sessionId : 'bearer:' + (s.accessToken ? createHash('sha256').update(s.accessToken).digest('hex') : '');
 const hash = (s: string | null) => createHash('sha256').update(s === null ? '<missing>' : s).digest('hex');
+const LEGACY_CODEX_CATALOG='lumi-model-catalog.json';
 async function readOptional(file: string) { try { if((await stat(file)).size>8*1024*1024)throw new Error('工具配置文件过大，已停止处理以保留原文件。');return await readFile(file, 'utf8'); } catch (e: any) { if (e.code === 'ENOENT') return null; throw e; } }
 export function redact(content: string) {
   return content.replace(/((?:[\w.-]*(?:TOKEN|API_?KEY|SECRET|PASSWORD|CREDENTIAL|AUTHORIZATION|PRIVATE_KEY)[\w.-]*)["']?\s*[:=]\s*)["'][^"']*["']/gi, '$1"••••••••"')
     .replace(/("(?:access_token|refresh_token|id_token)"\s*:\s*)"[^"\n]*"/gi, '$1"••••••••"');
-}
-// Used only to disconnect obsolete Lumi-generated catalogs and restore historical backups.
-const LEGACY_CODEX_CATALOG='lumi-model-catalog.json';
-function disconnectLegacyCatalog(doc:Record<string,any>,configDir:string) {
-  const legacy=path.resolve(configDir,LEGACY_CODEX_CATALOG);
-  const matches=(value:unknown)=>{
-    if(typeof value!=='string')return false;
-    const resolved=path.resolve(configDir,value);
-    return process.platform==='win32' ? resolved.toLowerCase()===legacy.toLowerCase() : resolved===legacy;
-  };
-  if(matches(doc.model_catalog_json))delete doc.model_catalog_json;
-  for(const profile of Object.values(doc.profiles || {})){
-    if(profile && typeof profile==='object' && matches((profile as any).model_catalog_json))delete (profile as any).model_catalog_json;
-  }
-}
-export function buildCodex(config: string | null, auth: string | null, req: ConfigRequest, baseUrl: string, key: string, configDir?:string) {
-  const doc: any = config?.trim() ? parse(config) : {};
-  const credentials: any = auth?.trim() ? JSON.parse(auth) : {};
-  doc.model = req.model; doc.model_provider = 'custom'; delete doc.model_reasoning_effort;
-  doc.model_context_window=req.contextWindow ?? 272000;
-  if(configDir)disconnectLegacyCatalog(doc,configDir);
-  const profile=typeof doc.profile==='string' ? doc.profiles?.[doc.profile] : undefined;
-  if(profile && typeof profile==='object'){profile.model=req.model;profile.model_provider='custom';profile.model_context_window=doc.model_context_window;delete profile.model_reasoning_effort;}
-  doc.model_providers ??= {};
-  doc.model_providers.custom = { name: 'Lumi · New API', base_url: baseUrl + '/v1', wire_api: 'responses', experimental_bearer_token:key, requires_openai_auth: !!credentials.tokens };
-  if(doc.model_providers.lumi?.name==='Lumi · New API' && !Object.values(doc.profiles || {}).some((p:any)=>p.model_provider==='lumi'))delete doc.model_providers.lumi;
-  return { config: stringify(doc), auth: JSON.stringify(credentials, null, 2) + '\n' };
-}
-export function buildClaude(content: string | null, req: ConfigRequest, baseUrl: string, key: string) {
-  const doc: any = content?.trim() ? JSON.parse(content) : {};
-  doc.env = { ...doc.env, ANTHROPIC_BASE_URL: baseUrl, ANTHROPIC_API_KEY: key, ANTHROPIC_MODEL: req.model,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: req.sonnet || req.model,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: req.opus || req.model,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: req.haiku || req.model,
-  };
-  delete doc.env.ANTHROPIC_AUTH_TOKEN;
-  doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS=String(req.contextWindow ?? 256000);
-  if(req.disableAttributionHeader!==false)doc.env.CLAUDE_CODE_ATTRIBUTION_HEADER='false';
-  else delete doc.env.CLAUDE_CODE_ATTRIBUTION_HEADER;
-  doc.model = req.model;
-  return JSON.stringify(doc, null, 2) + '\n';
 }
 export class ConfigService {
   private pending = new Map<string, Pending>();
@@ -70,9 +35,14 @@ export class ConfigService {
   subscribe(listener:(progress:ConfigProgress)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   private report(progress:ConfigProgress){if(progress.completed!==undefined && progress.completed!==progress.total && Date.now()-this.lastProgress<100)return;this.lastProgress=Date.now();for(const listener of this.listeners)listener(progress);}
   invalidateTokenPreviews(id:number) { for(const [key,p] of this.pending)if(p.token.tokenId===id)this.pending.delete(key); }
-  constructor(private store: SettingsStore, private dataDir: string, homeDir?: string, private resolveToken?: (req: ConfigRequest) => Promise<ResolvedToolToken>) {
+  invalidatePreviews(){if(this.busy)throw new Error('配置正在执行，请完成后再停用。');this.pending.clear();}
+  constructor(private store: SettingsStore, private dataDir: string, homeDir?: string, private resolveToken?: (req: ConfigRequest) => Promise<ResolvedToolToken>, private resolveAdapter?:(tool:Tool)=>ToolConfigAdapter) {
     this.homeDir = homeDir || process.env.LUMI_TEST_HOME || os.homedir();
     this.respectEnvironment = !homeDir && !process.env.LUMI_TEST_HOME;
+  }
+  private build(req:ConfigRequest,before:Snapshot[],baseUrl:string,key:string){
+    if(this.resolveAdapter)return this.resolveAdapter(req.tool).build({request:req,config:before[0].content,auth:before[1]?.content ?? null,baseUrl,key,configDir:path.dirname(before[0].path)});
+    return req.tool==='codex' ? buildCodex(before[0].content,before[1].content,req,baseUrl,key,path.dirname(before[0].path)) : {config:buildClaude(before[0].content,req,baseUrl,key)};
   }
   private async paths(tool: Tool) {
     const test = !this.respectEnvironment;
@@ -103,9 +73,7 @@ export class ConfigService {
     const paths = await this.paths(req.tool);
     const before = await Promise.all(paths.map(async p => ({ path:p,content:await readOptional(p) })));
     try {
-      if(req.tool==='codex') {
-        buildCodex(before[0].content,before[1].content,req,site.url,'validation-only',path.dirname(paths[0]));
-      }else buildClaude(before[0].content,req,site.url,'validation-only');
+      this.build(req,before,site.url,'validation-only');
     }
     catch { throw new Error('现有配置文件语法无效。为保留配置，已取消预览。请先检查 JSON / TOML。'); }
     // Preview needs only the small configuration files. Scan history after explicit application and idle checks.
@@ -117,9 +85,9 @@ export class ConfigService {
     let files: Snapshot[];
     try {
       if (req.tool === 'codex') {
-        const result = buildCodex(before[0].content, before[1].content, req, site.url, key,path.dirname(paths[0]));
+        const result = this.build(req,before,site.url,key);
         files = [{ path: paths[0], content: result.config }, { path: paths[1], content: before[1].content }];
-      } else files = [{ path: paths[0], content: buildClaude(before[0].content, req, site.url, key) }];
+      } else files = [{ path: paths[0], content: this.build(req,before,site.url,key).config }];
     } catch { throw new Error('现有配置文件语法无效。为保留配置，已取消预览。请先检查 JSON / TOML。'); }
     for (const [id, p] of this.pending) if (p.preview.expiresAt < Date.now() || p.request.tool===req.tool) this.pending.delete(id);
     const preview: ConfigPreview = { token: { id:token.tokenId,name:token.tokenName,group:token.group,created:token.created },id: randomUUID(), tool: req.tool, expiresAt: Date.now() + 300000,

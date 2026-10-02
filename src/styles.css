@@ -2406,7 +2406,8 @@ h1,h2,h3,h4 {
   width: 42px;
   padding: 3px;
   border-radius: 15px;
-  background: var(--panel);
+  flex-shrink: 0;
+  background: var(--border);
   transition: background .2s;
 }
 
@@ -2415,16 +2416,39 @@ h1,h2,h3,h4 {
   height: 18px;
   width: 18px;
   border-radius: 50%;
-  background: var(--panel);
-  transition: background .15s;
+  background: #fff;
+  transition: transform .2s;
 }
 
 .switch.on {
-  background: var(--panel);
+  background: var(--accent);
 }
 
 .switch.on>span {
   transform: translateX(18px);
+}
+
+.switch[aria-disabled="true"] {
+  opacity: .6;
+  cursor: progress;
+}
+
+.plugin-switch-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-switch-status {
+  min-width: 4em;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch, .switch>span { transition: none; }
 }
 
 .about-panel {
@@ -3436,3 +3460,20 @@ h1,h2,h3,h4 {
 .select-wrap select {
   font-size: 12px;
 }
+.provider-usage-section { display:flex; flex-direction:column; gap:var(--page-gap,20px); min-width:0; }
+.provider-usage-section>.section-heading { margin-bottom:0; }
+.plugin-content { display:flex; flex-direction:column; gap:var(--page-gap,20px); min-width:0; }
+.plugin-content>.page { min-width:0; }
+.subscription-bucket>h3 { font-size:13px; font-weight:550; margin-bottom:12px; }
+.provider-usage-section .section-heading h2 { font-size:16px; font-weight:600; }
+.provider-usage-section .section-heading>div { min-width:0; }
+.provider-usage-section .section-heading p { overflow-wrap:anywhere; }
+.subscription-bucket { margin: 18px 0; }
+.codex-quota-grid { grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); }
+.quota-progress { height: 6px; border-radius: 6px; background: var(--border); overflow: hidden; margin-top: 14px; }
+.quota-progress i { display: block; height: 100%; background: var(--accent); border-radius: inherit; }
+.plugin-settings-group + .plugin-settings-group { border-top:1px solid var(--line); margin-top:14px; padding-top:8px; }
+.plugin-view-settings { margin-left:20px; padding-left:14px; border-left:2px solid var(--line); }
+.plugin-view-settings .setting-control { padding:10px 0; }
+.plugin-view-settings strong { font-size:12px; font-weight:500; }
+.plugin-settings-group [aria-disabled=true] { opacity:.55; cursor:default; }

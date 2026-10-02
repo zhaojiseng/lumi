@@ -34,6 +34,13 @@ for(const directory of ['dist','dist-electron']){
 for(const name of ['Lumi-LICENSE.txt','dependencies-LICENSES.txt','THIRD_PARTY_NOTICES.md','lobe-icons-LICENSE.txt','cc-switch-LICENSE.txt','codexbar-LICENSE.txt','victory-vendor-LICENSE.txt','electron-builder-LICENSE.txt'])assert.ok(extract('dist/third-party/'+name).length>100,'Missing license notice: '+name);
 for(const name of ['LICENSE.electron.txt','LICENSES.chromium.html'])assert.ok((await readFile(path.join(mac ? path.join(resources,'licenses') : appDirectory,name))).length>100,'Missing runtime license notice: '+name);
 assert.ok(!listing.some(name=>/\/(?:\.test-data|\.research|\.cache|node_modules|tests)(\/|$)/.test(name)),'Local data or source dependencies must not ship');
+assert.ok(!listing.some(name=>/\/(?:extensions|extension\.lumi\.notes)(\/|$)/.test(name)),'External plugin packages must remain separate from the EXE');
+const {tsImport}=await import('tsx/esm/api');
+const {scanExtensionPackages}=await tsImport('../electron/extensions/packages.ts',import.meta.url);
+const sourceExtensions=await scanExtensionPackages(['extensions/packages']);
+const releaseExtensions=await scanExtensionPackages([path.join(releaseDir,'extensions')]);
+assert.deepEqual(sourceExtensions.diagnostics,[]);assert.deepEqual(releaseExtensions.diagnostics,[]);
+assert.deepEqual(releaseExtensions.packages.map(p=>[p.manifest.id,p.digest]),sourceExtensions.packages.map(p=>[p.manifest.id,p.digest]),'Independent plugin packages must match repository bytes');
 const text=(await files('dist')).filter(f=>/\.(?:js|css|html)$/.test(f)).concat(await files('dist-electron')).map(file=>extract(file).toString()).join('\n');
 // Removing a legacy preference is migration code, not an enabled demo feature.
 const activeText=text.replace(/\bdelete\s+this\.preferences\.demoMode\s*;/g,'');
@@ -87,4 +94,4 @@ if(!mac && releaseFiles.includes(sourceName))packages.push(sourceName);
 const sums=[];
 for(const name of packages){const file=await readFile(path.join(releaseDir,name));sums.push(createHash('sha256').update(file).digest('hex')+'  '+name);}
 await writeFile(path.join(releaseDir,'SHA256SUMS.txt'),sums.join('\n')+'\n');
-console.log(JSON.stringify({version:pkg.version,platform:mac ? 'macOS ARM64' : 'Windows x64',matchedFiles:matched,fullLicenses:true,noLocalData:true,sha256:sums},null,2));
+console.log(JSON.stringify({version:pkg.version,platform:mac ? 'macOS ARM64' : 'Windows x64',matchedFiles:matched,externalPlugins:releaseExtensions.packages.length,fullLicenses:true,noLocalData:true,sha256:sums},null,2));

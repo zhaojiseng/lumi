@@ -11,7 +11,7 @@ import {DEFAULT_PREFERENCES,type BackupInfo,type ConfigPreview,type ConfigProgre
 // Bundle the real page in memory. Every bridge action is an isolated stub;
 // child components render normally through React's server renderer.
 const bundle=build({
-  stdin:{contents:"export {default as Tools,ConfigFeedback} from './src/pages/Tools'; export {AppContext} from './src/context';",resolveDir:process.cwd(),loader:'tsx'},
+  stdin:{contents:"export {default as Tools,ConfigFeedback} from './src/pages/Tools'; export {AppContext} from './src/context'; export {codexConfigView} from './plugins/adapter.tool.codex/renderer'; export {claudeConfigView} from './plugins/adapter.tool.claude/renderer'; export {ToolConfigContext,ToolConfigViewsProvider} from './src/host/tool-config';",resolveDir:process.cwd(),loader:'tsx'},
   bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent',
 });
 function deferred<T>() {
@@ -64,7 +64,7 @@ async function harness() {
   type Store={slots:any[];effects:{setup:()=>void|(()=>void);cleanup?:()=>void;started:boolean}[];mounted:boolean};
   let store:Store={slots:[],effects:[],mounted:true},cursor=0,inPage=false,key:string|null=null,staleWrites=0;
   const hooks={...React,
-    useContext:(ctx:React.Context<unknown>)=>inPage ? app : React.useContext(ctx),
+    useContext:(ctx:React.Context<unknown>)=>inPage ? (ctx===module.exports.AppContext ? app : ctx===module.exports.ToolConfigContext ? [module.exports.codexConfigView,module.exports.claudeConfigView] : null) : React.useContext(ctx),
     useState:(initial:any)=>{
       if(!inPage)return React.useState(initial);
       const owner=store,index=cursor++;
@@ -84,19 +84,19 @@ async function harness() {
   runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,structuredClone,
     window:{lumi:bridge,addEventListener:(_name:string,fn:Function)=>focusListeners.add(fn),removeEventListener:(_name:string,fn:Function)=>focusListeners.delete(fn)},
     require:(name:string)=>name==='react' ? hooks : nodeRequire(name)});
-  const {Tools,AppContext,ConfigFeedback}=module.exports;
+  const {Tools,AppContext,ConfigFeedback,codexConfigView,claudeConfigView,ToolConfigViewsProvider}=module.exports;
   function cleanup(){for(const effect of store.effects)effect.cleanup?.();store.mounted=false;}
   function render():Element {
     inPage=true;
     try{
       const root=Tools() as Element;
       if(key!==root.key){if(key!==null)cleanup();store={slots:[],effects:[],mounted:true};key=root.key;}
-      cursor=0;const tree=(root.type as Function)() as Element;
+      cursor=0;const tree=(root.type as Function)(root.props) as Element;
       for(const effect of store.effects)if(!effect.started){effect.started=true;const stop=effect.setup();if(typeof stop==='function')effect.cleanup=stop;}
       return tree;
     }finally{inPage=false;}
   }
-  function html(){return renderToStaticMarkup(React.createElement(AppContext.Provider,{value:app},render()));}
+  function html(){return renderToStaticMarkup(React.createElement(AppContext.Provider,{value:app},React.createElement(ToolConfigViewsProvider,{value:[codexConfigView,claudeConfigView]},render())));}
   function button(label:string) {
     const found=elements(render()).find(node=>(node.type as Function).name==='Button' && content(node.props.children)===label);
     assert.ok(found,'button '+label+' exists');return found.props;

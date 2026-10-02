@@ -1,17 +1,16 @@
 import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
-import {refreshSeconds} from '../shared/refresh';
-import {barPeriods,loadBarPeriods,loadBarPeriodDetails} from '../shared/menu-bar-periods';
-import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Tray, Menu, nativeImage, clipboard,screen,nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol } from 'electron';
 import path from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { writeFile,readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import {createHash} from 'node:crypto';
 import { z } from 'zod';
+import {createBuiltinPlugins} from './host/plugins';
+import {ExtensionHost} from './extensions/host';
+import {formattedWidget} from '../shared/widget';
+import {nativeMenuBarState,menuBarSelection} from '../shared/menu-bar';
 import { SettingsStore } from './services/store';
-import { NewApiClient } from './services/new-api';
 import { ConfigService } from './services/config';
-import { LocalUsageService } from './services/local-usage';
-import {localWidgetPricing,combineLocalWidget} from './services/local-widget-pricing';
 import {WIDGET_PERIODS,type WidgetPeriod} from '../shared/widget-period';
 import { browserLogin } from './services/browser-login';
 import { UpdateService } from './services/updates';
@@ -21,33 +20,18 @@ import {ToolRuntimeService} from './services/tool-runtime';
 import {macUpdater} from './services/mac-updater';
 import {appLogs,captureConsole} from './services/app-logs';
 import {windowLayout,macMenu} from './window-layout';
-import {MenuBarService,menuBarTemplate} from './services/menu-bar';
-import {NativeMenuBar,type NativeMenuEvent} from './services/native-menu-bar';
-import {TrayPanel} from './services/tray-panel';
-import {WidgetPanel} from './services/widget-panel';
-import {WidgetService} from './services/widget';
-import {formattedWidget} from '../shared/widget';
 import {DATA_REFRESH_ANIMATIONS} from '../shared/motion';
-import {menuBarSelection,nativeMenuBarState,menuBarNeedsDetails} from '../shared/menu-bar';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput,Page } from '../shared/types';
 const root = path.resolve(__dirname, '..');
+protocol.registerSchemesAsPrivileged([{scheme:'lumi-extension',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
 captureConsole();
 appLogs.write('info','启动',`Lumi ${app.getVersion()} · ${process.platform}/${process.arch} · Electron ${process.versions.electron}`);
 let quitting=false;app.on('before-quit',()=>{quitting=true;appLogs.write('info','生命周期','程序退出。');});
 if (process.env.LUMI_SMOKE === '1') app.disableHardwareAcceleration();
 const isolatedData=isolateLumiDataPaths(app);
-let win: BrowserWindow;let tray: Tray | undefined;
-function trayImage(){
-  if(process.platform!=='darwin')return nativeImage.createFromPath(path.join(root,'public/icon.png')).resize({width:20,height:20});
-  const width=36,bitmap=Buffer.alloc(width*width*4);
-  for(let y=0;y<width;y++)for(let x=0;x<width;x++){
-    const vertical=Math.hypot(x-11,y-Math.max(8,Math.min(25,y)))<=2.5,horizontal=Math.hypot(x-Math.max(11,Math.min(27,x)),y-25)<=2.5,dot=Math.hypot(x-26,y-10)<=4;
-    if(vertical || horizontal || dot)bitmap.fill(255,(y*width+x)*4,(y*width+x)*4+4);
-  }
-  return nativeImage.createFromBitmap(bitmap,{width,height:width,scaleFactor:2});
-}
+let win: BrowserWindow;
 const timeSchema=z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const dateRangeSchema=z.object({startDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),endDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),startTime:timeSchema.optional(),endTime:timeSchema.optional()}).strict();
 const daySchema = z.number().int().min(1).max(90);
@@ -60,7 +44,7 @@ const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema,
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const barRangeSchema=z.union([z.literal('follow'),z.literal('24h'),z.literal(1),z.literal(7),z.literal(30)]);
-const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),widgetPeriod:z.union([z.literal('latest'),z.number().refine(value=>WIDGET_PERIODS.some(option=>option.value===value)).transform(value=>value as WidgetPeriod)]).optional(),widgetInputMode:z.enum(['total','uncached']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional() }).strict();
+const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),widgetPeriod:z.union([z.literal('latest'),z.number().refine(value=>WIDGET_PERIODS.some(option=>option.value===value)).transform(value=>value as WidgetPeriod)]).optional(),widgetInputMode:z.enum(['total','uncached']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional(),sourceSelection:z.object({sourceId:z.enum(['source.local-sessions','feature.usage']),values:selectionSchema.shape.values}).strict().optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional(), disableAttributionHeader:z.boolean().optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
 function trustedFrame(event: Electron.IpcMainInvokeEvent) {
@@ -91,6 +75,7 @@ async function start() {
   win.webContents.on('render-process-gone',(_event,details)=>appLogs.write('error','渲染进程',`${details.reason} · ${details.exitCode}`));
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', e => e.preventDefault());
+  win.webContents.on('will-frame-navigate',event=>{if(!event.isMainFrame && !event.url.startsWith('lumi-extension://'))event.preventDefault();});
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   win.webContents.session.setPermissionCheckHandler(() => false);
   win.once('ready-to-show',()=>{if(process.env.LUMI_SMOKE!=='1')win.show();});
@@ -103,7 +88,40 @@ async function start() {
     encrypt: text => safeStorage.encryptString(text).toString('base64'), decrypt: text => safeStorage.decryptString(Buffer.from(text, 'base64')),
   });
   await store.load();
-  const api = new NewApiClient(store); const configs = new ConfigService(store, data, undefined, req => api.ensureToolToken(req)); const usage = new LocalUsageService();
+  const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
+  const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
+  const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
+  let plugins:Awaited<ReturnType<typeof createBuiltinPlugins>>;
+  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();},desktop:{
+    root,preloadDirectory:__dirname,devUrl:process.env.LUMI_DEV_URL,platform:process.platform,packaged:app.isPackaged,resourcesPath:process.resourcesPath,smoke:process.env.LUMI_SMOKE==='1',
+    preferences:()=>store.preferences,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');},
+    theme:()=>store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,
+    onThemeChanged:listener=>{nativeTheme.on('updated',listener);return()=>nativeTheme.removeListener('updated',listener);},
+    patch:async patch=>{const saved=await store.update(patch);await plugins.notifySurfaces();return saved;},
+    setEnabled:async(id,enabled)=>{const statuses=await plugins.setEnabled(id,enabled);if(id==='surface.widget' && !win.isDestroyed())win.webContents.send('lumi:widgetVisibility',enabled);return statuses;},
+    navigate,showMain:showWindow,quit:()=>app.quit(),isQuitting:()=>quitting,log:(source,message)=>appLogs.write('warn',source,message),
+  }});
+  const accountApi=plugins.port('provider.newapi','account.session'),onlineApi=plugins.port('provider.newapi','online.usage'),tokensApi=plugins.port('provider.newapi','tokens.manage');
+  const usage=plugins.require('source.local-sessions','localSessions.read');
+  const configs = new ConfigService(store, data, undefined, req => plugins.require('provider.newapi','toolCredential.provision').provision(req),tool=>plugins.require('adapter.tool.'+tool,'toolConfig.build'));
+  const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,sdk:await readFile(path.join(root,process.env.LUMI_DEV_URL && !app.isPackaged ? 'public/lumi-extension-sdk.js' : 'dist/lumi-extension-sdk.js')),
+    context:()=>{const site=store.activeSite();return {theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
+    scope:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return JSON.stringify([site.id,site.url,secret.sessionId,secret.userId,secret.accessToken,secret.cookies,plugins.generation('provider.newapi'),plugins.isEnabled('provider.newapi')]);},
+    read:async(method,input)=>{
+      if(method==='codex.usage.read')return plugins.require('provider.codex','subscriptionUsage.read').read(input as {force?:boolean});
+      if(method==='usage.read'){const usage=await plugins.require('feature.usage','usage.present').loadWidget();return formattedWidget('ready',usage,{enabled:true,viewKey:'extension',theme:store.preferences.theme==='dark' ? 'dark' : 'light'});}
+      const usage=await plugins.require('feature.workbench','workbench.present').loadMenu((input as {force?:boolean}).force);return nativeMenuBarState({phase:'ready',usage},menuBarSelection(store.preferences.viewSelections[store.preferences.activeSiteId]),store.preferences.menuBarContents);
+    },
+  });
+  await extensions.start();
+  protocol.handle('lumi-extension',request=>{const asset=extensions.asset(request.url);return asset ? new Response(new Uint8Array(asset.body),{headers:{'Content-Type':asset.type,'Content-Security-Policy':asset.csp,'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','X-Content-Type-Options':'nosniff'}}) : new Response('Extension unavailable',{status:404});});
+  win.webContents.session.webRequest.onBeforeRequest((details,done)=>{
+    const source=details.frame?.url || '';if(!source.startsWith('lumi-extension://')){done({});return;}
+    try{const current=new URL(source),target=new URL(details.url);done({cancel:target.protocol!=='data:' && (target.protocol!=='lumi-extension:' || current.host!==target.host)});}catch{done({cancel:true});}
+  });
+  app.on('before-quit',()=>extensions.dispose());
+  const allPluginStatuses=()=>[...plugins.list().map(s=>({...s,origin:'builtin' as const})),...extensions.statuses()];
+  app.on('before-quit',()=>{void plugins.dispose().catch(error=>appLogs.write('error','插件',error instanceof Error ? error.message : '插件清理失败。'));});
   const stopConfigProgress=configs.subscribe(progress=>{if(!win.isDestroyed())win.webContents.send('lumi:configProgress',progress);});
   app.on('before-quit',stopConfigProgress);
   const macUpdate=process.platform==='darwin' && process.arch==='arm64';
@@ -122,81 +140,47 @@ async function start() {
   };
   // Run after startup paint, without delaying settings/account initialization or scanning browser caches.
   const initialCacheCleanup=updateEnabled && !macMounted ? cleanInstalledPackages() : Promise.resolve();
-  const runtimes=new ToolRuntimeService({directory:path.join(data,'tool-installers')});
-  const showWindow=()=>{if(!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
-  const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
-  const widgetIdentity=()=>{const site=store.activeSite(),s=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,s.userId,s.sessionId,s.sessionAuth ? null : s.accessToken,s.sessionId ? null : s.cookies,store.preferences.widgetDataSource,store.preferences.widgetPeriod])).digest('hex');};
-  const loadWidgetUsage=async()=>{
-    const preferences=structuredClone(store.preferences),period=preferences.widgetPeriod,now=Date.now();
-    if(preferences.widgetDataSource!=='local')return api.widgetUsage(now,period);
-    const context=await api.widgetPricing(),pricing=localWidgetPricing(context,preferences.bindings);
-    const local=await usage.widgetUsage(now,{...pricing,period});return combineLocalWidget(local,context,period);
-  };
-  const widgetUsage=new WidgetService({identity:widgetIdentity,load:loadWidgetUsage,minInterval:()=>store.preferences.widgetDataSource==='local' ? 1000 : 0,ttl:()=>store.preferences.widgetDataSource==='local' ? 1000 : 60000,changed:()=>widgetPanel.update()});
-  let widgetTimer:ReturnType<typeof setTimeout>|undefined;
-  let widgetSchedule=0;
-  const widgetPanel=new WidgetPanel({root,preload:path.join(__dirname,'widget-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>{const s=widgetUsage.snapshot();return formattedWidget(s.phase,s.usage,{enabled:store.preferences.widgetEnabled,viewKey:widgetIdentity(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme,animation:store.preferences.dataRefreshAnimation,inputMode:store.preferences.widgetInputMode,error:s.error});},event:async e=>{
-    if(e.type==='close'){await store.update({widgetEnabled:false});await syncWidget();if(!win.isDestroyed())win.webContents.send('lumi:widgetVisibility',false);}
-    else if(e.type==='open')navigate('overview');
-    else await widgetUsage.refresh();
-  },moved:position=>{void store.update({widgetPosition:position}).catch(()=>appLogs.write('warn','浮窗','浮窗位置暂未能保存。'));}});
-  async function syncWidget(){
-    const generation=++widgetSchedule;
-    clearTimeout(widgetTimer);widgetPanel.update();await widgetPanel.setVisible(store.preferences.widgetEnabled,store.preferences.widgetPosition);
-    if(generation!==widgetSchedule || !store.preferences.widgetEnabled || quitting)return;
-    void widgetUsage.refresh();
-    const nextDelay=()=>store.preferences.widgetDataSource==='local' ? 1000 : 60000-Date.now()%60000+2000;
-    const tick=async()=>{if(generation!==widgetSchedule || !store.preferences.widgetEnabled || quitting)return;await widgetUsage.refresh();if(generation===widgetSchedule && store.preferences.widgetEnabled && !quitting){widgetTimer=setTimeout(tick,nextDelay());widgetTimer.unref();}};
-    widgetTimer=setTimeout(tick,nextDelay());widgetTimer.unref();
-  }
-  let activeStatusMenu:Electron.Menu|undefined;
-  let nativeBar:NativeMenuBar|undefined,trayPanel:TrayPanel|undefined,menuOpen=false;
-  const updatePanels=()=>{nativeBar?.update();trayPanel?.update();widgetPanel.update();if(store.preferences.widgetEnabled)void widgetUsage.refresh();};
-  const selected=()=>menuBarSelection(store.preferences.viewSelections[store.activeSite().id]);
-  const periods=()=>barPeriods(store.preferences,selected());
-  const menuUsage=new MenuBarService({summaryTtl:()=>refreshSeconds(store.preferences.menuBarRefreshInterval)*1000 || 60000,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies,selected(),store.preferences.menuBarTotalsRange,store.preferences.menuBarChartRange,store.preferences.menuBarContents.includes('chart'),new Date().toLocaleDateString('sv-SE'),store.preferences.managedTokens,store.preferences.bindings])).digest('hex');},load:force=>{const p=periods();return loadBarPeriods(api,force,p.totals,p.chart,store.preferences.menuBarContents.includes('chart'));},loadDetails:()=>{const p=periods();return loadBarPeriodDetails(api,p.totals,p.chart,store.preferences.menuBarContents.includes('chart'));},changed:()=>{updatePanels();if(activeStatusMenu){const next=menuBarTemplate(menuUsage.snapshot(),menuActions,store.preferences.menuBarContents);if(activeStatusMenu.items.length===next.length)activeStatusMenu.items.forEach((item,index)=>{if(next[index]?.label!==undefined)item.label=next[index].label!;item.enabled=next[index]?.enabled!==false;});}}});
-  const refreshMenu=async(force=false)=>{await menuUsage.refresh(force);if(menuOpen && (menuBarNeedsDetails(store.preferences.menuBarContents,selected())))await menuUsage.details(force);};
-  const menuActions={navigate,refresh:()=>{void refreshMenu(true);},quit:()=>app.quit()};
-  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void refreshMenu(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
-  const nativeEvent=async(e:NativeMenuEvent)=>{
-    if(e.type==='opened'){menuOpen=true;await refreshMenu();}
-    else if(e.type==='closed')menuOpen=false;
-    else if(e.type==='refresh')await refreshMenu(true);
-    else if(e.type==='navigate')navigate(e.page);
-    else if(e.type==='quit')app.quit();
-    else if(e.type==='select'){const site=store.activeSite();await store.update({selection:{siteId:site.id,values:{'menuBar.days':e.selection.days,'menuBar.tool':e.selection.tool}}});updatePanels();await refreshMenu();}
-  };
-  const formattedMenuState=()=>{const site=store.activeSite(),secret=store.credentials(site.id);return {...nativeMenuBarState(menuUsage.snapshot(),selected(),store.preferences.menuBarContents),viewKey:createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId])).digest('hex')};};
+  const updatePanels=()=>{void plugins.notifySurfaces();};
+  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
+  handle('listPlugins',noPayload,allPluginStatuses);
+  handle('extensionInventory',noPayload,()=>extensions.inventory());
+  handle('reloadExtensions',noPayload,()=>extensions.reload());
+  handle('openExtensionsDirectory',noPayload,async()=>{const error=await shell.openPath(extensions.inventory().directory);if(error)throw new Error('扩展目录暂未能打开。');});
+  handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read']),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
+  handle('readCodexUsage',z.object({force:z.boolean().optional()}).strict(),input=>plugins.require('provider.codex','subscriptionUsage.read').read(input));
+  handle('setPluginEnabled',z.object({id:z.string().min(1).max(100),enabled:z.boolean()}).strict(),async input=>{if(extensions.has(input.id))await extensions.setEnabled(input.id,input.enabled);else await plugins.setEnabled(input.id,input.enabled);if(input.id==='surface.widget')win.webContents.send('lumi:widgetVisibility',input.enabled);return allPluginStatuses();});
+  handle('setPluginView',z.object({id:z.string().min(1).max(100),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),enabled:z.boolean()}).strict(),async input=>{if(extensions.has(input.id))await extensions.setView(input.id,input.view,input.enabled);else await plugins.setView(input.id,input.view,input.enabled);return allPluginStatuses();});
+  handle('readCatalog',z.object({siteId:z.string().min(1).max(100),siteUrl:z.string().min(1).max(2000),force:z.boolean().optional()}).strict(),input=>plugins.readCatalog(input));
   handle('appLogs',noPayload,()=>appLogs.snapshot());
   handle('appCache',noPayload,()=>appCache.snapshot());
   handle('clearAppCache',noPayload,()=>updates.withCacheMaintenance(()=>appCache.clear()));
   handle('inspectConfigs',noPayload,()=>configs.inspect());
   handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
-  handle('installTool',toolSchema,tool=>runtimes.install(tool));
+  handle('installTool',toolSchema,tool=>plugins.runFeature('feature.tool-config',()=>runtimes.install(tool)));
   handle('saveSite', siteSchema, async input => {const p=await store.saveSite(input as SiteInput);updatePanels();return p;});
-  handle('loginInfo', noPayload, () => api.loginInfo());
-  handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => api.login(input));
-  handle('verifyLogin', z.object({challengeId:z.string().uuid(),code:z.string().trim().min(1).max(128)}).strict(), input => api.verifyLogin(input));
+  handle('loginInfo', noPayload, () => accountApi.loginInfo());
+  handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => plugins.runFeature('provider.newapi',()=>accountApi.login(input)));
+  handle('verifyLogin', z.object({challengeId:z.string().uuid(),code:z.string().trim().min(1).max(128)}).strict(), input => plugins.runFeature('provider.newapi',()=>accountApi.verifyLogin(input)));
   let loginPending: Promise<any> | null = null;
-  handle('browserLogin', noPayload, async () => { if (loginPending) throw new Error('登录窗口已打开。'); loginPending=browserLogin(win,store,api); try { return await loginPending; } finally { loginPending=null; } });
-  handle('logout', z.string().max(100), async id => {const p=await api.logout(id);updatePanels();return p;});
+  handle('browserLogin', noPayload, () => plugins.runFeature('provider.newapi',async () => { if (loginPending) throw new Error('登录窗口已打开。'); loginPending=browserLogin(win,store,accountApi); try { return await loginPending; } finally { loginPending=null; } }));
+  handle('logout', z.string().max(100), id => plugins.runFeature('provider.newapi',async () => {const p=await accountApi.logout(id);updatePanels();return p;}));
   handle('removeSite', z.string().max(100), async id => {const p=await store.removeSite(id);updatePanels();return p;});
-  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,dataRefreshAnimation:z.enum(DATA_REFRESH_ANIMATIONS).optional(),widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {const p=await store.update(patch);scheduleMenuRefresh();updatePanels();await syncWidget();if(menuOpen)void refreshMenu();return p;});
-  handle('modelHealth',z.string().min(1).max(200),model => api.modelHealth(model));
+  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,dataRefreshAnimation:z.enum(DATA_REFRESH_ANIMATIONS).optional(),widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {if(patch.widgetEnabled!==undefined)await plugins.setEnabled('surface.widget',patch.widgetEnabled);const p=await store.update(patch);await plugins.notifySurfaces();if(patch.widgetEnabled!==undefined && !win.isDestroyed())win.webContents.send('lumi:widgetVisibility',store.preferences.widgetEnabled);return p;});
+  handle('modelHealth',z.string().min(1).max(200),model => onlineApi.modelHealth(model));
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
-    const d = await api.dashboard(input.query,input.force);
-    if(process.platform==='darwin' || process.platform==='win32')void refreshMenu();
+    const d = await onlineApi.dashboard(input.query,input.force);
+    void plugins.refreshSurfaces();
     if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
       lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
     }
     return d;
   });
-  handle('logs', logSchema, q => api.logs(q as LogQuery));
-  handle('tokenUsage',statisticsSchema,query=>api.tokenUsage(query));
-  handle('usageQuality',statisticsSchema,query=>api.usageQuality(query));
+  handle('logs', logSchema, q => onlineApi.logs(q as LogQuery));
+  handle('tokenUsage',statisticsSchema,query=>onlineApi.tokenUsage(query));
+  handle('usageQuality',statisticsSchema,query=>onlineApi.usageQuality(query));
   handle('updateStatus',noPayload,()=>updates.snapshot());
   handle('checkUpdate',noPayload,()=>updates.check());
   handle('downloadUpdate',noPayload,()=>updates.download());
@@ -208,26 +192,25 @@ async function start() {
     const identified=typeof input==='object' && 'query' in input;
     return usage.scan(identified ? input.query : input,identified ? progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localUsageProgress',{...progress,requestId:input.requestId});} : undefined);
   });
-  handle('localSessionDetails',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,cursor:z.string().uuid().optional()}).strict(),input=>usage.sessionDetails(input));
+  handle('localSessionDetails',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,cursor:z.string().uuid().optional()}).strict(),input=>usage.localSessionDetails(input));
   const snapshotPageSchema=z.object({snapshotId:z.string().uuid(),page:z.number().int().min(1).max(100000000),pageSize:z.number().int().min(1).max(50)}).strict();
-  handle('loadLocalSession',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,requestId:z.string().uuid()}).strict(),input=>usage.sessionStore.load(input,progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localSessionProgress',progress);}));
-  handle('localSessionRecords',snapshotPageSchema,input=>usage.sessionStore.records(input));
-  handle('localSessionContent',snapshotPageSchema.extend({pageSize:z.number().int().min(1).max(20),recordId:z.string().min(1).max(200).optional()}),input=>usage.sessionStore.content(input));
-  handle('localSessionRaw',z.object({snapshotId:z.string().uuid(),eventId:z.string().regex(/^[1-9]\d{0,15}$/),offset:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)}).strict(),input=>usage.sessionStore.raw(input));
-  handle('releaseLocalSession',z.object({requestId:z.string().uuid().optional(),snapshotId:z.string().uuid().optional()}).strict().refine(value=>!!(value.requestId || value.snapshotId)),input=>usage.sessionStore.release(input));
-  app.once('before-quit',()=>usage.close());
-  handle('previewConfig', configSchema, req => configs.preview(req as ConfigRequest));
-  handle('applyConfig', z.string().uuid(), id => configs.apply(id));
+  handle('loadLocalSession',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,requestId:z.string().uuid()}).strict(),input=>usage.loadLocalSession(input,progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localSessionProgress',progress);}));
+  handle('localSessionRecords',snapshotPageSchema,input=>usage.localSessionRecords(input));
+  handle('localSessionContent',snapshotPageSchema.extend({pageSize:z.number().int().min(1).max(20),recordId:z.string().min(1).max(200).optional()}),input=>usage.localSessionContent(input));
+  handle('localSessionRaw',z.object({snapshotId:z.string().uuid(),eventId:z.string().regex(/^[1-9]\d{0,15}$/),offset:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)}).strict(),input=>usage.localSessionRaw(input));
+  handle('releaseLocalSession',z.object({requestId:z.string().uuid().optional(),snapshotId:z.string().uuid().optional()}).strict().refine(value=>!!(value.requestId || value.snapshotId)),input=>usage.releaseLocalSession(input));
+  handle('previewConfig', configSchema, req => plugins.runFeature('provider.newapi',()=>configs.preview(req as ConfigRequest)));
+  handle('applyConfig', z.string().uuid(), id => plugins.runFeature('provider.newapi',()=>configs.apply(id)));
   handle('backups', noPayload, () => configs.backups());
-  handle('restoreBackup', z.string().uuid(), id => configs.restore(id));
-  handle('createToken', tokenSchema, input => api.createToken(input as CreateTokenInput));
-  handle('toggleToken', z.object({ id: z.number().int().positive(), enabled: z.boolean() }).strict(), async p => {configs.invalidateTokenPreviews(p.id);await api.toggleToken(p.id,p.enabled);});
-  handle('updateToken',tokenSchema.omit({tool:true}).extend({id:z.number().int().positive()}),async input=>{configs.invalidateTokenPreviews(input.id);await api.updateToken(input as UpdateTokenInput);});
-  handle('getTokenKey', z.number().int().positive(), id => api.getTokenKey(id));
-  handle('copyTokenKey', z.number().int().positive(), async id => {clipboard.writeText(await api.getTokenKey(id));});
+  handle('restoreBackup', z.string().uuid(), id => plugins.runFeature('feature.tool-config',()=>configs.restore(id)));
+  handle('createToken', tokenSchema, input => plugins.runView('provider.newapi','tokens',()=>tokensApi.createToken(input as CreateTokenInput)));
+  handle('toggleToken', z.object({ id: z.number().int().positive(), enabled: z.boolean() }).strict(), p => plugins.runView('provider.newapi','tokens',async()=>{configs.invalidateTokenPreviews(p.id);await tokensApi.toggleToken(p.id,p.enabled);}));
+  handle('updateToken',tokenSchema.omit({tool:true}).extend({id:z.number().int().positive()}),input=>plugins.runView('provider.newapi','tokens',async()=>{configs.invalidateTokenPreviews(input.id);await tokensApi.updateToken(input as UpdateTokenInput);}));
+  handle('getTokenKey', z.number().int().positive(), id => plugins.runView('provider.newapi','tokens',()=>tokensApi.getTokenKey(id)));
+  handle('copyTokenKey', z.number().int().positive(), id => plugins.runView('provider.newapi','tokens',async()=>{clipboard.writeText(await tokensApi.getTokenKey(id));}));
   handle('exportLogs', logSchema, async q => {
-    const status = await api.status();
-    const rows = await api.allLogs(q as LogQuery);
+    const status = await onlineApi.status();
+    const rows = await onlineApi.allLogs(q as LogQuery);
     const target = await dialog.showSaveDialog(win, { title: '导出使用记录', defaultPath: `Lumi-usage-${new Date().toLocaleDateString('sv-SE')}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
     if (target.canceled || !target.filePath) return { count: 0 };
     await writeFile(target.filePath, logsToCsv(rows, status), 'utf8'); return { count: rows.length, path: target.filePath };
@@ -239,37 +222,9 @@ async function start() {
   const unsubscribeLogs=appLogs.subscribe(entry=>{if(!win.isDestroyed())win.webContents.send('lumi:appLog',entry);});
   const unsubscribeRuntimes=runtimes.subscribe(state=>{if(win && !win.isDestroyed())win.webContents.send('lumi:toolRuntime',state);});
   const updateInterval=setInterval(()=>{void updates.check();},4*60*60*1000);updateInterval.unref();
-  let menuInterval:ReturnType<typeof setInterval>|undefined;
-  function scheduleMenuRefresh(){
-    clearInterval(menuInterval);menuInterval=undefined;
-    const seconds=refreshSeconds(store.preferences.menuBarRefreshInterval);
-    if(seconds){menuInterval=setInterval(()=>{if(menuOpen)void refreshMenu();},seconds*1000);menuInterval.unref();}
-  }
-  scheduleMenuRefresh();
-  const systemThemeChanged=()=>{trayPanel?.update();widgetPanel.update();};nativeTheme.on('updated',systemThemeChanged);
-  app.once('before-quit',()=>{clearTimeout(widgetTimer);widgetPanel.close();clearTimeout(cacheRetry);clearInterval(updateInterval);clearInterval(menuInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();nativeBar?.close();trayPanel?.close();tray?.destroy();nativeTheme.removeListener('updated',systemThemeChanged);});
-  const fallbackTray=()=>{
-    if(tray || quitting || process.env.LUMI_SMOKE==='1')return;
-    tray=new Tray(trayImage());tray.setToolTip('Lumi · 余额与今日用量');tray.setIgnoreDoubleClickEvents(true);
-    const openMenu=()=>{if(activeStatusMenu)return;menuOpen=true;activeStatusMenu=Menu.buildFromTemplate(menuBarTemplate(menuUsage.snapshot(),menuActions,store.preferences.menuBarContents));activeStatusMenu.once('menu-will-close',()=>{activeStatusMenu=undefined;menuOpen=false;});void refreshMenu();tray?.popUpContextMenu(activeStatusMenu);};
-    tray.on('click',openMenu);tray.on('right-click',openMenu);
-  };
-  if(process.platform==='darwin')nativeBar=new NativeMenuBar({executable:app.isPackaged ? path.join(process.resourcesPath,'native/lumi-menu-bar') : path.join(root,'dist-native/lumi-menu-bar'),state:formattedMenuState,event:e=>{void nativeEvent(e).catch(()=>appLogs.write('warn','菜单栏','用量菜单操作暂不可用。'));},failed:()=>{menuOpen=false;appLogs.write('warn','菜单栏','原生用量面板不可用，启用系统文字菜单。');fallbackTray();}});
-  if (!icon.isEmpty() && process.env.LUMI_SMOKE !== '1') {
-    if(process.platform==='darwin'){
-      void nativeBar!.start().then(ok=>{if(!ok)fallbackTray();});
-    }else{tray = new Tray(trayImage());tray.setToolTip('Lumi · 余额与用量');
-      tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 Lumi',click:showWindow},{label:'用量分析',click:()=>navigate('usage')},{label:'显示 / 隐藏浮窗挂件',click:()=>{void store.update({widgetEnabled:!store.preferences.widgetEnabled}).then(async()=>{await syncWidget();if(!win.isDestroyed())win.webContents.send('lumi:widgetVisibility',store.preferences.widgetEnabled);}).catch(()=>appLogs.write('warn','浮窗','浮窗暂未能打开。'));}},{label:'刷新用量',click:()=>void refreshMenu(true)},{type:'separator'},{label:'退出 Lumi',click:()=>app.quit()}]));
-      if(process.platform==='win32'){
-        trayPanel=new TrayPanel({root,preload:path.join(__dirname,'tray-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>({usage:formattedMenuState(),theme:store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' : 'light' : store.preferences.theme}),event:nativeEvent});
-        tray.on('click',()=>{void trayPanel?.toggle(tray!.getBounds()).catch(()=>appLogs.write('warn','托盘','用量面板暂不可用，请从右键菜单打开工作台。'));});
-      }
-      tray.on('double-click',()=>{trayPanel?.hide();showWindow();});
-    }
-  }
+  app.once('before-quit',()=>{clearTimeout(cacheRetry);clearInterval(updateInterval);unsubscribeUpdates();updates.close();unsubscribeRuntimes();runtimes.close();unsubscribeLogs();});
   if (process.env.LUMI_DEV_URL) await win.loadURL(process.env.LUMI_DEV_URL); else await win.loadFile(path.join(root, 'dist/index.html'));
   appLogs.write('info','启动','工作台页面加载完成。');
-  if(process.env.LUMI_SMOKE!=='1')void syncWidget().catch(()=>appLogs.write('warn','浮窗','浮窗暂未能打开，请在设置中重试。'));
   if(updateEnabled){const firstUpdate=setTimeout(()=>{void initialCacheCleanup.then(()=>updates.check());},3000);firstUpdate.unref();}
   if (process.env.LUMI_SMOKE === '1') {
     try {
@@ -278,6 +233,32 @@ async function start() {
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
+        const pluginStatuses=await window.lumi.listPlugins();
+        const catalogInput={siteId:b.preferences.activeSiteId,siteUrl:b.preferences.sites.find(site=>site.id===b.preferences.activeSiteId).url};
+        const catalog=await window.lumi.readCatalog(catalogInput);
+        let invalidPlugin=false,fixedRejected=false,invalidCatalog=false,invalidView=false;
+        try{await window.lumi.setPluginEnabled('../untrusted',true);}catch{invalidPlugin=true;}
+        try{await window.lumi.setPluginEnabled('feature.models',false);}catch{fixedRejected=true;}
+        try{await window.lumi.readCatalog({...catalogInput,force:'true'});}catch{invalidCatalog=true;}
+        try{await window.lumi.setPluginView('provider.codex','tokens',false);}catch{invalidView=true;}
+        await window.lumi.setPluginView('provider.newapi','models',false);
+        let disabledCatalog=false;try{await window.lumi.readCatalog(catalogInput);}catch{disabledCatalog=true;}
+        const savedChild=(await window.lumi.bootstrap()).preferences.pluginViews['provider.newapi'].models===false;
+        await window.lumi.setPluginView('provider.newapi','models',true);
+        await window.lumi.setPluginEnabled('provider.newapi',false);
+        let disabledTokens=false,disabledTools=false;
+        try{await window.lumi.getTokenKey(1);}catch(error){disabledTokens=error.message.includes('未启用');}
+        try{await window.lumi.previewConfig({tool:'codex',model:'fixture',group:'default'});}catch(error){disabledTools=error.message.includes('未启用');}
+        const savedParent=(await window.lumi.bootstrap()).preferences.pluginEnabled['provider.newapi']===false;
+        const fixedActive=(await window.lumi.listPlugins()).filter(s=>!s.manifest.configurable).every(s=>s.state==='active');
+        const localTools=Array.isArray(await window.lumi.inspectConfigs());
+        await window.lumi.setPluginEnabled('provider.newapi',true);
+        const restartedCatalog=await window.lumi.readCatalog(catalogInput);
+        await window.lumi.setPluginEnabled('surface.tray',false);
+        const trayDisabled=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='surface.tray' && s.state==='disabled');
+        await window.lumi.setPluginEnabled('surface.tray',true);
+        let invalidCodex=false,noCodex=false;try{await window.lumi.readCodexUsage({path:'../auth.json'});}catch{invalidCodex=true;}try{await window.lumi.readCodexUsage({});}catch{noCodex=true;}
+        const pluginIpcValid=invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===4;
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
@@ -300,20 +281,44 @@ async function start() {
         const appCacheValid=Number.isFinite(cacheBefore.totalBytes) && cleared.freedBytes>=0 && Array.isArray(cleared.cache.warnings);
         const logs=await window.lumi.appLogs();
         const header=document.querySelector('.titlebar'),sidebar=document.querySelector('.sidebar'),rect=header?.getBoundingClientRect(),side=sidebar?.getBoundingClientRect();
-        const platformLayout=!!rect && !!side && (b.platform==='darwin' ? rect.x===0 && Math.abs(rect.width-innerWidth)<1 && side.top>=rect.bottom : side.top===0 && rect.x>=side.right && Math.abs(rect.right-innerWidth)<1);
+        const platformLayout=!!rect && !!side && (rect.x===0 && Math.abs(rect.width-innerWidth)<1 && side.top>=rect.bottom && parseFloat(getComputedStyle(sidebar).borderTopLeftRadius)>0);
         const titlebarGeometry=platformLayout && rect.y===0 && header.parentElement.classList.contains('desktop-shell') && getComputedStyle(header).getPropertyValue('-webkit-app-region')==='drag' && getComputedStyle(document.querySelector('.titlebar-actions')).getPropertyValue('-webkit-app-region')==='no-drag';
-        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,localSessionIpcValid,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
+        return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,pluginIpcValid,localSessionIpcValid,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
-      result.widgetPanel=await widgetPanel.smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);
+      await win.webContents.executeJavaScript(String.raw`(async()=>{
+        document.querySelector('.settings-nav').click();
+        const until=async(fn)=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Extension smoke view timed out');await new Promise(r=>setTimeout(r,20));}};
+        await until(()=>document.querySelector('[aria-label="启用工作台便笺"]'));
+        document.querySelector('[aria-label="启用工作台便笺"]').click();
+        await until(()=>document.querySelector('iframe[src^="lumi-extension:"]'));
+      })()`);
+      let externalFrame:Electron.WebFrameMain|undefined;
+      for(let attempt=0;attempt<100;attempt++){externalFrame=win.webContents.mainFrame.frames.find(frame=>frame.url.startsWith('lumi-extension://'));if(externalFrame && await externalFrame.executeJavaScript('!!window.lumiExtension').catch(()=>false))break;await new Promise(r=>setTimeout(r,25));}
+      if(!externalFrame)throw new Error('External extension frame failed to load');
+      const externalIsolation=await externalFrame.executeJavaScript(String.raw`(async()=>{
+        await lumiExtension.ready;let parentDenied=false,networkDenied=false;try{void parent.document.body;}catch{parentDenied=true;}try{await lumiExtension.network.read({url:'https://fixture.invalid'});}catch{networkDenied=true;}
+        await lumiExtension.storage.write('smoke','independent');const value=await lumiExtension.storage.read('smoke');
+        return parentDenied && networkDenied && typeof require==='undefined' && typeof window.lumi==='undefined' && value==='independent';
+      })()`);
+      const oldGeneration=extensions.statuses()[0].generation!;
+      await win.webContents.executeJavaScript(String.raw`(async()=>{document.querySelector('[aria-label="启用工作台便笺"]').click();const end=performance.now()+4000;while(document.querySelector('iframe[src^="lumi-extension:"]')){if(performance.now()>end)throw new Error('Revoked extension frame retained');await new Promise(r=>setTimeout(r,20));}})()`);
+      result.externalPluginValid=externalIsolation && extensions.statuses()[0].state==='disabled' && !extensions.asset('lumi-extension://extension.lumi.notes/'+oldGeneration+'/index.html');
+      await plugins.setEnabled('surface.widget',true);
+      result.widgetPanel=await plugins.require('surface.widget','surface.control').smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);
+      await plugins.setEnabled('surface.widget',false);
+      const widgetReleased=!plugins.isEnabled('surface.widget') && BrowserWindow.getAllWindows().length===1;
+      await plugins.setEnabled('surface.widget',true);
+      const restartedWidget=await plugins.require('surface.widget','surface.control').smoke();
+      await plugins.setEnabled('surface.widget',false);
       const buttons=process.platform==='darwin' ? win.getWindowButtonPosition() : null;
       result.nativeMacControls=process.platform!=='darwin' || buttons?.x===24 && buttons?.y===22 && result.titlebarGeometry && Menu.getApplicationMenu()!==null;
-      result.nativeStatusMenu=process.platform!=='darwin' || !trayImage().isEmpty() && Menu.buildFromTemplate(menuBarTemplate({phase:'idle'},menuActions)).items.some(item=>item.label==='用量分析');
-      result.nativeStatusCard=process.platform!=='darwin' || !!nativeBar && await nativeBar.start(true);
-      if(process.platform==='win32'){
-        const probe=new TrayPanel({root,preload:path.join(__dirname,'tray-preload.cjs'),devUrl:process.env.LUMI_DEV_URL,state:()=>({usage:formattedMenuState(),theme:'light'}),event:()=>{}});
-        try{result.windowsTray=await probe.smoke();result.nativeWindowsTray=Object.values(result.windowsTray).every(Boolean);}finally{probe.close();}
-      }else result.nativeWindowsTray=true;
+      Object.assign(result,await plugins.require('surface.tray','surface.control').smoke());
+      await plugins.setEnabled('surface.tray',false);
+      const trayReleased=!plugins.isEnabled('surface.tray') && BrowserWindow.getAllWindows().length===1;
+      await plugins.setEnabled('surface.tray',true);
+      const restartedTray=await plugins.require('surface.tray','surface.control').smoke();
+      result.surfaceLifecycleValid=widgetReleased && trayReleased && Object.values(restartedWidget).every(Boolean) && restartedTray.nativeWindowsTray===true && restartedTray.nativeStatusCard===true && BrowserWindow.getAllWindows().length===1;
       const updaterProbe=process.platform==='darwin' ? macUpdater(path.join(data,'updates')) : await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());
       console.log('LUMI_SMOKE_RESULT=' + JSON.stringify(result));
@@ -328,5 +333,5 @@ else {
   app.on('second-instance', () => { if (win && !win.isDestroyed()) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); } });
   app.on('activate',()=>{if(win && !win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}});
   app.whenReady().then(start).catch(e => { if (process.env.LUMI_SMOKE === '1') { console.error('LUMI_SMOKE_FAILED', String(e.message || e)); app.exit(1); } else { dialog.showErrorBox('Lumi 启动失败', String(e.message || e)); app.quit(); } });
-  app.on('window-all-closed', () => {if(process.platform!=='darwin'){tray?.destroy();app.quit();} });
+  app.on('window-all-closed', () => {if(process.platform!=='darwin'){app.quit();} });
 }

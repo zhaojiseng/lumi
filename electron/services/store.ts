@@ -1,5 +1,8 @@
+import {normalizePluginEnabled,normalizePluginViews,validatePluginView} from '../../shared/plugin-preferences';
+import {configurablePlugin} from '../../shared/plugin-preferences';
+import {builtinManifests} from '../../plugins/manifests';
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
-import {applyPreferencePatch, normalizeSelections} from '../../shared/selections';
+import {applyPreferencePatch, normalizeSelections,normalizeSourceSelections} from '../../shared/selections';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
 import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
@@ -37,12 +40,16 @@ export class SettingsStore {
     try { data = JSON.parse(await readFile(path.join(this.directory, 'settings.json'), 'utf8')); }
     catch (e: any) { if (e.code === 'ENOENT') return; throw new Error('设置文件无法读取。请检查应用数据目录。'); }
     this.preferences = { ...structuredClone(DEFAULT_PREFERENCES), ...data.preferences };
+    this.preferences.pluginViews=normalizePluginViews(this.preferences.pluginViews,this.preferences.pluginEnabled);
+    this.preferences.pluginEnabled=normalizePluginEnabled(this.preferences.pluginEnabled);
+    this.preferences.widgetEnabled=this.preferences.pluginEnabled['surface.widget'] ?? !!this.preferences.widgetEnabled;
     // Migrate old settings: obsolete preview and reasoning preferences never survive.
     delete (this.preferences as any).demoMode;
     this.preferences.bindings = this.preferences.bindings.map(({ reasoning, ...b }: any) => ({ ...b, group: b.group || "" }));
     this.preferences.managedTokens ||= [];
     this.preferences.logColumns = migrateLogColumns(this.preferences.logColumns);
     this.preferences.viewSelections = normalizeSelections(this.preferences.viewSelections);
+    this.preferences.sourceSelections = normalizeSourceSelections(data.preferences?.sourceSelections,this.preferences.viewSelections,this.preferences.activeSiteId);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
     this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
     this.preferences.menuBarChartRange=normalizeMenuBarRange(this.preferences.menuBarChartRange);
@@ -118,6 +125,7 @@ export class SettingsStore {
     if (patch.activeSiteId && !this.preferences.sites.some(s => s.id === patch.activeSiteId)) throw new Error('站点不存在。');
     if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
+    if(patch.sourceSelection && (!['source.local-sessions','feature.usage'].includes(patch.sourceSelection.sourceId) || Object.keys(normalizeSelections({[patch.sourceSelection.sourceId]:patch.sourceSelection.values})[patch.sourceSelection.sourceId] || {}).length!==Object.keys(patch.sourceSelection.values).length))throw new Error('来源选择设置无效。');
     this.preferences = applyPreferencePatch(this.preferences, patch);
     this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
@@ -129,6 +137,20 @@ export class SettingsStore {
     this.preferences.widgetPeriod=normalizeWidgetPeriod(this.preferences.widgetPeriod);
     this.preferences.widgetInputMode=this.preferences.widgetInputMode==='uncached' ? 'uncached' : 'total';
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);
+  }
+  async setPluginEnabled(id:string,enabled:boolean) {
+    configurablePlugin(builtinManifests,id);
+    if(typeof enabled!=='boolean')throw new Error('插件启用状态无效。');
+    const previous=this.preferences.pluginEnabled,previousWidget=this.preferences.widgetEnabled;
+    this.preferences.pluginEnabled={...previous,[id]:enabled};
+    if(id==='surface.widget')this.preferences.widgetEnabled=enabled;
+    try {await this.persist();}catch(e){this.preferences.pluginEnabled=previous;this.preferences.widgetEnabled=previousWidget;throw e;}
+  }
+  async setPluginView(id:string,view:import('../../shared/contracts/plugins').PluginViewId,enabled:boolean){
+    validatePluginView(id,view);if(typeof enabled!=='boolean')throw new Error('显示状态无效。');
+    const previous=this.preferences.pluginViews;
+    this.preferences.pluginViews={...previous,[id]:{...previous[id],[view]:enabled}};
+    try{await this.persist();}catch(error){this.preferences.pluginViews=previous;throw error;}
   }
   async setToolKey(tool: Tool, key: string, binding?: Partial<ToolBinding>, id = this.preferences.activeSiteId) {
     if (!this.preferences.sites.some(s => s.id === id)) throw new Error('站点已移除。');

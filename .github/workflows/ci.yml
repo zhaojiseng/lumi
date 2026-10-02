@@ -37,6 +37,7 @@ jobs:
       - run: npm run check:secrets
       - run: npm run check:history
       - run: npm run typecheck
+      - run: npm run check:extensions
       - name: Test with a virtual display on Linux
         if: runner.os == 'Linux'
         run: xvfb-run -a npm test

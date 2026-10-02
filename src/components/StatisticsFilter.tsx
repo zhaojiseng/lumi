@@ -8,7 +8,7 @@ import {refreshLabel} from '../../shared/refresh';
 import {DateRangePicker} from './DateRangePicker';
 import {Button} from './ui';
 
-function MultiSelect({label,options,value,onApply}:{label:string;options:{value:string;label:string}[];value:string[];onApply(value:string[]):void}) {
+export function MultiSelect({label,options,value,onApply}:{label:string;options:{value:string;label:string}[];value:string[];onApply(value:string[]):void}) {
   const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),search=useRef<HTMLInputElement>(null);
   const [open,setOpen]=useState(false),[mounted,setMounted]=useState(false),[draft,setDraft]=useState(value),[query,setQuery]=useState('');
   const [position,setPosition]=useState({top:0,left:0});

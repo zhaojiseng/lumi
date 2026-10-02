@@ -1,7 +1,12 @@
+import type {CatalogReadRequest,CatalogSnapshot} from './contracts/catalog';
+import type {PluginStatus,PluginViewId} from './contracts/plugins';
+import type {SubscriptionUsageSnapshot} from './contracts/subscription-usage';
+import type {ExtensionInventory,ExtensionRequest} from './contracts/extensions';
 import type {DataRefreshAnimation} from './motion';
 import type {WidgetPeriod} from './widget-period';
 export type Tool = 'codex' | 'claude';
-export type Page = 'overview' | 'usage' | 'models' | 'tools' | 'tokens' | 'settings';
+export type PluginPageId = `plugin:${string}`;
+export type Page = 'overview' | 'usage' | 'models' | 'tools' | 'tokens' | 'settings' | PluginPageId;
 export type Theme = 'light' | 'dark' | 'system';
 export interface SiteProfile {
   id: string; name: string; url: string; userId?: number; allowHttp: boolean;
@@ -20,17 +25,20 @@ export type MenuBarRange = 'follow' | '24h' | 1 | 7 | 30;
 export type WidgetDataSource = 'api' | 'local';
 export type WidgetInputMode = 'total' | 'uncached';
 export interface Preferences {
+  pluginEnabled:Record<string,boolean>;
+  pluginViews:Record<string,Partial<Record<PluginViewId,boolean>>>;
   widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null; widgetDataSource:WidgetDataSource; widgetPeriod:WidgetPeriod; widgetInputMode:WidgetInputMode; dataRefreshAnimation:DataRefreshAnimation;
   sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
   refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
   viewSelections: Record<string, Record<string, SelectionValue>>;
+  sourceSelections: Record<string, Record<string, SelectionValue>>;
   dismissedUpdateVersion: string;
   skippedUpdateVersion: string;
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch };
+export type PreferencePatch = Partial<Pick<Preferences, 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { selection?: SelectionPatch;sourceSelection?:{sourceId:'source.local-sessions'|'feature.usage';values:Record<string,SelectionValue>} };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -186,6 +194,15 @@ export interface CreateTokenInput {
 }
 export interface UpdateTokenInput extends Omit<CreateTokenInput,'tool'> { id:number; }
 export interface LumiBridge {
+  extensionInventory():Promise<ExtensionInventory>;
+  reloadExtensions():Promise<ExtensionInventory>;
+  openExtensionsDirectory():Promise<void>;
+  extensionRequest(input:ExtensionRequest):Promise<unknown>;
+  readCodexUsage(input:{force?:boolean}):Promise<SubscriptionUsageSnapshot>;
+  readCatalog(input:CatalogReadRequest):Promise<CatalogSnapshot>;
+  listPlugins():Promise<PluginStatus[]>;
+  setPluginEnabled(id:string,enabled:boolean):Promise<PluginStatus[]>;
+  setPluginView(id:string,view:PluginViewId,enabled:boolean):Promise<PluginStatus[]>;
   bootstrap(): Promise<Bootstrap>;
   inspectConfigs(): Promise<ToolConfigState[]>;
   toolRuntimes(force?: boolean): Promise<ToolRuntimeState[]>;
@@ -246,10 +263,12 @@ export interface LumiBridge {
 export const DEFAULT_SITE_ID = 'cyg-default';
 export const DEFAULT_SITE_URL = 'https://api.example.com';
 export const DEFAULT_PREFERENCES: Preferences = {
+  pluginEnabled:{},
+  pluginViews:{},
   widgetEnabled:false,widgetPosition:null,widgetDataSource:'api',widgetPeriod:60,widgetInputMode:'total',dataRefreshAnimation:'slide-up',
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
   activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
-  logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, bindings: [
+  logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, sourceSelections:{}, bindings: [
     { tool: 'codex', model: '', group: '', tokenName: 'Lumi-Codex', siteId: DEFAULT_SITE_ID },
     { tool: 'claude', model: '', group: '', tokenName: 'Lumi-Claude', siteId: DEFAULT_SITE_ID },
   ],

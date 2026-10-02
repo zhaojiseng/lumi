@@ -8,6 +8,7 @@ import {useSavedSelection} from '../selections';
 import {modelSelectionKey} from '../../shared/selections';
 import {availableGroups,groupRatio,defaultModelGroup} from '../../shared/catalog';
 import {legacyPrices,priceText,publishedPriceSections,defaultPricingModel,isExpression,pricingChoices,defaultPricingChoice,type PriceRow,type PricingChoice} from '../../shared/pricing';
+import type {CatalogSnapshot} from '../../shared/contracts/catalog';
 import type {ModelHealth,ModelHealthDetails,ModelCatalog,ModelInfo,SiteStatus} from '../../shared/types';
 import {Button,Modal,Pill,Select} from './ui';
 import {ChannelSelect} from './ChannelSelect';
@@ -41,7 +42,7 @@ export function RouteDetails({model,catalog,status,group,defaultOnly=false}:{mod
   return <div className="route-detail"><strong>{catalog.usableGroups[group] || group || '先选择渠道'}</strong><span className="route-multiplier">{group==='auto' ? 'AUTO' : r===undefined ? '—' : '×'+r}</span><p>{group==='auto' ? '按站点自动路由规则选择渠道，价格随实际命中渠道变化。' : '计费倍率已包含账号分组优惠。'}<br/>{group && count+' 个可用模型 · '+group}</p>{group==='auto' && <div className="route-price-list">{catalog.autoGroups.map(g=><span key={g}>{g} <b>{catalog.groupRatio[g]==null ? '未公布' : '×'+catalog.groupRatio[g]}</b></span>)}</div>}{model && group && <div className="route-model-price"><div className="route-price-heading"><strong>站点公布单价</strong><Button type="button" variant="ghost" onClick={showDetails}>详细定价</Button></div>{r===undefined ? <p className="field-help">{group==='auto' ? '自动路由没有固定价格，请选择具体渠道查看。' : '该渠道倍率未公布。'}</p> : <PublishedPrices model={defaultPricingModel(model)} status={status} ratio={r} defaultOnly={defaultOnly}/>}</div>}{open && model && createPortal(<PricingDetailsModal model={model} catalog={catalog} status={status} initialGroup={group} onClose={()=>setOpen(false)}/>,document.body)}</div>;
 }
 function localText(value:unknown):string {if(typeof value==='string')return value;if(value && typeof value==='object'){const v=value as Record<string,string>;return v['zh-CN'] || v.zh || v.en || Object.values(v)[0] || '';}return '';}
-export function PricingDetailsModal({model,catalog,status,initialGroup,onClose,health,healthError}:{health?:ModelHealth;healthError?:string;model:ModelInfo;catalog:ModelCatalog;status:SiteStatus;initialGroup?:string;onClose():void}) {
+export function PricingDetailsModal({model,catalog,status,initialGroup,onClose,health,healthError,snapshot}:{health?:ModelHealth;healthError?:string;snapshot?:CatalogSnapshot;model:ModelInfo;catalog:ModelCatalog;status:SiteStatus;initialGroup?:string;onClose():void}) {
   const {dashboard}=useApp();
   const [healthDetails,setHealthDetails]=useState<ModelHealthDetails|null>(null),[healthDetailError,setHealthDetailError]=useState('');
   const [selectedGroup,setGroup]=useSavedSelection(modelSelectionKey(model.model_name,'group'),initialGroup || '');
@@ -52,7 +53,7 @@ export function PricingDetailsModal({model,catalog,status,initialGroup,onClose,h
     void load();const timer=setInterval(()=>{if(document.visibilityState==='visible')void load();},60000);return()=>{active=false;clearInterval(timer);};
   },[model.model_name]);
   const routes=availableGroups(model,catalog),group=defaultModelGroup(model,catalog,selectedGroup);
-  const choices=pricingChoices(model,status,new Date(dashboard?.fetchedAt || Date.now())),choice=choices.find(c=>c.key===choiceKey) || defaultPricingChoice(choices);
+  const choices=pricingChoices(model,status,new Date(snapshot?.fetchedAt || dashboard?.fetchedAt || Date.now())),choice=choices.find(c=>c.key===choiceKey) || defaultPricingChoice(choices);
   const priced=choice?.model || model,r=groupRatio(catalog,group,priced),routeHealth=healthDetails?.groups.find(h=>h.group===group);
   const sourceChoices=choices.filter(c=>c.sourceKey===choice?.sourceKey),sources=choices.filter((c,i,all)=>all.findIndex(v=>v.sourceKey===c.sourceKey)===i),index=sourceChoices.indexOf(choice!);
   return <Modal className="pricing-modal" title={model.model_name+' · 定价与健康度'} subtitle="站点公布的单价、计费规则和渠道统计" wide onClose={onClose}>

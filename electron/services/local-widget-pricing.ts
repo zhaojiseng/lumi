@@ -6,7 +6,8 @@ import type {ToolBinding,ModelCatalog,SiteStatus,Tool} from '../../shared/types'
 import type {WidgetUsage} from '../../shared/widget';
 import type {LocalWidgetOptions} from './local-usage';
 
-export interface WidgetPricingContext {siteId:string;siteName:string;status:SiteStatus;balance:number|null;loggedIn:boolean;catalog:ModelCatalog|null;userGroup:string;error?:string;}
+import type {WidgetPricingContext} from '../../shared/contracts/newapi';
+export type {WidgetPricingContext} from '../../shared/contracts/newapi';
 export function localWidgetPricing(context:WidgetPricingContext,bindings:ToolBinding[]):LocalWidgetOptions {
   const active=bindings.filter(binding=>binding.siteId===context.siteId);
   const revision=createHash('sha256').update(JSON.stringify([context.siteId,context.catalog?.models.map(model=>[model.model_name,model.quota_type,model.model_ratio,model.model_price,model.completion_ratio,model.cache_ratio,model.create_cache_ratio,model.billing_mode,model.billing_expr,model.billing_plugin_variants,model.billing_usage_schema,model.group_ratio,model.enable_groups]),context.catalog?.groupRatio,context.status.quota_per_unit,context.userGroup,active.map(binding=>[binding.tool,binding.group])])).digest('hex');

@@ -92,14 +92,14 @@ test('browser migration and invalid patches consistently fall back to one minute
 
 // Bundle the real settings and Select components; replace only app context and its busy hook.
 const settingsBundle=build({entryPoints:['src/components/WidgetSettings.tsx'],bundle:true,platform:'node',format:'cjs',write:false,
-  external:['react','react/jsx-runtime','lucide-react','../context'],loader:{'.svg':'text'},logLevel:'silent'});
+  external:['react','react/jsx-runtime','lucide-react','../../../src/context'],loader:{'.svg':'text'},logLevel:'silent'});
 async function settings(options:{preferences?:Preferences;desktop?:boolean;save?:(patch:PreferencePatch)=>Promise<Preferences>}={}) {
   let busy=false;
   const patches:PreferencePatch[]=[],errors:string[]=[],context={preferences:options.preferences || structuredClone(DEFAULT_PREFERENCES),
     bootstrap:{desktop:options.desktop ?? true},toast:(message:string)=>errors.push(message),
     updatePreferences:async(patch:PreferencePatch)=>{patches.push(patch);context.preferences=options.save ? await options.save(patch) : {...context.preferences,...patch};}};
   const result=await settingsBundle,module={exports:{} as {default:()=>React.ReactElement}},nodeRequire=createRequire(import.meta.url);
-  runInNewContext(result.outputFiles[0].text,{module,exports:module.exports,require:(name:string)=>name==='../context' ? {useApp:()=>context} :
+  runInNewContext(result.outputFiles[0].text,{module,exports:module.exports,require:(name:string)=>name==='../../../src/context' ? {useApp:()=>context} :
     name==='react' ? {...React,useState:()=>[busy,(next:boolean)=>{busy=next;}]} : nodeRequire(name)});
   function tree(){return module.exports.default();}
   function select(label:string){

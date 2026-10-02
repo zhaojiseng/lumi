@@ -1,18 +1,1 @@
-import {useState} from 'react';
-import {PanelsTopLeft,Check,Move,Clock3,Database,Calculator} from 'lucide-react';
-import {useApp} from '../context';
-import {Button,SectionHeading,Select} from './ui';
-import {WIDGET_PERIODS,normalizeWidgetPeriod} from '../../shared/widget-period';
-export default function WidgetSettings(){
-  const {preferences,bootstrap,updatePreferences,toast}=useApp(),[busy,setBusy]=useState(false);
-  async function toggle(){if(busy)return;setBusy(true);try{await updatePreferences({widgetEnabled:!preferences.widgetEnabled});}catch(e:any){toast(e.message || '浮窗暂不可用','error');}finally{setBusy(false);}}
-  async function source(value:string){if(busy)return;setBusy(true);try{await updatePreferences({widgetDataSource:value==='local' ? 'local' : 'api'});}catch(e:any){toast(e.message || '浮窗数据源设置失败','error');}finally{setBusy(false);}}
-  async function period(value:string){if(busy)return;setBusy(true);try{await updatePreferences({widgetPeriod:normalizeWidgetPeriod(value==='latest' ? value : Number(value))});}catch(e:any){toast(e.message || '浮窗统计范围设置失败','error');}finally{setBusy(false);}}
-  async function inputMode(value:string){if(busy)return;setBusy(true);try{await updatePreferences({widgetInputMode:value==='uncached' ? 'uncached' : 'total'});}catch(e:any){toast(e.message || '浮窗输入计算口径设置失败','error');}finally{setBusy(false);}}
-  const local=preferences.widgetDataSource==='local';
-  return <section className="surface panel"><SectionHeading title="浮窗挂件" sub="把余额和最近消费放在手边"/><div className="setting-control"><div><strong><PanelsTopLeft size={16}/> 桌面用量挂件</strong><p>始终置顶的紧凑横条：左侧最近消费，右上最近模型的输入、输出和缓存，右下账户余额。</p></div><Button busy={busy} disabled={!bootstrap.desktop} variant={preferences.widgetEnabled ? 'default' : 'primary'} onClick={toggle}>{preferences.widgetEnabled ? <Check size={15}/> : <PanelsTopLeft size={15}/>} {preferences.widgetEnabled ? '隐藏挂件' : '显示挂件'}</Button></div>
-    <div className="setting-control"><div><strong><Database size={16}/> 数据源</strong><p>{local ? '读取本机 Codex / Claude 会话文件；最近消费按当前站点的线上模型价格估算，余额来自在线账户。' : '读取当前站点 API，用量与余额来自账户接口。'}</p></div><Select label="浮窗数据源" disabled={busy || !bootstrap.desktop} value={preferences.widgetDataSource} onChange={source}><option value="api">站点 API</option><option value="local">本地会话文件</option></Select></div>
-    <div className="setting-control"><div><strong><Clock3 size={16}/> 统计范围</strong><p>站点 API 与本地会话共用此范围，最近一次按模型调用统计。切换后自动保存，下次启动会恢复。</p></div><Select label="浮窗统计范围" disabled={busy || !bootstrap.desktop} value={normalizeWidgetPeriod(preferences.widgetPeriod)} onChange={period}>{WIDGET_PERIODS.map(option=><option key={option.value} value={option.value}>{option.value==='latest' ? '最近一次模型调用' : option.label}</option>)}</Select></div>
-    <div className="setting-control"><div><strong><Calculator size={16}/> 输入计算口径</strong><p>默认包含缓存读取；仅未命中输入会扣除缓存读取。两种口径均不含缓存写入，API 与本地共用，仅改变浮窗输入显示，不改变计费。选择后自动保存，下次启动会恢复。</p></div><Select label="浮窗输入计算口径" disabled={busy || !bootstrap.desktop} value={preferences.widgetInputMode==='uncached' ? 'uncached' : 'total'} onChange={inputMode}><option value="total">包含缓存读取</option><option value="uncached">仅未命中输入</option></Select></div>
-    <div className="info-note"><Clock3 size={16}/><span>{local ? '本地模式每秒增量读取会话追加内容，并保存每个文件的读取位置；切换范围复用最近 30 天的分钟聚合，无需重新扫描全部会话。会话文件仅作只读访问，不会写入、锁定或修改其它程序正在使用的文件。' : preferences.widgetPeriod==='latest' ? 'API 模式展示最近一次模型调用的消费，余额来自当前站点账户。' : 'API 模式按完整分钟同步所选范围的消费，余额来自当前站点账户。'} 悬停查看消费时间和完整详情，刷新动效跟随设置中的数据刷新动画。关闭挂件后停止同步。</span></div><div className="info-note"><Move size={16}/><span>拖动挂件边缘可调整位置，下次启动会恢复。双击内容或聚焦后按 Enter 打开工作台，悬停或聚焦时可使用右上角关闭按钮。</span></div>{!bootstrap.desktop && <p className="muted small-text">浮窗挂件需要 Electron 桌面应用。</p>}</section>;
-}
+export {default} from '../../plugins/surface.widget/renderer/Settings';

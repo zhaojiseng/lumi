@@ -1,11 +1,11 @@
 import { BrowserWindow, session } from 'electron';
 import { randomUUID } from 'node:crypto';
 import type { SettingsStore } from './store';
-import type { NewApiClient } from './new-api';
+import type {AccountSessionCapability} from '../../shared/contracts/newapi';
 import { BrowserCredentialCapture } from './login-capture';
 import {DEFAULT_SITE_URL} from '../../shared/types';
 /** Remote login runs without a preload or Node. No remote page can invoke Lumi IPC. */
-export function browserLogin(parent: BrowserWindow, store: SettingsStore, api: NewApiClient) {
+export function browserLogin(parent: BrowserWindow, store: SettingsStore, api: Pick<AccountSessionCapability,'acceptBrowserSession'>) {
   if(store.activeSite().url===DEFAULT_SITE_URL)throw new Error('请先在设置中填写你的 New API 站点地址。');
   const site = structuredClone(store.activeSite()); const origin = new URL(site.url).origin;
   if (site.url.startsWith('http:') && !site.allowHttp) throw new Error('请先在站点设置中允许 HTTP 再登录。');

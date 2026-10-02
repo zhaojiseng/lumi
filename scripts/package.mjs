@@ -31,4 +31,14 @@ if(process.platform==='darwin'){
 }
 const directory = process.argv.includes('--dir');
 await build({ targets: Platform.current().createTarget(directory ? 'dir' : undefined), config, publish:'never' });
+// External plugins are deliberately excluded from app.asar and the installer.
+// Authors/users copy independent directory packages into Lumi's extensions directory.
+const {tsImport}=await import('tsx/esm/api');
+const {scanExtensionPackages}=await tsImport('../electron/extensions/packages.ts',import.meta.url);
+const extensions=await scanExtensionPackages([path.join(root,'extensions/packages')]);
+if(extensions.diagnostics.length)throw new Error('Invalid external plugin packages: '+JSON.stringify(extensions.diagnostics));
+const externalOutput=path.join(output,'extensions');
+if(path.resolve(externalOutput)!==path.join(path.resolve(output),'extensions'))throw new Error('Invalid extensions output path.');
+await rm(externalOutput,{recursive:true,force:true});await mkdir(externalOutput,{recursive:true});
+for(const pkg of extensions.packages){const folder=path.join(externalOutput,pkg.manifest.id);await mkdir(folder,{recursive:true});for(const [name,bytes] of pkg.files){const file=path.join(folder,name);await mkdir(path.dirname(file),{recursive:true});await writeFile(file,bytes);}}
 console.log('Lumi packaged in '+output+'.');

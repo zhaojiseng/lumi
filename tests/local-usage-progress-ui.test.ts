@@ -12,7 +12,7 @@ import {DEFAULT_PREFERENCES,type DashboardQuery,type LocalSessionSummary,type Lo
 import type {AppState} from '../src/context';
 
 const bundle=build({
-  stdin:{contents:"export {default as Usage} from './src/pages/Usage'; export {LocalUsageProgress} from './src/components/LocalUsageProgress'; export {AppContext} from './src/context';",resolveDir:process.cwd(),loader:'tsx'},
+  stdin:{contents:"export {default as Usage} from './plugins/source.local-sessions/renderer/Usage'; export {LocalUsageProgress} from './src/components/LocalUsageProgress'; export {SourcePreferencesProvider} from './src/host/source-preferences';",resolveDir:process.cwd(),loader:'tsx'},
   bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom','recharts'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent',
 });
 type Element=React.ReactElement<Record<string,any>>;
@@ -46,7 +46,7 @@ async function harness(){
   };
   const preferences=structuredClone(DEFAULT_PREFERENCES);
   preferences.sites[0]={...preferences.sites[0],url:'https://fixture.invalid',userId:1,accessTokenConfigured:true};
-  preferences.viewSelections[preferences.activeSiteId]={'usage.tab':'local'};
+  preferences.sourceSelections={'source.local-sessions':{range:structuredClone(query.range)}};
   const app:AppState={
     preferences,bootstrap:{preferences,desktop:true,version:'0.4.31',secureStorage:true,configs:[]},
     dashboard:{status:{system_name:'Fixture',quota_per_unit:500000},user:{id:1,username:'fixture',display_name:'Fixture',quota:0,used_quota:0,request_count:0,group:'standard'},
@@ -56,11 +56,16 @@ async function harness(){
     openLogin:()=>{},setPreferences:()=>{},configureModel:()=>{},reloadBootstrap:async()=>{},refresh:async()=>{},toast:message=>{notices.push(message);},
     updatePreferences:async patch=>{app.preferences=applyPreferencePatch(app.preferences,patch);},
   };
+  const source={
+    get selections(){return app.preferences.sourceSelections;},desktop:true,
+    onError:(message:string)=>notices.push(message),update:async(patch:any)=>{await app.updatePreferences(patch);},
+  };
+  function setRange(range:any){app.preferences=applyPreferencePatch(app.preferences,{sourceSelection:{sourceId:'source.local-sessions',values:{range}}});app.statisticsQuery={range};}
   type Effect={setup:()=>void|(()=>void);deps?:React.DependencyList;cleanup?:()=>void;pending:boolean};
   const slots:any[]=[],effects:Effect[]=[];
   let cursor=0,inPage=false,mounted=true,writes=0,staleWrites=0;
   const hooks={...React,
-    useContext:(context:React.Context<unknown>)=>inPage ? app : React.useContext(context),
+    useContext:(context:React.Context<unknown>)=>inPage ? source : React.useContext(context),
     useRef:(initial:any)=>{if(!inPage)return React.useRef(initial);const index=cursor++;if(!(index in slots))slots[index]={current:initial};return slots[index];},
     useState:(initial:any)=>{
       if(!inPage)return React.useState(initial);const index=cursor++;
@@ -76,14 +81,14 @@ async function harness(){
   const module={exports:{} as Record<string,any>},nodeRequire=createRequire(import.meta.url);
   runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,structuredClone,crypto:webcrypto,window:{lumi:bridge},
     require:(name:string)=>name==='react' ? hooks : nodeRequire(name)});
-  const {Usage,AppContext,LocalUsageProgress}=module.exports;
+  const {Usage,SourcePreferencesProvider,LocalUsageProgress}=module.exports;
   function render(runEffects=true):Element{
     cursor=0;inPage=true;let tree:Element;try{tree=Usage();}finally{inPage=false;}
     if(runEffects)for(const effect of effects)if(effect.pending){effect.pending=false;effect.cleanup?.();const cleanup=effect.setup();effect.cleanup=typeof cleanup==='function' ? cleanup : undefined;}
     return tree;
   }
-  function html(){return renderToStaticMarkup(React.createElement(AppContext.Provider,{value:app},render()));}
-  function button(label:string){const button=elements(render()).find(node=>node.type==='button' && content(node.props.children)===label);assert.ok(button,label+' exists');return button.props;}
+  function html(){return renderToStaticMarkup(React.createElement(SourcePreferencesProvider,{value:source},render()));}
+  function button(label:string){const button=elements(render()).find(node=>(node.type==='button' || typeof node.type==='function' && node.type.name==='Button') && content(node.props.children)===label);assert.ok(button,label+' exists');return button.props;}
   function chart(){const chart=elements(render()).find(node=>typeof node.type==='function' && node.type.name==='TrendChart');assert.ok(chart,'local chart exists');return chart.props;}
   function sessionList(){const list=elements(render()).find(node=>typeof node.type==='function' && node.type.name==='LocalSessions');assert.ok(list);return list.props;}
   function sessionDetail(runEffects=true){return elements(render(runEffects)).find(node=>typeof node.type==='function' && node.type.name==='LocalSessionDetails')?.props;}
@@ -91,7 +96,7 @@ async function harness(){
   function unmount(){mounted=false;for(const effect of effects)effect.cleanup?.();}
   async function flush(){for(let i=0;i<6;i++)await Promise.resolve();}
   render();
-  return {app,bridge,requests,listeners,retired,notices,render,html,button,chart,sessionList,sessionDetail,emit,unmount,flush,
+  return {app,setRange,bridge,requests,listeners,retired,notices,render,html,button,chart,sessionList,sessionDetail,emit,unmount,flush,
     onInvoke:(callback:(request:Request)=>void)=>{onInvoke=callback;},
     feedback:(value:LocalUsageProgress|null)=>renderToStaticMarkup(React.createElement(LocalUsageProgress,{progress:value})),
     counts:()=>({unsubscribed,network,writes,staleWrites}),
@@ -122,7 +127,7 @@ test('completion hides progress immediately and ignores late notifications and p
 
 test('a query change rejects old progress even before cleanup and never lets an old result replace newer content',async()=>{
   const h=await harness(),old=h.requests[0],oldListener=[...h.listeners][0];
-  h.app.statisticsQuery={range:{...query.range,startTime:'09:06'}};h.render(false);
+  h.setRange({...query.range,startTime:'09:06'});h.render(false);
   const writes=h.counts().writes;oldListener(progress(old.id));assert.equal(h.counts().writes,writes);
   h.render();const next=h.requests[1];assert.notEqual(next.id,old.id);assert.equal(h.listeners.size,1);
   h.emit(progress(old.id));assert.doesNotMatch(h.html(),/progressbar/);
@@ -132,29 +137,29 @@ test('a query change rejects old progress even before cleanup and never lets an 
   assert.equal(h.counts().staleWrites,0);h.unmount();assert.equal(h.listeners.size,0);
 });
 
-test('site, URL, and account changes invalidate late progress/results/errors with the same query',async()=>{
+test('site, URL and New API account changes retain the independent local read and details',async()=>{
   for(const change of ['site','url','profile-account','dashboard-account'] as const){
-    const h=await harness(),old=h.requests[0],oldListener=[...h.listeners][0];
-    if(change==='site'){const site={...h.app.preferences.sites[0],id:'other'};h.app.preferences={...h.app.preferences,activeSiteId:site.id,sites:[site],viewSelections:{other:{'usage.tab':'local'}}};}
+    const h=await harness(),current=h.requests[0];
+    if(change==='site')h.app.preferences={...h.app.preferences,activeSiteId:'other'};
     if(change==='url')h.app.preferences={...h.app.preferences,sites:[{...h.app.preferences.sites[0],url:'https://other.invalid'}]};
     if(change==='profile-account')h.app.preferences={...h.app.preferences,sites:[{...h.app.preferences.sites[0],userId:2}]};
-    if(change==='dashboard-account')h.app.dashboard={...h.app.dashboard!,user:{...h.app.dashboard!.user!,id:2}};
-    h.render(false);const writes=h.counts().writes;oldListener(progress(old.id));assert.equal(h.counts().writes,writes,change);
-    h.render();const next=h.requests[1];assert.ok(next,change+' starts a new request');
-    h.emit(progress(next.id));old.reject(new Error('stale account error'));await h.flush();
-    assert.deepEqual(h.notices,[]);assert.match(h.html(),/progressbar/);
-    next.resolve(fixture('current-account-model'));await h.flush();assert.match(h.html(),/current-account-model/);
-    h.unmount();assert.equal(h.listeners.size,0);assert.equal(h.counts().staleWrites,0);
+    if(change==='dashboard-account')h.app.dashboard=null;
+    h.render();assert.equal(h.requests.length,1,change+' does not restart local scan');
+    h.emit(progress(current.id));assert.match(h.html(),/progressbar/);
+    current.resolve(fixture('local-account-independent'));await h.flush();assert.match(h.html(),/local-account-independent/);
+    const list=h.sessionList();list.onOpen(list.sessions[0]);assert.ok(h.sessionDetail());
+    h.app.preferences={...h.app.preferences,activeSiteId:'another-site'};h.render();assert.ok(h.sessionDetail());
+    assert.equal(h.counts().network,0);h.unmount();assert.equal(h.listeners.size,0);assert.equal(h.counts().staleWrites,0);
   }
 });
 
-test('cached completion during invoke stays hidden; returning to the tab preserves old data while scanning',async()=>{
+test('cached completion during invoke stays hidden; rescanning preserves old data while scanning',async()=>{
   const h=await harness();h.requests[0].resolve(fixture());await h.flush();
-  assert.match(h.html(),/fixture-model/);h.button('站点消费').onClick();h.render();assert.equal(h.listeners.size,0);
+  assert.match(h.html(),/fixture-model/);assert.equal(h.listeners.size,0);
   h.onInvoke(request=>{h.emit(progress(request.id,'complete'));request.resolve(fixture('cached-model'));});
-  h.button('本机会话').onClick();h.render();assert.doesNotMatch(h.html(),/local-usage-progress/);
+  h.button('重新扫描').onClick();h.render();assert.doesNotMatch(h.html(),/local-usage-progress/);
   await h.flush();assert.match(h.html(),/cached-model/);assert.equal(h.listeners.size,0);
-  h.onInvoke(()=>{});h.app.statisticsQuery={range:7};h.render();
+  h.onInvoke(()=>{});h.setRange(7);h.render();
   assert.match(h.html(),/cached-model/);assert.ok(h.chart().data.some((row:any)=>row.tokens>0));assert.match(h.html(),/正在查找本机会话/);
   h.requests.at(-1)!.reject(new Error('active scan failed'));await h.flush();
   assert.match(h.html(),/cached-model/);assert.deepEqual(h.notices,['Error: active scan failed']);assert.doesNotMatch(h.html(),/local-usage-progress/);h.unmount();
@@ -170,18 +175,17 @@ test('local tool switching filters timestamped points into thirty buckets with n
   assert.match(h.html(),/2026-10-01/);assert.equal(h.listeners.size,0);h.unmount();
 });
 
-test('the usage page closes session details immediately on query/account/tool/tab switches and disables opens on retained stale summaries',async()=>{
-  for(const change of ['query','account','tool','tab'] as const){
+test('the local source closes session details immediately on query/rescan/tool changes and disables opens on retained stale summaries',async()=>{
+  for(const change of ['query','rescan','tool'] as const){
     const h=await harness();h.requests[0].resolve(fixture());await h.flush();
     const list=h.sessionList();assert.equal(list.stale,false);assert.equal(list.sessions.length,2);
     list.onOpen(list.sessions[0] as LocalSessionSummary);assert.ok(h.sessionDetail());assert.equal(h.sessionDetail()!.session.id,'codex-session');
-    assert.notStrictEqual(h.sessionDetail()!.query,h.app.statisticsQuery,'detail locks a query snapshot');assert.equal(JSON.stringify(h.sessionDetail()!.query),JSON.stringify(h.app.statisticsQuery));
-    if(change==='query')h.app.statisticsQuery={range:1};
-    if(change==='account')h.app.preferences={...h.app.preferences,sites:[{...h.app.preferences.sites[0],userId:2}]};
+    assert.notStrictEqual(h.sessionDetail()!.query,h.app.statisticsQuery,'detail locks a query snapshot');assert.equal(JSON.stringify(h.sessionDetail()!.query),JSON.stringify({...h.app.statisticsQuery as object,models:[],tokenIds:[]}));
+    if(change==='query')h.setRange(1);
+    if(change==='rescan')h.button('重新扫描').onClick();
     if(change==='tool')h.button('Claude Code').onClick();
-    if(change==='tab')h.button('站点消费').onClick();
     h.render(false);assert.equal(h.sessionDetail(false),undefined,change+' clears detail on render');h.render();
-    if(change==='query' || change==='account'){assert.equal(h.sessionList().stale,true);assert.equal(h.sessionList().sessions.length,2,'retained summaries stay visible during the scan');}
+    if(change==='query' || change==='rescan'){assert.equal(h.sessionList().stale,true);assert.equal(h.sessionList().sessions.length,2,'retained summaries stay visible during the scan');}
     assert.equal(h.counts().network,0);h.unmount();assert.equal(h.listeners.size,0);
   }
 });

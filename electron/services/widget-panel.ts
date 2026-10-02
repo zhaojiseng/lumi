@@ -30,6 +30,8 @@ export class WidgetPanel {
     if(!this.win.isVisible()){const display=position ? screen.getDisplayNearestPoint(position) : screen.getPrimaryDisplay();this.win.setBounds(widgetBounds(position,display.workArea));this.update();this.win.showInactive();}
   }
   update(){if(this.win && !this.win.isDestroyed())this.win.webContents.send('lumi:widgetState',this.options.state());}
+  /** Release the renderer on plugin disable; the host's restricted handlers remain reusable. */
+  suspend(){this.wanted=false;clearTimeout(this.moveTimer);this.win?.destroy();this.win=undefined;}
   async smoke(){
     await this.ensure();const win=this.win!;
     const result=await win.webContents.executeJavaScript(String.raw`(async()=>{await new Promise(r=>setTimeout(r,150));const s=await window.lumiWidget.snapshot();let rejected=false;try{await window.lumiWidget.action({type:'shell',command:'invalid'});}catch{rejected=true;}const drag=document.querySelector('.widget-header');return {isolated:typeof require==='undefined' && typeof window.lumi==='undefined' && typeof window.lumiTray==='undefined',state:typeof s.balance==='string',rejected,layout:document.documentElement.scrollWidth<=innerWidth && document.documentElement.scrollHeight<=innerHeight,drag:!!drag && getComputedStyle(drag).getPropertyValue('-webkit-app-region')==='drag'};})()`);

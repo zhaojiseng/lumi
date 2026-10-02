@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "extension.lumi.notes",
+  "name": "工作台便笺",
+  "version": "1.0.0",
+  "hostApiVersion": 1,
+  "description": "独立文件形式的示例插件：在工作台保存个人便笺，演示设置和侧栏扩展。",
+  "author": "Lumi contributors",
+  "license": "MIT",
+  "permissions": ["storage"],
+  "switches": [{"id":"workbench","title":"工作台便笺","defaultEnabled":true}],
+  "contributions": [
+    {"id":"card","slot":"workbench","title":"便笺","entry":"index.html","order":200,"switch":"workbench"},
+    {"id":"page","slot":"sidebar","title":"便笺","entry":"index.html","section":"workspace","order":200},
+    {"id":"connection","slot":"connection","title":"便笺存储","entry":"index.html","order":200},
+    {"id":"settings","slot":"settingsTab","title":"便笺","entry":"index.html","order":200}
+  ]
+}
