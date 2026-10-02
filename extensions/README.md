@@ -1,5 +1,7 @@
 # 额外插件
 
+完整教程见 [Lumi 插件开发指南](../docs/PLUGIN_DEVELOPMENT.md)：包含可直接使用的功能/界面包示例、清单字段、SDK、生命周期、调试与提交流程。本文作为安装和接口速查。
+
 这里存放独立分发的插件包。`plugins/` 是随 Lumi 编译的内置插件；`extensions/packages/` 下的包不会进入 `dist/`、`app.asar` 或安装 EXE。打包时单独导出到 `release/.../extensions/`，修改这些包无需重新编译 Lumi。
 
 ## 制作与运行
