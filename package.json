@@ -1,7 +1,7 @@
 {
   "name": "lumi-ai-workbench",
   "productName": "Lumi",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "A flat desktop workbench for New API, Codex and Claude Code",
   "author": "CYG",
   "license": "MIT",
@@ -20,7 +20,7 @@
     "typecheck": "tsc --noEmit",
     "check:extensions": "node --import tsx scripts/check-extensions.mjs",
     "pretest": "node scripts/prepare-tests.mjs",
-    "test": "tsx --test tests/*.test.ts",
+    "test": "tsx --test --test-concurrency=4 tests/*.test.ts",
     "check:secrets": "node scripts/check-staged-secrets.mjs --all",
     "check:history": "node scripts/check-staged-secrets.mjs --history=HEAD",
     "test:desktop": "node scripts/smoke-desktop.mjs",

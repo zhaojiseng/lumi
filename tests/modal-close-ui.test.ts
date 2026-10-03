@@ -19,6 +19,8 @@ function App(){const [open,setOpen]=useState(false),[nested,setNested]=useState(
   await writeFile(path.join(directory,'main.cjs'),String.raw`
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}app.disableHardwareAcceleration();app.whenReady().then(async()=>{
 const win=new BrowserWindow({width:1100,height:800,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+// Emulate CSS media as well as the hook: CI runners may disable OS animations.
+win.webContents.debugger.attach('1.3');await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
 const result=await win.webContents.executeJavaScript('('+async function(){
 const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Dialog timeout: '+fn);await new Promise(resolve=>setTimeout(resolve,10));}},settle=()=>new Promise(resolve=>setTimeout(resolve,20));
 await until(()=>document.querySelector('#trigger'));const trigger=document.querySelector('#trigger'),open=async()=>{trigger.focus();trigger.click();await until(()=>document.querySelector('[aria-label="Parent"]'));await new Promise(resolve=>setTimeout(resolve,200));};
@@ -33,6 +35,7 @@ document.querySelector('[aria-label="Parent"] [aria-label="关闭弹窗"]').clic
 await open();document.querySelector('[aria-label="Parent"]').closest('.modal-overlay').dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));await until(()=>document.querySelector('[data-modal-phase="exiting"]'));await until(()=>!document.querySelector('[role="dialog"]'));check(document.activeElement===trigger,'Backdrop dismissal lost trigger focus');
 await open();fixture.act(()=>fixture.revoke());check(!document.querySelector('[role="dialog"]'),'Account revocation retained private content');
 await open();fixture.reduced=true;document.querySelector('#cancel').click();await settle();check(!document.querySelector('[role="dialog"]'),'Reduced motion retained dialog');fixture.reduced=false;
+trigger.style.marginTop='1600px';await open();window.scrollTo(0,0);document.querySelector('#cancel').click();await until(()=>!document.querySelector('[role="dialog"]') && document.activeElement===trigger);check(window.scrollY===0,'Focus restoration scrolled the page');trigger.style.marginTop='';
 await open();const css=document.createElement('style');css.textContent='*{animation:none!important}';document.head.append(css);document.querySelector('#cancel').click();await settle();check(!document.querySelector('[role="dialog"]'),'Disabled animations left an inert overlay');
 check(fixture.errors.length===0,'Renderer errors '+fixture.errors);return {nested:true,reopened:true,revoked:true,reduced:true};
 }.toString()+')()');console.log('MODAL_RESULT '+JSON.stringify(result));win.destroy();app.exit(0);}).catch(error=>{console.error(error.stack || error);app.exit(1)});`);

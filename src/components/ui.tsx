@@ -40,7 +40,7 @@ export function Modal({ title, subtitle, children, onClose, wide = false, classN
     document.addEventListener('keydown', key); return () => {
       clearTimeout(timer);document.removeEventListener('keydown',key);
       const active=[...document.querySelectorAll('[role="dialog"]')].filter(dialog=>!dialog.closest('[inert]'));
-      if(previous?.isConnected && !previous.closest('[inert]') && (!active.length || active.at(-1)?.contains(previous)))previous.focus();
+      if(previous?.isConnected && !previous.closest('[inert]') && (!active.length || active.at(-1)?.contains(previous)))previous.focus({preventScroll:true});
     };
   }, []);
   return <div ref={overlay} className="modal-overlay" data-modal-phase={exiting ? 'exiting' : 'open'} inert={exiting} onAnimationEnd={event=>{if(exiting && event.target===event.currentTarget && event.animationName==='modal-backdrop-out')exit?.complete();}} onMouseDown={e => { if (!exiting && e.target === e.currentTarget) onClose(); }}><div className={`modal surface ${wide ? 'wide' : ''} ${className}`} role="dialog" aria-modal="true" aria-hidden={exiting || undefined} aria-label={title} ref={ref}><div className="modal-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div><button type="button" className="icon-button" disabled={exiting} onClick={onClose} aria-label="关闭弹窗"><X size={19}/></button></div>{children}</div></div>;

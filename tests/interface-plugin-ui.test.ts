@@ -71,7 +71,8 @@ theme('跟随系统').click();await palette('light','rgb(50, 30, 70)','rgb(250, 
 fixture.setSystemDark(true);await palette('dark','rgb(240, 230, 250)','rgb(35, 25, 50)');
 theme('浅色').click();await palette('light','rgb(50, 30, 70)','rgb(250, 245, 255)');
 updateModal.querySelector('[aria-label="关闭弹窗"]').click();await until(()=>!document.querySelector('.update-release-modal'));
-check(document.querySelector('.settings-page')===root && threshold.value==='123.4' && document.activeElement===threshold && scroll.scrollTop===80,'Switch reset settings state');
+check(document.querySelector('.settings-page')===root && threshold.value==='123.4','Switch reset settings draft');
+await until(()=>document.activeElement===threshold);check(scroll.scrollTop===80,'Switch reset settings scroll');
 check(getComputedStyle(document.getElementById('outside')).color==='rgb(0, 0, 0)','Interface CSS escaped shell');
 check(!document.querySelector('.interface-recovery'),'Floating recovery control remains');
 const recovery=Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面');

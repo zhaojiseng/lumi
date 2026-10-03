@@ -23,7 +23,7 @@ This is the controlled install sequence used by CI. `setup:electron` downloads t
 | `npm run dev` | Builds Electron/native code, starts Vite at `http://127.0.0.1:5173`, then launches Electron. |
 | `npm run dev:web` | Renderer/public-information preview only; no desktop credentials or tool configuration. |
 | `npm run typecheck` | Strict TypeScript checking across renderer, Electron, shared code, tests, and Vite config. There is no lint script. |
-| `npm test` | Runs `pretest`, then `tsx --test tests/*.test.ts` using Node's built-in test runner. No production build is required. |
+| `npm test` | Runs `pretest`, then `tsx --test --test-concurrency=4 tests/*.test.ts` using Node's built-in test runner. No production build is required. |
 | `npm run build` | Typecheck → Vite renderer build → esbuild Electron/native build → dependency-license generation. |
 | `npm run preview` | Previews the built renderer after a build. |
 | `npm run test:desktop` | Hidden Electron smoke of the checkout; run `npm run build` first and leave `LUMI_DEV_URL` unset. |
