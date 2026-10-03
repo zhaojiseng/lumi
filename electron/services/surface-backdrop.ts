@@ -9,3 +9,10 @@ export function surfaceBackdrop(platform:NodeJS.Platform=process.platform,versio
     ? {transparent:false,thickFrame:true,roundedCorners:true,backgroundMaterial:'acrylic',backgroundColor:'#00000000'}
     : {transparent:true,thickFrame:false,backgroundColor:'#00000000'};
 }
+
+/** The widget upgrades this macOS fallback to Liquid Glass after its document loads. */
+export function widgetBackdrop(platform:NodeJS.Platform=process.platform,version=release()):BrowserWindowConstructorOptions {
+  return platform==='darwin'
+    ? {...surfaceBackdrop(platform,version),vibrancy:'hud',visualEffectState:'active'}
+    : surfaceBackdrop(platform,version);
+}

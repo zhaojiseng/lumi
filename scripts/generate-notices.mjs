@@ -5,8 +5,10 @@ const lock=JSON.parse(await readFile('package-lock.json','utf8'));
 const notice=/^(?:licen[sc]e|copying|notice)(?:[.-]|$)/i;
 const fallback={'@lobehub/icons-static-svg':'public/third-party/lobe-icons-LICENSE.txt','victory-vendor':'public/third-party/victory-vendor-LICENSE.txt','lazy-val':'public/third-party/lazy-val-LICENSE.txt'};
 const sections=[];
+// Node-API headers are compiled into the macOS widget addon, despite being build-only.
+const nativeHeaders=new Set(['node_modules/node-api-headers']);
 for(const [directory,entry] of Object.entries(lock.packages).sort(([a],[b])=>a.localeCompare(b))){
-  if(!directory || entry.dev || !directory.startsWith('node_modules/'))continue;
+  if(!directory || entry.dev && !nativeHeaders.has(directory) || !directory.startsWith('node_modules/'))continue;
   const pkg=JSON.parse(await readFile(path.join(directory,'package.json'),'utf8'));
   const files=(await readdir(directory)).filter(name=>notice.test(name)).sort().map(name=>path.join(directory,name));
   if(!files.length && fallback[pkg.name])files.push(fallback[pkg.name]);

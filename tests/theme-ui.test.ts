@@ -122,6 +122,30 @@ for(const kind of ['charts','widget','tray']){
      }
      if(document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight)throw new Error(kind+' acrylic layout overflows');
    }.toString()+')('+JSON.stringify(kind)+')');
+   if(kind==='widget')await win.webContents.executeJavaScript('('+async function(){
+     const card=document.querySelector('.widget-card'),data=document.querySelector('.widget-data');
+     const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
+     for(const material of ['liquid-glass','vibrancy','opaque'])for(const mode of ['light','dark'])for(const panelAlpha of [.42,1]){
+       const palette=fixture.colors();palette.panel=[35,25,50,panelAlpha];fixture.emit(palette,material);
+       await new Promise(r=>setTimeout(r,50));document.documentElement.dataset.theme=mode;
+       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+       const expectedAlpha=material==='liquid-glass' ? mode==='light' ? .18 : .28 : material==='vibrancy' ? mode==='light' ? .45 : .55 : 1;
+       context.clearRect(0,0,1,1);context.fillStyle=getComputedStyle(card).backgroundColor;context.fillRect(0,0,1,1);
+       const actual=[...context.getImageData(0,0,1,1).data];
+       // Compare equally premultiplied pixels: small alpha quantizes RGB channels.
+       context.clearRect(0,0,1,1);context.fillStyle='rgba(35,25,50,'+expectedAlpha+')';context.fillRect(0,0,1,1);
+       const expected=[...context.getImageData(0,0,1,1).data];
+       if(actual.some((value,index)=>Math.abs(value-expected[index])>1))throw new Error('widget '+material+' lost theme tint or obscures native glass: '+actual);
+       if(getComputedStyle(card).color!=='rgb(240, 230, 250)')throw new Error('widget glass lost theme text');
+       const bounds=card.getBoundingClientRect();
+       if(bounds.x!==2 || bounds.y!==2 || bounds.width!==innerWidth-4 || bounds.height!==innerHeight-4)throw new Error('widget glass and native inset disagree');
+       if(getComputedStyle(card).borderRadius!=='8px')throw new Error('widget glass and native corner radius disagree');
+       if(getComputedStyle(card).getPropertyValue('-webkit-app-region')!=='drag')throw new Error('widget glass lost dragging');
+       if(document.querySelector('.widget-data')!==data)throw new Error('widget material switch remounted data');
+       if(document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight)throw new Error('widget glass layout overflows');
+     }
+     if(fixture.errors.length)throw new Error('widget glass renderer errors '+fixture.errors);
+   }.toString()+')()');
  }
  if(kind==='charts' && process.env.LUMI_UI_REVIEW==='1'){await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');const out=path.resolve('.cache/ui-review');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'theme-charts-dark.png'),(await win.webContents.capturePage()).toPNG());}
  win.destroy();

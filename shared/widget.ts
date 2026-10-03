@@ -8,7 +8,7 @@ export interface WidgetModelUsage {name:string;quota:number;quotaKnown?:boolean;
 export interface WidgetMinute {start:number;end:number;quota:number;quotaKnown?:boolean;requests:number;models:WidgetModelUsage[];latestModel?:WidgetModelUsage;}
 export interface WidgetUsage {siteId:string;siteName:string;status:SiteStatus;balance:number|null;loggedIn:boolean;minute:WidgetMinute|null;historical:boolean;fetchedAt:number;warnings:string[];source?:'api'|'local';periodLabel?:string;}
 export interface WidgetModel {name:string;cost:string;requests:string;input:string;output:string;cacheRead:string;cacheWrite:string;}
-export interface WidgetState {material?:'acrylic';palette?:SurfacePalette;phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';animation?:DataRefreshAnimation;source?:'api'|'local';}
+export interface WidgetState {material?:'acrylic'|'liquid-glass'|'vibrancy'|'opaque';palette?:SurfacePalette;phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';animation?:DataRefreshAnimation;source?:'api'|'local';}
 export type WidgetAction={type:'close'|'refresh'|'open'};
 export interface WidgetBridge {snapshot():Promise<WidgetState>;action(event:WidgetAction):Promise<void>;onState(listener:(state:WidgetState)=>void):()=>void;}
 export const WIDGET_WIDTH=244,WIDGET_HEIGHT=64;

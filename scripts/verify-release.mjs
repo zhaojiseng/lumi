@@ -57,20 +57,22 @@ if(mac){
   const exec=(file,...args)=>execFileSync(file,args,{encoding:'utf8'}).trim();
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleShortVersionString','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.version);
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleIdentifier','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.build.appId);
-  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helper and Electron must all be ARM64');
+  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar','Resources/native/lumi-widget-glass.node'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helpers and Electron must all be ARM64');
   // electron-builder re-signs embedded executables and changes LINKEDIT allocation.
   // Compare all non-signature bytes, then verify actual signatures separately below.
   await mkdir('.test-data',{recursive:true});
   const nativeCheck=await mkdtemp(path.resolve('.test-data/native-verify-'));
   try{
-    const normalized=[];
-    for(const [index,file] of [path.join(resources,'native/lumi-menu-bar'),'dist-native/lumi-menu-bar'].entries()){
-      const copy=path.join(nativeCheck,'helper-'+index);await writeFile(copy,await readFile(file),{mode:0o755});
-      normalized.push(createHash('sha256').update(unsignedMachOCode(await readFile(copy))).digest('hex'));
+    for(const name of ['lumi-menu-bar','lumi-widget-glass.node']){
+      const normalized=[];
+      for(const [index,file] of [path.join(resources,'native',name),path.join('dist-native',name)].entries()){
+        const copy=path.join(nativeCheck,name+'-'+index);await writeFile(copy,await readFile(file),{mode:0o755});
+        normalized.push(createHash('sha256').update(unsignedMachOCode(await readFile(copy))).digest('hex'));
+      }
+      assert.equal(normalized[0],normalized[1],'Native code must match the current build after normalizing signatures: '+name);
+      exec('/usr/bin/codesign','--verify','--strict',path.join(resources,'native',name));
     }
-    assert.equal(normalized[0],normalized[1],'Native usage card code must match the current build after normalizing signatures');
   }finally{await rm(nativeCheck,{recursive:true,force:true});}
-  exec('/usr/bin/codesign','--verify','--strict',path.join(resources,'native/lumi-menu-bar'));
   exec('/usr/bin/codesign','--verify','--deep','--strict',path.dirname(appDirectory));
   exec('/usr/bin/hdiutil','verify',path.join(releaseDir,packages[0]));
 }else{
