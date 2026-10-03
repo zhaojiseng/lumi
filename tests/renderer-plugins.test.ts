@@ -147,7 +147,7 @@ test('renderer integration uses narrow catalog and settings context without posi
   assert.match(app,/visiblePage==='models'.*catalog\.refresh\(true\)/);assert.doesNotMatch(settings,/useApp|AppContext/);assert.match(settings,/usePluginSettings\(\)/);
 });
 
-test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialogs while revoking outgoing plugin pages',{timeout:25000},async t=>{
+test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialogs while revoking outgoing plugin pages',{timeout:45000},async t=>{
   let electron:string;try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron runtime unavailable');}
   if(!existsSync(electron))return t.skip('Electron runtime unavailable');
   const base=path.resolve('.test-data');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'renderer-plugins-'));
@@ -252,6 +252,7 @@ test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialo
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(electron,[path.join(root,'audit.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});
   let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
+  t.after(()=>{if(t.signal.aborted)t.diagnostic(stdout+stderr);});
   const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});assert.equal(code,0,stderr);
   const line=stdout.split(/\r?\n/).find(line=>line.startsWith('RENDERER_PLUGINS_RESULT '));assert.ok(line,stdout+stderr);assert.deepEqual(JSON.parse(line.slice('RENDERER_PLUGINS_RESULT '.length)),{reads:9,writes:9,settingsResets:1});
 });

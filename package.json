@@ -1,7 +1,7 @@
 {
   "name": "lumi-ai-workbench",
   "productName": "Lumi",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "A flat desktop workbench for New API, Codex and Claude Code",
   "author": "CYG",
   "license": "MIT",
@@ -53,6 +53,11 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "@electron/get": "5.1.0"
+    }
   },
   "build": {
     "appId": "ai.cyg.lumi",

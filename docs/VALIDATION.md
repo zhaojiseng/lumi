@@ -1,5 +1,23 @@
 # Lumi 验证记录
 
+## 0.5.4 · macOS 浮窗 Liquid Glass
+
+日期：2026-10-03（Asia/Shanghai），本机 Windows x64，Node.js 24.18.0、npm 11.16.0。
+
+| 检查 | 结果 |
+| --- | --- |
+| 全量自动测试 | 668 项：665 通过、3 项平台检查跳过、0 失败；真实 Chromium 插件切换、设置草稿 / 焦点 / 滚动与弹窗保留检查通过 |
+| 浮窗材质 | 单元覆盖主题更新、重复使用原生视图、减少透明度、旧系统 / 模块缺失回退和窗口销毁；Windows 不运行 macOS 原生模块 |
+| 类型 / 生产构建 / 审计 | TypeScript、Vite、Electron 构建及 65 个依赖完整许可通过；锁文件移除旧下载器依赖链，`npm audit` 为 0 个已知漏洞 |
+| Windows 安装包 | `Lumi-0.5.4-x64.exe` 构建通过；73 个包内构建文件逐字节一致、2 个独立插件保持分离，许可及更新元数据 / blockmap 核验通过，无本机数据 |
+| 隔离桌面启动 | 登录界面、加密存储、受限 IPC、插件与界面启停、设置草稿 / 焦点保留、浮窗 / 托盘布局及生命周期通过 |
+
+构建依赖仅将 `app-builder-lib` 的 `@electron/get` 指向 Electron 已使用的 5.1.0，移除 `got` / `cacheable-request` / `http-cache-semantics` 旧缓存下载链，保留打包工具与其余依赖版本。隐藏插件界面测试使用 45 秒总预算，并在超时时输出隔离子进程诊断。
+
+[前序 macOS CI](https://github.com/zhaojiseng/lumi/actions/runs/37089520054) 已在 `macos-15` ARM64 编译 / 签名原生模块并通过测试和生产构建；该次工作流随后因依赖审计失败，未完成打包。本版完整三平台检查、ARM64 DMG、签名与校验清单结果以 [发布工作流](https://github.com/zhaojiseng/lumi/actions/workflows/package.yml) 为准。macOS 26 原生 Liquid Glass 的实际观感尚未在实机验证。
+
+以上本机检查只使用隔离 fixture，不读取真实账户、CLI 配置或会话。Windows 包未签名；Mac 包使用临时签名，未进行 Apple 公证。本机安装包与截图不提交，公开下载文件应核对同次 Release 的校验清单。
+
 ## 0.4.29 · 浮窗挂件与 Codex 配置性能
 
 日期：2026-10-02（Asia/Shanghai），本机 Windows x64。包含下方“Codex 配置性能与顶部布局”本地变更，一起纳入本次发布。
