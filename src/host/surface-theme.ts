@@ -14,6 +14,6 @@ export function syncSurfaceTheme(shell:HTMLElement){
     const [r,g,b,a]=context.getImageData(0,0,1,1).data;palette[key]=[r,g,b,a/255];
   }}finally{probe.remove();}
   const mode=shell.dataset.theme==='dark' ? 'dark' : 'light';
-  const input:SurfaceTheme={interfaceId:shell.dataset.interface || 'interface.default',mode,palette};
+  const input:SurfaceTheme={interfaceId:shell.dataset.interface || 'interface.default',mode,...shell.dataset.interfaceAppearance ? {appearanceKey:shell.dataset.interfaceAppearance} : {},palette};
   void bridge.syncSurfaceTheme(input).catch(()=>{});
 }

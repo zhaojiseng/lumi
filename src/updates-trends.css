@@ -1,4 +1,4 @@
-.sidebar-update { margin: 3px 5px 8px; flex-shrink: 0; min-width: 0; }
+.sidebar-update { margin: 3px 0 8px; flex-shrink: 0; min-width: 0; }
 .update-line { display: flex; align-items: center; gap: 4px; }
 .update-action { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; padding: 5px 4px; border-radius: 6px; text-align: left; color: var(--text-muted); font-size: 12px; line-height: 18px; }
 .update-action span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

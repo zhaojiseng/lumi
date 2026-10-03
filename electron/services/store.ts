@@ -3,6 +3,7 @@ import {configurablePlugin} from '../../shared/plugin-preferences';
 import {builtinManifests} from '../../plugins/manifests';
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
 import {applyPreferencePatch, normalizeSelections,normalizeSourceSelections} from '../../shared/selections';
+import {normalizeInterfaceSelections,validInterfaceSelection} from '../../shared/interface-appearance';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
 import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
@@ -42,6 +43,7 @@ export class SettingsStore {
     this.preferences = { ...structuredClone(DEFAULT_PREFERENCES), ...data.preferences };
     this.preferences.pluginViews=normalizePluginViews(this.preferences.pluginViews,this.preferences.pluginEnabled);
     this.preferences.pluginEnabled=normalizePluginEnabled(this.preferences.pluginEnabled);
+    this.preferences.interfaceSelections=normalizeInterfaceSelections(this.preferences.interfaceSelections);
     this.preferences.widgetEnabled=this.preferences.pluginEnabled['surface.widget'] ?? !!this.preferences.widgetEnabled;
     // Migrate old settings: obsolete preview and reasoning preferences never survive.
     delete (this.preferences as any).demoMode;
@@ -122,11 +124,14 @@ export class SettingsStore {
     await this.persist(); return structuredClone(this.preferences);
   }
   async update(patch: PreferencePatch) {
+    if(patch.interfaceSelection && !validInterfaceSelection(patch.interfaceSelection))throw new Error('外观选择设置无效。');
     if (patch.activeSiteId && !this.preferences.sites.some(s => s.id === patch.activeSiteId)) throw new Error('站点不存在。');
     if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     if(patch.sourceSelection && (!['source.local-sessions','feature.usage'].includes(patch.sourceSelection.sourceId) || Object.keys(normalizeSelections({[patch.sourceSelection.sourceId]:patch.sourceSelection.values})[patch.sourceSelection.sourceId] || {}).length!==Object.keys(patch.sourceSelection.values).length))throw new Error('来源选择设置无效。');
+    const previousAppearance=this.preferences.interfaceSelections;
     this.preferences = applyPreferencePatch(this.preferences, patch);
+    const updatedAppearance=this.preferences.interfaceSelections;
     this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
     this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
@@ -136,7 +141,9 @@ export class SettingsStore {
     this.preferences.widgetDataSource=this.preferences.widgetDataSource==='local' ? 'local' : 'api';
     this.preferences.widgetPeriod=normalizeWidgetPeriod(this.preferences.widgetPeriod);
     this.preferences.widgetInputMode=this.preferences.widgetInputMode==='uncached' ? 'uncached' : 'total';
-    this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns); await this.persist(); return structuredClone(this.preferences);
+    this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns);
+    try{await this.persist();}catch(error){if(patch.interfaceSelection && this.preferences.interfaceSelections===updatedAppearance)this.preferences.interfaceSelections=previousAppearance;throw error;}
+    return structuredClone(this.preferences);
   }
   async setPluginEnabled(id:string,enabled:boolean) {
     configurablePlugin(builtinManifests,id);

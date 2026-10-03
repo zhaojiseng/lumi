@@ -11,7 +11,6 @@ import type {ToolConfigAdapter} from '../../shared/contracts/tool-adapter';
 import { atomicWrite, type SettingsStore } from './store';
 import type { ResolvedToolToken } from '../../shared/contracts/tool-credentials';
 import {planDirectHistory,planDirectIndexes,applyStateChanges,type StateChange} from './codex-direct';
-import {assertCodexIdle} from './codex-sessions';
 import {prepareSession,commitSession,discardSessions,rollbackSessions,reverseSession,type SessionChange,type PreparedSession} from './codex-session-files';
 import type { Tool, ConfigRequest, ConfigPreview, ToolConfigState, BackupInfo,ConfigProgress } from '../../shared/types';
 interface Snapshot { path: string; content: string | null; }
@@ -76,7 +75,7 @@ export class ConfigService {
       this.build(req,before,site.url,'validation-only');
     }
     catch { throw new Error('现有配置文件语法无效。为保留配置，已取消预览。请先检查 JSON / TOML。'); }
-    // Preview needs only the small configuration files. Scan history after explicit application and idle checks.
+    // Preview needs only the small configuration files. Scan history after explicit application.
     const rows=req.tool==='codex' ? await planDirectIndexes(path.dirname(paths[0]),before[0].content,req.model,this.respectEnvironment) : [];
     this.report({tool:req.tool,operation:'preview',phase:'key'});
     const token = await this.resolveToken(req);
@@ -94,7 +93,7 @@ export class ConfigService {
       files: files.slice(0,paths.length).map((f, i) => ({ path: f.path, before: redact(before[i].content || '# 文件尚不存在'), after: redact(f.content || '# 文件尚不存在') })),
       changes: [],
     };
-    preview.changes=req.tool==='codex' ? [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 272000} Tokens`,`渠道：${req.group}`,`直连接口：${site.url}/v1`,`固定 custom provider，专用密钥写入 provider 表；保留现有官方登录。`,`应用时同步相关旧对话及索引，包含归档的 Lumi / 当前 custom 对话。`,`只更新渠道和最近保存的模型设置，历史请求、用量与提示词保持原样。`,`配置与会话设置变更加密备份；请先关闭 Codex，再应用并重新打开原对话。`] : [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 256000} Tokens（CLAUDE_CODE_MAX_CONTEXT_TOKENS）`,`渠道：${req.group}`,`Claude Code CLI 直连：${site.url}`,`专用令牌：${token.tokenName}`,req.disableAttributionHeader!==false ? `禁用归属标头：CLAUDE_CODE_ATTRIBUTION_HEADER="false"。` : `移除归属标头配置，恢复 Claude Code 默认行为。`,`仅写入 Claude Code CLI 的 settings.json。`,`保留已有 MCP、权限与其他配置；应用后重新启动 Claude Code。`];
+    preview.changes=req.tool==='codex' ? [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 272000} Tokens`,`渠道：${req.group}`,`直连接口：${site.url}/v1`,`固定 custom provider，专用密钥写入 provider 表；保留现有官方登录。`,`应用时同步相关旧对话及索引，包含归档的 Lumi / 当前 custom 对话。`,`只更新渠道和最近保存的模型设置，历史请求、用量与提示词保持原样。`,`配置与会话设置变更加密备份，无需退出或重启 ChatGPT / Codex。`,`运行中的会话可能继续使用已载入的设置，新设置以 Codex 后续载入为准。`] : [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 256000} Tokens（CLAUDE_CODE_MAX_CONTEXT_TOKENS）`,`渠道：${req.group}`,`Claude Code CLI 直连：${site.url}`,`专用令牌：${token.tokenName}`,req.disableAttributionHeader!==false ? `禁用归属标头：CLAUDE_CODE_ATTRIBUTION_HEADER="false"。` : `移除归属标头配置，恢复 Claude Code 默认行为。`,`仅写入 Claude Code CLI 的 settings.json。`,`保留已有 MCP、权限与其他配置；应用后重新启动 Claude Code。`];
     this.pending.set(preview.id, { preview, files, before, rows,request: req, key, siteId: site.id, siteUrl: site.url,token,userId:account.userId,sessionId:account.sessionId,authIdentity:authIdentity(account) });this.report({tool:req.tool,operation:'preview',phase:'done'}); return preview;
   }
   private async transaction(before: Snapshot[], after: Snapshot[]) {
@@ -153,7 +152,6 @@ export class ConfigService {
     if (this.store.activeSite().id !== p.siteId || this.store.activeSite().url !== p.siteUrl || this.store.credentials(p.siteId).userId !== p.userId || this.store.credentials(p.siteId).sessionId !== p.sessionId || authIdentity(this.store.credentials(p.siteId)) !== p.authIdentity) throw new Error('站点或登录账户已切换，请重新预览。');
     this.busy = true;
     try {
-      if(p.request.tool==='codex' && this.respectEnvironment)await assertCodexIdle();
       for (const f of p.before) if (hash(await readOptional(f.path)) !== hash(f.content)) throw new Error('配置在预览后被其他程序修改，请重新预览。');
       this.report({tool:p.request.tool,operation:'apply',phase:'history'});
       const history=p.request.tool==='codex' ? await planDirectHistory(path.dirname(p.files[0].path),p.before[0].content,p.request.model,p.request.contextWindow ?? 272000,this.respectEnvironment,(completed,total)=>this.report({tool:'codex',operation:'apply',phase:'history',completed,total})) : {files:[],rows:[]};
@@ -167,7 +165,6 @@ export class ConfigService {
         const currentSite=this.store.activeSite(),currentAccount=this.store.credentials(p.siteId),currentToken=this.store.preferences.managedTokens.find(t=>t.siteId===p.siteId && t.id===p.token.tokenId);
         if(currentSite.id!==p.siteId || currentSite.url!==p.siteUrl || currentAccount.userId!==p.userId || currentAccount.sessionId!==p.sessionId || authIdentity(currentAccount)!==p.authIdentity)throw new Error('站点或登录账户已切换，请重新预览。');
         if(currentToken && (currentToken.group!==p.request.group || currentToken.name!==p.token.tokenName))throw new Error('专用令牌的渠道已变更，请重新预览配置。');
-        if(p.request.tool==='codex' && this.respectEnvironment)await assertCodexIdle();
         for(const f of p.before)if(hash(await readOptional(f.path))!==hash(f.content))throw new Error('配置在预览后被其他程序修改，请重新预览。');
         this.report({tool:p.request.tool,operation:'apply',phase:'writing'});
         await this.transaction(p.before, p.files);configApplied=true;
@@ -204,7 +201,6 @@ export class ConfigService {
       const sessionPath=(p:string)=>b.tool==='codex' && [path.join(codexHome,'sessions'),path.join(codexHome,'archived_sessions')].some(root=>{const rel=path.relative(root,p);return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel) && p.endsWith('.jsonl');});
       if(!paths.length || new Set(paths).size!==paths.length || paths.some(p=>!allowed.includes(p) && !sessionPath(p)) || b.after.length!==b.before.length || b.after.some((f,i)=>f.path!==paths[i]))throw new Error('备份路径与当前工具目录不匹配。');
       if(b.sessions?.some(s=>!sessionPath(s.path)) || new Set(b.sessions?.map(s=>s.path)).size!==(b.sessions?.length || 0))throw new Error('备份路径与当前工具目录不匹配。');
-      if(b.tool==='codex' && this.respectEnvironment)await assertCodexIdle();
       const current = await Promise.all(paths.map(async p => ({ path: p, content: await readOptional(p) })));
       for (let i = 0; i < current.length; i++) if (hash(current[i].content) !== hash(b.after[i].content)) throw new Error('当前配置已在备份后发生变化。请先在工具页重新预览并应用配置，再恢复，避免覆盖其他程序的修改。');
       const prepared:PreparedSession[]=[],applied:SessionChange[]=[];let configApplied=false;

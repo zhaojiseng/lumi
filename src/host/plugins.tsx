@@ -1,3 +1,4 @@
+import {ModalPresence} from '../components/ModalPresence';
 import {createContext,useContext,useEffect,useMemo,useState,useSyncExternalStore,type ReactNode} from 'react';
 import {bridge} from '../bridge';
 import type {PluginStatus,PluginViewId} from '../../shared/contracts/plugins';
@@ -6,9 +7,12 @@ import {settingsGroups} from '../../shared/plugin-preferences';
 import {rendererRegistry} from './renderer-registry';
 import {registerExternalRenderers} from './extensions-registry';
 import type {ExtensionInventory} from '../../shared/contracts/extensions';
+import type {ExtensionMarketInstall} from '../../shared/contracts/extension-market';
+import {Store} from 'lucide-react';
+import {ExtensionMarketplace} from './extension-market';
 
 export interface PluginSettingsItem {id:string;title:string;description:string;status:PluginStatus;views:readonly {id:PluginViewId;title:string}[]}
-export interface PluginSettingsValue {items:PluginSettingsItem[];statuses?:readonly PluginStatus[];extensions?:ExtensionInventory;reloadExtensions?():Promise<void>;loading:boolean;busyId:string|null;error:string;setEnabled(id:string,enabled:boolean):Promise<void>;setView(id:string,view:PluginViewId,enabled:boolean):Promise<void>}
+export interface PluginSettingsValue {items:PluginSettingsItem[];statuses?:readonly PluginStatus[];extensions?:ExtensionInventory;reloadExtensions?():Promise<void>;installExtension?(input:ExtensionMarketInstall):Promise<void>;removeExtension?(id:string):Promise<void>;loading:boolean;busyId:string|null;error:string;setEnabled(id:string,enabled:boolean):Promise<void>;setView(id:string,view:PluginViewId,enabled:boolean):Promise<void>}
 const PluginSettingsContext=createContext<PluginSettingsValue|null>(null);
 export function usePluginSettings(){const value=useContext(PluginSettingsContext);if(!value)throw new Error('插件设置宿主未提供。');return value;}
 export function usePluginStatus(id:string){return useContext(PluginSettingsContext)?.items.find(item=>item.id===id)?.status;}
@@ -19,7 +23,7 @@ export function usePluginHost(){
   useEffect(()=>{void resource.load();return bridge.onWidgetVisibility?.(()=>{void resource.load();});},[resource]);
   const settings=useMemo<PluginSettingsValue>(()=>({
     statuses:state.statuses,
-    extensions:state.extensions,reloadExtensions:resource.reloadExtensions,
+    extensions:state.extensions,reloadExtensions:resource.reloadExtensions,installExtension:resource.installExtension,removeExtension:resource.removeExtension,
     items:settingsGroups(state.statuses.map(status=>status.manifest)).flatMap(group=>{const status=state.statuses.find(s=>s.manifest.id===group.id);return status ? [{...group,status}] : [];}),
     loading:state.loading,busyId:state.busyId,error:state.error,setEnabled:resource.setEnabled,setView:resource.setView,
   }),[state,resource]);
@@ -28,7 +32,9 @@ export function usePluginHost(){
 export function PluginSettingsProvider({value,children}:{value:PluginSettingsValue;children:ReactNode}){return <PluginSettingsContext.Provider value={value}>{children}</PluginSettingsContext.Provider>;}
 export function PluginSettingsSection(){
   const {items,extensions,reloadExtensions,loading,busyId,error,setEnabled,setView}=usePluginSettings();
-  return <section className="surface panel plugin-settings" aria-label="内置插件设置"><div className="section-heading"><div><h2>插件</h2><p>按接入和桌面功能管理插件，子项控制显示内容。</p></div></div>
+  const [marketOpen,setMarketOpen]=useState(false);
+  return <section className="surface panel plugin-settings" aria-label="内置插件设置"><div className="section-heading"><div><h2>插件</h2><p>按接入和桌面功能管理插件，子项控制显示内容。</p></div><button className="button" onClick={()=>setMarketOpen(true)}><Store size={16}/>插件市场</button></div>
+    <ModalPresence>{marketOpen && <ExtensionMarketplace onClose={()=>setMarketOpen(false)}/>}</ModalPresence>
     {loading && <p role="status">正在读取插件状态…</p>}{error && <p className="warning-banner error-banner" role="alert">{error}</p>}
     <h3 className="plugin-kind-heading">内置插件</h3>
     {[...items.filter(item=>item.status.origin!=='external'),...items.filter(item=>item.status.origin==='external' && !extensions?.plugins.some(p=>p.manifest.id===item.id && p.manifest.kind==='interface'))].map((item,index,array)=>{

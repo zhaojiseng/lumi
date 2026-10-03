@@ -36,6 +36,7 @@ test('intrinsic height is independent of the current viewport, capped, and compa
   assert.equal(trayPanelContentHeight(232,40),280);
   assert.equal(trayPanelContentHeight(232,1000),648);
   assert.equal(trayPanelContentHeight(100),160);
+  assert.equal(trayPanelContentHeight(232,360,0),592,'native material replaces the transparent top inset');
 });
 
 test('height interpolation has intermediate frames and keeps the bottom edge fixed in both directions',()=>{
@@ -56,7 +57,7 @@ test('height interpolation has intermediate frames and keeps the bottom edge fix
 // Compile in memory and substitute only Electron and the clock: no app, config, or dist writes.
 const panelBundle=build({entryPoints:['electron/services/tray-panel.ts'],bundle:true,platform:'node',format:'cjs',write:false,external:['electron'],logLevel:'silent'});
 const bottomAnchor={x:1780,y:1054,width:24,height:24},workArea={x:0,y:0,width:1920,height:1040};
-async function panelFixture(options:{deferLoad?:boolean}={}){
+async function panelFixture(options:{deferLoad?:boolean;platform?:NodeJS.Platform;version?:string}={}){
   let now=1000,sequence=0,releaseLoad=()=>{};
   const timers=new Map<number,{at:number;run:()=>void}>(),handlers=new Map<string,(event:any,payload?:unknown)=>any>();
   const events:string[]=[],windows:FakeWindow[]=[];
@@ -80,7 +81,7 @@ async function panelFixture(options:{deferLoad?:boolean}={}){
   }
   const electron={BrowserWindow:FakeWindow,ipcMain:{handle:(channel:string,handler:any)=>handlers.set(channel,handler),removeHandler:(channel:string)=>handlers.delete(channel)},screen:{getDisplayNearestPoint:()=>({workArea}),getCursorScreenPoint:()=>({x:1780,y:1054})}};
   const module={exports:{} as {TrayPanel:typeof import('../electron/services/tray-panel').TrayPanel}},require=createRequire(import.meta.url);
-  runInNewContext((await panelBundle).outputFiles[0].text,{module,exports:module.exports,URL,Date:{now:()=>now},setTimeout:(run:()=>void,delay:number)=>{const id=++sequence;timers.set(id,{run,at:now+delay});return id;},clearTimeout:(id:number)=>timers.delete(id),require:(name:string)=>name==='electron' ? electron : require(name)});
+  runInNewContext((await panelBundle).outputFiles[0].text,{module,exports:module.exports,URL,process:{platform:options.platform || 'win32'},Date:{now:()=>now},setTimeout:(run:()=>void,delay:number)=>{const id=++sequence;timers.set(id,{run,at:now+delay});return id;},clearTimeout:(id:number)=>timers.delete(id),require:(name:string)=>name==='electron' ? electron : name==='node:os' ? {release:()=>options.version || '10.0.19045'} : require(name)});
   const panel=new module.exports.TrayPanel({root:process.cwd(),preload:'fixture-preload.cjs',state:()=>state,event:event=>{events.push(event.type);}});
   const invoke=(payload:unknown,event?:any)=>handlers.get('lumi:trayAction')!(event || {sender:windows[0].webContents,senderFrame:windows[0].webContents.mainFrame},payload);
   const measure=(height:number,reducedMotion=false)=>invoke({type:'layout',height,reducedMotion});
@@ -102,6 +103,17 @@ test('concurrent first opens and repeated state updates produce one entry lifecy
   for(let i=0;i<5;i++)f.panel.update();assert.equal(f.motion.id,id);assert.equal(f.motion.phase,'visible');assert.equal(f.win.shows,1);
   assert.equal(f.win.options.thickFrame,false);assert.equal(f.win.options.hasShadow,false);
   assert.equal(f.win.options.webPreferences.contextIsolation,true);assert.equal(f.win.options.webPreferences.sandbox,true);assert.equal(f.win.options.webPreferences.nodeIntegration,false);
+});
+
+test('native acrylic material reaches tray snapshots and updates without losing isolation',async t=>{
+  const f=await panelFixture({version:'10.0.28000'});t.after(()=>f.panel.close());await f.open(320);
+  assert.equal(f.win.options.backgroundMaterial,'acrylic');assert.equal(f.win.options.transparent,false);
+  assert.equal(f.win.options.thickFrame,true);assert.equal(f.win.options.roundedCorners,true);assert.equal(f.win.options.hasShadow,false);
+  assert.equal(f.win.messages.at(-1)?.material,'acrylic');
+  const snapshot=f.handlers.get('lumi:traySnapshot')!({sender:f.win.webContents,senderFrame:f.win.webContents.mainFrame},undefined);
+  assert.equal(snapshot.data.material,'acrylic');
+  f.setState({...f.state,theme:'dark'});assert.equal(f.win.messages.at(-1)?.material,'acrylic');
+  await f.measure(480);f.advance(TRAY_RESIZE_DURATION+16);assert.equal(f.win.bounds.height,480);
 });
 
 test('native resize animates up/down, survives repeated updates, and retargets from the current frame',async t=>{

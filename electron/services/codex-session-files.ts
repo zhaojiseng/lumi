@@ -55,7 +55,7 @@ export async function scanSessionFile(file:string,model:string,contextWindow:num
   }
   if(!patches.length)return null;
   if(patches.reduce((n,p)=>n+Buffer.byteLength(p.before)+Buffer.byteLength(p.after),0)>MAX_PATCHES)throw new Error('Codex 会话配置变更超出安全大小，已停止同步。');
-  if(identity(await lstat(file))!==identity(stat))throw new Error('Codex 会话扫描期间发生变化，请关闭 Codex 后重试。');
+  if(identity(await lstat(file))!==identity(stat))throw new Error('Codex 会话扫描期间发生变化，请等待当前写入完成后重试。');
   return {path:file,id,beforeHash:digest.digest('hex'),patches:patches.sort((a,b)=>a.offset-b.offset)};
 }
 export function reverseSession(change:SessionChange):SessionChange{

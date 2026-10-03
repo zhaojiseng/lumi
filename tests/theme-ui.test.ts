@@ -15,7 +15,7 @@ import React from 'react';import {createRoot} from 'react-dom/client';
 import {SURFACE_COLOR_KEYS} from './shared/surface-theme';import {formattedWidget} from './shared/widget';import {nativeMenuBarState} from './shared/menu-bar';
 window.fixture={errors:[],listeners:new Set()};addEventListener('error',event=>fixture.errors.push(event.message));addEventListener('unhandledrejection',event=>fixture.errors.push(String(event.reason)));
 const kind=location.hash.slice(1),colors=()=>Object.fromEntries(SURFACE_COLOR_KEYS.map(key=>[key,key.startsWith('text') ? [240,230,250,1] : key.startsWith('accent') ? [60,100,210,1] : [35,25,50,1]]));
-fixture.emit=palette=>fixture.listeners.forEach(fn=>fn({...fixture.initial,theme:palette ? 'dark' : 'light',palette}));fixture.colors=colors;
+fixture.emit=(palette,material)=>fixture.listeners.forEach(fn=>fn({...fixture.initial,theme:palette ? 'dark' : 'light',palette,material}));fixture.colors=colors;
 if(kind==='widget'){
   fixture.initial=formattedWidget('ready',undefined,{enabled:true,viewKey:'fixture',theme:'light',animation:'none'});
   window.lumiWidget={snapshot:async()=>fixture.initial,onState:fn=>{fixture.listeners.add(fn);return()=>fixture.listeners.delete(fn);},action:async()=>{}};await import('./src/widget');
@@ -43,7 +43,7 @@ const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require
 for(const name of ['userData','sessionData','logs','crashDumps']){const directory=path.join(__dirname,name);fs.mkdirSync(directory,{recursive:true});app.setPath(name,directory);}app.disableHardwareAcceleration();app.on('window-all-closed',()=>{});
 app.whenReady().then(async()=>{
 for(const kind of ['charts','widget','tray']){
- const win=new BrowserWindow({width:kind==='widget' ? 244 : kind==='tray' ? 396 : 850,height:kind==='widget' ? 64 : 720,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,kind+'.html'),{hash:kind});
+ const win=new BrowserWindow({width:kind==='widget' ? 244 : kind==='tray' ? 396 : 850,height:kind==='widget' ? 64 : 720,show:false,transparent:kind!=='charts',backgroundColor:kind==='charts' ? '#ffffff' : '#00000000',webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,kind+'.html'),{hash:kind});
  await win.webContents.executeJavaScript('('+async function(kind){
  const check=(value,label)=>{if(!value)throw new Error(kind+': '+label);},until=async(fn,label=()=> 'timeout')=>{const deadline=performance.now()+6000;while(!fn()){if(performance.now()>deadline)throw new Error(kind+': '+label());await new Promise(r=>setTimeout(r,10));}};
  const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d',{willReadFrequently:true});
@@ -84,6 +84,7 @@ for(const kind of ['charts','widget','tray']){
    check(document.querySelector('#total .recharts-area-curve')===curve,'theme change remounted chart');
  }else{
    const selector=kind==='widget' ? '.widget-card' : '.tray-card';await until(()=>document.querySelector(selector) && fixture.listeners.size);const card=document.querySelector(selector);fixture.emit(fixture.colors());
+   for(const element of [document.documentElement,document.body,document.getElementById('root')])check(rgba(getComputedStyle(element).backgroundColor).endsWith(',0'),'transparent surface painted a rectangular document background');
    await waitColor(()=>getComputedStyle(card).backgroundColor,'rgb(35, 25, 50)','surface ignored panel');
    await waitColor(()=>getComputedStyle(card).color,'rgb(240, 230, 250)','foreground ignored palette');
    if(kind==='tray'){
@@ -94,6 +95,34 @@ for(const kind of ['charts','widget','tray']){
  }
  check(fixture.errors.length===0,'renderer errors '+fixture.errors);
  }.toString()+')('+JSON.stringify(kind)+')',true);
+ if(kind!=='charts'){
+   for(const mode of ['light','dark'])for(const custom of [false,true]){
+     await win.webContents.executeJavaScript('('+async function(mode,custom){
+       const palette=custom ? fixture.colors() : undefined;if(palette)palette.panel[3]=.42;
+       fixture.emit(palette);await new Promise(r=>setTimeout(r,250));document.documentElement.dataset.theme=mode;
+       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+     }.toString()+')('+JSON.stringify(mode)+','+custom+')');
+     const capture=await win.webContents.capturePage(),pixels=capture.toBitmap(),{width,height}=capture.getSize();
+     for(const [x,y] of [[0,0],[width-1,0],[0,height-1],[width-1,height-1]])if(pixels[(y*width+x)*4+3]>8)throw new Error(kind+' painted a rectangular corner in '+mode+' custom='+custom);
+     if(!pixels[(Math.floor(height/2)*width+Math.floor(width/2))*4+3])throw new Error(kind+' transparency fix erased the card');
+     if(process.env.LUMI_UI_REVIEW==='1'){const out=path.resolve('.cache/ui-review');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,kind+'-'+mode+'-'+custom+'.png'),capture.toPNG());}
+   }
+   await win.webContents.executeJavaScript('('+async function(kind){
+     fixture.emit(fixture.colors(),'acrylic');await new Promise(r=>setTimeout(r,250));
+     const card=document.querySelector(kind==='widget' ? '.widget-card' : '.tray-card'),bounds=card.getBoundingClientRect();
+     if(bounds.x!==0 || bounds.y!==0 || bounds.width!==innerWidth || bounds.height!==innerHeight)throw new Error(kind+' acrylic card does not fill its native rounded window');
+     if(getComputedStyle(card).borderRadius!=='8px')throw new Error(kind+' acrylic surface does not match the native rounded corners');
+     const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const context=canvas.getContext('2d');
+     for(const mode of ['light','dark'])for(const alpha of [.42,1]){
+       const palette=fixture.colors();palette.panel=[35,25,50,alpha];fixture.emit(palette,'acrylic');await new Promise(r=>setTimeout(r,50));document.documentElement.dataset.theme=mode;
+       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+       context.clearRect(0,0,1,1);context.fillStyle=getComputedStyle(card).backgroundColor;context.fillRect(0,0,1,1);
+       const color=[...context.getImageData(0,0,1,1).data],expected=mode==='light' ? [35,25,50,199] : [107,97,122,173];
+       if(color.some((value,index)=>Math.abs(value-expected[index])>1))throw new Error(kind+' acrylic tint is too dim or applies theme opacity twice: '+color+' expected '+expected);
+     }
+     if(document.documentElement.scrollWidth>innerWidth || document.documentElement.scrollHeight>innerHeight)throw new Error(kind+' acrylic layout overflows');
+   }.toString()+')('+JSON.stringify(kind)+')');
+ }
  if(kind==='charts' && process.env.LUMI_UI_REVIEW==='1'){await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');const out=path.resolve('.cache/ui-review');fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'theme-charts-dark.png'),(await win.webContents.capturePage()).toPNG());}
  win.destroy();
 }

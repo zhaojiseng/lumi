@@ -1,4 +1,5 @@
 :scope{--sidebar-width:176px;--shell-inset:10px;--accent:light-dark(#3561b7,#abc4ff);--accent-foreground:light-dark(#fff,#15274a);--accent-soft:light-dark(rgba(53,97,183,.11),rgba(171,196,255,.15));--accent-hover:light-dark(#284d98,#cbdcff);grid-template-rows:58px minmax(0,1fr)}
+:scope[data-appearance-accent="rose"]{--accent:light-dark(#b53e71,#ffb1d1);--accent-foreground:light-dark(#fff,#4a152c);--accent-soft:light-dark(rgba(181,62,113,.11),rgba(255,177,209,.15));--accent-hover:light-dark(#96305c,#ffd1e4)}
 :scope>.sidebar{border-radius:12px;padding:20px 14px}
 :scope>.titlebar{padding-left:208px}
 :scope.platform-darwin>.titlebar{padding-left:112px}

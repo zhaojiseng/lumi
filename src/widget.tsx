@@ -102,7 +102,7 @@ export function WidgetApp() {
   const model=state.latestModel ?? state.models[0];
   const notice=error || (state.phase==='error' ? '用量暂不可用' : '');
   const empty=notice || (state.phase==='loading' || state.phase==='idle' ? '读取中…' : '暂无消费模型');
-  return <main className="widget-card widget-header" style={surfacePaletteStyle(received.palette)} data-theme={received.theme} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
+  return <main className="widget-card widget-header" style={surfacePaletteStyle(received.palette)} data-theme={received.theme} data-material={received.material} aria-label="Lumi 悬浮用量" title={tooltip} onDoubleClick={()=>void action('open')}>
     <div className="widget-data" ref={data} tabIndex={window.lumiWidget ? 0 : undefined} role="group" aria-label="用量，双击或按 Enter 打开工作台" onKeyDown={event=>{if(event.key==='Enter' && !event.repeat && event.target===event.currentTarget){event.preventDefault();void action('open');}}}>
       <dl className="widget-consumption" title={tooltip}><dt>最近消费</dt><dd><Value value={state.cost}/></dd></dl>
       <div className="widget-details">

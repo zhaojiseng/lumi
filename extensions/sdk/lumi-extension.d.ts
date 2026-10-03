@@ -9,7 +9,7 @@ export interface ExtensionManifest {
   permissions?:ExtensionPermission[];networkOrigins?:string[];
   switches?:{id:string;title:string;defaultEnabled?:boolean}[];
   contributions?:{id:string;slot:ExtensionSlot;title:string;entry:string;order?:number;scope?:'site'|'independent';switch?:string;section?:'workspace'|'tools'|'settings'}[];
-  interface?:{stylesheet:string};
+  interface?:{stylesheet:string;preview?:string;appearanceGroups?:{id:string;title:string;defaultOption:string;options:{id:string;title:string}[]}[]};
 }
 /** Formatted presentation data, not an account/consumption-log API. */
 export interface NativeMenuBarState {

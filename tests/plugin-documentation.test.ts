@@ -24,7 +24,7 @@ async function documentExamples(t:test.TestContext){
   const definitions=[
     {manifest:manifests[0],assets:{'index.html':html[0],'app.js':js[0],'style.css':css[0]}},
     {manifest:manifests[1],assets:{'index.html':html[1],'app.js':js[1],'style.css':css[0]}},
-    {manifest:manifests[2],assets:{'interface.css':css[1]+'\n'+css[2]}},
+    {manifest:manifests[2],assets:{'interface.css':css[1]+'\n'+css[2],'preview.html':html[2]}},
     {manifest:{...manifests[0],id:'extension.author.balance',permissions:['workbench.read']},assets:{'index.html':html[0],'app.js':js[2],'style.css':css[0]}},
   ];
   for(const {manifest,assets} of definitions){const folder=path.join(packages,manifest.id);await mkdir(folder,{recursive:true});

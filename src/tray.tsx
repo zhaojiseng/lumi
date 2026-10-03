@@ -43,7 +43,7 @@ function TrayApp(){
       const style=getComputedStyle(element),chromeHeight=px(style.paddingTop)+px(style.paddingBottom)+px(style.borderTopWidth)+px(style.borderBottomWidth)+[...element.children].filter(child=>!child.classList.contains('tray-sections') && !child.classList.contains('tray-spacer')).reduce((sum,child)=>sum+outerHeight(child),0);
       const sectionStyle=sections ? getComputedStyle(sections) : null;
       const contentHeight=sectionStyle ? children.reduce((sum,child)=>sum+outerHeight(child),0)+Math.max(0,children.length-1)*px(sectionStyle.rowGap)+px(sectionStyle.marginTop)+px(sectionStyle.marginBottom) : 0;
-      const height=trayPanelContentHeight(chromeHeight,contentHeight),reducedMotion=media.matches;
+      const height=trayPanelContentHeight(chromeHeight,contentHeight,state.material==='acrylic' ? 0 : 8),reducedMotion=media.matches;
       if(lastLayout.current?.height===height && lastLayout.current.reducedMotion===reducedMotion)return;
       lastLayout.current={height,reducedMotion};void bridge.action({type:'layout',height,reducedMotion}).catch(()=>{lastLayout.current=null;});
     };
@@ -52,7 +52,7 @@ function TrayApp(){
     element.querySelectorAll(':scope>*,.tray-sections>*').forEach(child=>observer.observe(child));
     media.addEventListener('change',schedule);schedule();void document.fonts.ready.then(schedule);
     return()=>{active=false;observer.disconnect();media.removeEventListener('change',schedule);cancelAnimationFrame(frame);};
-  },[state.usage]);
+  },[state.usage,state.material]);
   const motionId=state.motion?.id || 0,motionPhase=state.motion?.phase || 'visible';
   useLayoutEffect(()=>{
     const element=card.current;if(!element)return;
@@ -72,7 +72,7 @@ function TrayApp(){
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();void window.lumiTray?.action({type:'close'});}};addEventListener('keydown',key);return()=>removeEventListener('keydown',key);},[]);
   const data=state.usage,contents=normalizeMenuBarContents(data.contents),choose=(selection:MenuBarSelection)=>{pending.current=selection;setHover(null);setState(old=>({...old,usage:{...old.usage,...selection,phase:'loading',canRefresh:false,message:'正在刷新用量…'}}));void action({type:'select',selection});};
   const points=data.chart,maximum=Math.max(.001,...(points || []).map(p=>p.value)),point=hover===null ? null : points?.[hover];
-  return <main ref={card} className="tray-card" style={surfacePaletteStyle(state.palette)} aria-label="Lumi 用量面板">
+  return <main ref={card} className="tray-card" style={surfacePaletteStyle(state.palette)} data-material={state.material} aria-label="Lumi 用量面板">
     <header className="tray-header"><Logo small/><div><strong title={data.siteName}>{data.siteName}</strong><span title={data.accountLabel}>{data.accountLabel}</span></div><button className="tray-icon" title="打开工作台" aria-label="打开工作台" onClick={()=>void action({type:'navigate',page:'overview'})}><ArrowUpRight size={18}/></button><button className="tray-icon" title="关闭面板" aria-label="关闭面板" onClick={()=>void action({type:'close'})}><X size={16}/></button></header>
     <div className="tray-selectors"><Switch label="统计工具" options={[{label:'全部',value:'all'},{label:'Codex',value:'codex'},{label:'Claude',value:'claude'}] as const} value={data.tool as MenuBarSelection['tool']} select={tool=>choose({tool,days:data.days as MenuBarSelection['days']})}/><Switch label="统计时间" options={[{label:'今日',value:1},{label:'7 天',value:7},{label:'30 天',value:30}] as const} value={data.days as MenuBarSelection['days']} select={days=>choose({days,tool:data.tool as MenuBarSelection['tool']})}/></div>
     {contents.length>0 ? <div className="tray-sections">

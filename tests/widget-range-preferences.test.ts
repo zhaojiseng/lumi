@@ -17,7 +17,7 @@ const cipher={available:()=>false,encrypt:()=>{throw new Error('Fixture must not
 async function isolatedStore(t:TestContext) {
   const parent=path.resolve('.test-data');await mkdir(parent,{recursive:true});
   const root=await mkdtemp(path.join(parent,'widget-range-preferences-'));
-  t.after(async()=>{assert.equal(path.dirname(root),parent);await rm(root,{recursive:true,force:true});});
+  t.after(async()=>{assert.equal(path.dirname(root),parent);await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100});});
   const store=new SettingsStore(root,cipher);await store.load();
   return {root,store,file:path.join(root,'settings.json')};
 }

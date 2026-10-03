@@ -1,3 +1,4 @@
+import {ModalPresence} from './ModalPresence';
 import {useState,useCallback,type ReactNode} from 'react';
 import {Columns3} from 'lucide-react';
 import {ProviderIcon} from './BrandIcon';
@@ -23,7 +24,7 @@ export function RecentActivityColumnsControl({columns,onChange}:{columns:Activit
   function toggle(id:ActivityColumnId){setDraft(current=>current.includes(id) ? current.filter(c=>c!==id) : [...current,id]);}
   return <>
     <Button onClick={()=>{setDraft(normalizeActivityColumns(columns));setOpen(true);}} aria-label="自定义最近活动显示列"><Columns3 size={15}/>显示列 · {visibleActivityColumns(columns).length}</Button>
-    {open && <Modal title="自定义最近活动" subtitle="选择会单独保存到当前站点" className="log-columns-modal activity-columns-modal" onClose={close}>
+    <ModalPresence>{open && <Modal title="自定义最近活动" subtitle="选择会单独保存到当前站点" className="log-columns-modal activity-columns-modal" onClose={close}>
       <div className="log-column-presets">
         <Button onClick={()=>setDraft([...DEFAULT_ACTIVITY_COLUMNS])}>恢复默认</Button>
         <Button onClick={()=>setDraft(['model','reasoning','cost','status'])}>精简视图</Button>
@@ -34,7 +35,7 @@ export function RecentActivityColumnsControl({columns,onChange}:{columns:Activit
       </label>)}</div>
       <p className="field-help">至少保留一列。输入与缓存读取同时勾选时合并显示；首字延迟已包含在“首字 / 后续”中。思考强度只读取本次请求日志，缺少数据时显示“—”。</p>
       <div className="modal-actions"><Button onClick={close}>取消</Button><Button variant="primary" onClick={()=>{onChange(normalizeActivityColumns(draft));close();}}>应用显示项目</Button></div>
-    </Modal>}
+    </Modal>}</ModalPresence>
   </>;
 }
 
@@ -75,6 +76,6 @@ export function RecentActivity({logs,status,catalog,columns=DEFAULT_ACTIVITY_COL
   }
   return <>
     <div className="table-scroll"><table className="data-table recent-activity-table"><thead><tr>{visible.map(id=><th key={id} title={columnHelp[id]}>{id==='input' && showCacheRead ? '输入 / 缓存命中' : ACTIVITY_COLUMN_LABELS[id]}</th>)}</tr></thead><tbody>{logs.slice(0,5).map(log=><tr key={log.id}>{visible.map(id=><td key={id}>{cell(log,id)}</td>)}</tr>)}</tbody></table></div>
-    {detail && <RequestDetail log={detail} status={status} onClose={close}/>}
+    <ModalPresence>{detail && <RequestDetail log={detail} status={status} onClose={close}/>}</ModalPresence>
   </>;
 }

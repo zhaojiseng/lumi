@@ -9,6 +9,8 @@ import {defaultInterfaceLayout} from '../../plugins/interface.default/layout';
 import {usePluginSettings} from './plugins';
 import {InterfaceErrorContext} from './interface-settings';
 import {syncSurfaceTheme} from './surface-theme';
+import {interfaceAppearanceKey,resolveInterfaceAppearance} from '../../shared/interface-appearance';
+import {ModalScope} from '../components/ModalPresence';
 
 export interface InterfaceShellProps {
   bootstrap:Bootstrap;preferences:Preferences;dashboard:Dashboard|null;nav:readonly NavigationItem[];visiblePage:Page;catalogPending:number;status:string;loading:boolean;error:string;refreshDisabled:boolean;
@@ -45,7 +47,7 @@ export function scopedInterfaceSheet(style:InterfaceStyle){
   return sheet;
 }
 export function InterfaceHost(props:InterfaceShellProps){
-  const {extensions}=usePluginSettings(),[failure,setFailure]=useState('');
+  const {extensions,statuses}=usePluginSettings(),[failure,setFailure]=useState('');
   const style=extensions?.interfaceStyle;
   useLayoutEffect(()=>{
     const base=new CSSStyleSheet();base.replaceSync(defaultInterfaceLayout);let extra:CSSStyleSheet|undefined;
@@ -56,9 +58,14 @@ export function InterfaceHost(props:InterfaceShellProps){
   const Shell=defaultInterfacePlugin.component,active=style && !failure ? style.id : DEFAULT_INTERFACE_ID;
   useLayoutEffect(()=>{
     const shell=document.querySelector<HTMLElement>('.desktop-shell');if(!shell)return;
+    for(const attribute of [...shell.attributes])if(attribute.name.startsWith('data-appearance-'))shell.removeAttribute(attribute.name);
+    const groups=active===style?.id ? style.appearanceGroups : undefined,saved=props.preferences.interfaceSelections?.[active];
+    for(const [id,value] of Object.entries(resolveInterfaceAppearance(groups,saved)))shell.setAttribute('data-appearance-'+id,value);
+    const key=interfaceAppearanceKey(groups,saved);if(key)shell.dataset.interfaceAppearance=key;else delete shell.dataset.interfaceAppearance;
     const sync=()=>syncSurfaceTheme(shell);sync();
     const observer=new MutationObserver(sync);observer.observe(shell,{attributes:true,attributeFilter:['data-theme','data-interface']});
     return()=>observer.disconnect();
   },[style?.id,style?.css,active,props.preferences]);
-  return <InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider>;
+  const dialogScope=JSON.stringify([props.visiblePage,props.preferences.sites.find(site=>site.id===props.preferences.activeSiteId),statuses?.map(status=>[status.manifest.id,status.state,status.generation,status.views])]);
+  return <ModalScope scope={dialogScope}><InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider></ModalScope>;
 }

@@ -68,7 +68,7 @@ export function applyStateChanges(rows:StateChange[],reverse=false){
     for(const row of rows.filter(r=>r.path===location)){
       const before=reverse ? row.after : row.before,after=reverse ? row.before : row.after,keys=Object.keys(before);
       const current=db.prepare('SELECT '+keys.join(', ')+' FROM threads WHERE id=?').get(row.id);
-      if(!current || keys.some(k=>current[k]!==before[k]))throw new Error('Codex 会话索引已变更，请关闭 Codex 后重新预览。');
+      if(!current || keys.some(k=>current[k]!==before[k]))throw new Error('Codex 会话索引已变更，请重新预览。');
       db.prepare('UPDATE threads SET '+keys.map(k=>k+'=?').join(', ')+' WHERE id=?').run(...keys.map(k=>after[k]),row.id);
     }
     db.exec('COMMIT');done.push(...rows.filter(r=>r.path===location));

@@ -1,12 +1,13 @@
-import {mkdir} from 'node:fs/promises';
+import {mkdir,mkdtemp,writeFile,rename,rm,lstat,realpath} from 'node:fs/promises';
 import {z} from 'zod';
 import type {Cipher} from '../services/store';
 import {extensionStatus,type ExtensionInventory,type ExtensionContext,type ExtensionPermission,type ExtensionRequest} from '../../shared/contracts/extensions';
-import {safeExtensionPath} from '../../shared/extension-manifest';
+import {safeExtensionPath,extensionId} from '../../shared/extension-manifest';
 import {ExtensionStore} from './store';
-import {scanExtensionPackages,EXTENSION_MIME,type ExtensionPackage} from './packages';
+import {readExtensionPackage,scanExtensionPackages,EXTENSION_MIME,type ExtensionPackage} from './packages';
 import {extensionNetworkRead} from './network';
 import path from 'node:path';
+import type {InterfaceSelection} from '../../shared/contracts/interface';
 interface ActivePackage {pkg:ExtensionPackage;enabled:boolean;generation:number;controller:AbortController;pending:number;}
 export interface ExtensionHostOptions {
   directory:string;roots?:string[];settingsDirectory:string;cipher:Cipher;sdk:Buffer;
@@ -20,7 +21,55 @@ export class ExtensionHost {
   constructor(private options:ExtensionHostOptions){this.store=new ExtensionStore(options.settingsDirectory,options.cipher);}
   async start(){await mkdir(this.options.directory,{recursive:true});await this.store.load();await this.reload();}
   private serial<T>(job:()=>Promise<T>):Promise<T>{if(this.closing)return Promise.reject(new Error('扩展宿主正在退出。'));const result=this.queue.catch(()=>{}).then(()=>{if(this.closing)throw new Error('扩展宿主正在退出。');return job();});this.queue=result;return result;}
-  inventory():ExtensionInventory{const selected=[...this.packages.values()].find(p=>p.enabled && p.pkg.manifest.kind==='interface'),stylesheet=selected?.pkg.manifest.interface?.stylesheet;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest})),diagnostics:this.diagnostics,interfaceStyle:selected && stylesheet ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(stylesheet)!.toString('utf8')} : undefined};}
+  inventory():ExtensionInventory{const selected=[...this.packages.values()].find(p=>p.enabled && p.pkg.manifest.kind==='interface'),definition=selected?.pkg.manifest.interface;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest,removable:this.removable(pkg)})),diagnostics:this.diagnostics,interfaceStyle:selected && definition ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(definition.stylesheet)!.toString('utf8'),preview:definition.preview ? selected.pkg.files.get(definition.preview)!.toString('utf8') : undefined,appearanceGroups:definition.appearanceGroups} : undefined};}
+  private removable(pkg:ExtensionPackage){return path.relative(path.resolve(this.options.directory),path.dirname(pkg.directory))==='';}
+  private roots(){return [this.options.directory,...this.options.roots || []];}
+  private replacePackage(id:string,pkg?:ExtensionPackage){
+    this.packages.get(id)?.controller.abort();this.packages.delete(id);
+    if(pkg)this.packages.set(id,{pkg,enabled:false,generation:++this.epoch,controller:new AbortController(),pending:0});
+  }
+  installFiles(id:string,files:ReadonlyMap<string,Buffer>){return this.serial(async()=>{
+    if(!extensionId.test(id))throw new Error('插件 ID 无效。');
+    if((await lstat(this.options.directory)).isSymbolicLink())throw new Error('扩展根目录不能是符号链接。');
+    const root=await realpath(this.options.directory),current=this.packages.get(id)?.pkg;
+    const target=current && this.removable(current) ? current.directory : path.join(root,id);
+    const temporary=await mkdtemp(path.join(path.dirname(root),'.extension-install-')),staged=path.join(temporary,'package'),backup=path.join(temporary,'previous');
+    let movedPrevious=false,movedNew=false,committed=false;
+    try{
+      await mkdir(staged);
+      for(const [name,bytes] of files){if(!safeExtensionPath(name))throw new Error('插件文件路径无效。');const file=path.join(staged,name);await mkdir(path.dirname(file),{recursive:true});await writeFile(file,bytes,{flag:'wx'});}
+      const validated=await readExtensionPackage(staged);if(validated.manifest.id!==id)throw new Error('插件包 ID 与市场条目不一致。');
+      try{const existing=await readExtensionPackage(target);if(existing.manifest.id!==id)throw new Error('安装目录已被其它插件使用。');await rename(target,backup);movedPrevious=true;}catch(error:any){if(error.code!=='ENOENT')throw error;}
+      await rename(staged,target);movedNew=true;
+      const scanned=await scanExtensionPackages(this.roots()),installed=scanned.packages.find(pkg=>pkg.manifest.id===id);
+      if(!installed || installed.digest!==validated.digest)throw new Error('插件安装超过宿主限制或目录冲突。');
+      if(this.closing)throw new Error('扩展宿主正在退出。');
+      await this.store.change(id,{enabled:false,digest:installed.digest});committed=true;
+      this.replacePackage(id,installed);this.diagnostics=scanned.diagnostics;
+      return this.inventory();
+    }catch(error){
+      if(!committed){if(movedNew)await rm(target,{recursive:true,force:true,maxRetries:5,retryDelay:100});if(movedPrevious){await rename(backup,target);movedPrevious=false;}}
+      throw error;
+    }finally{if(!movedPrevious || committed)await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});}
+  });}
+  remove(id:string){return this.serial(async()=>{
+    const item=this.packages.get(id);if(!item || !this.removable(item.pkg))throw new Error('只能卸载额外插件目录中的插件。');
+    if((await lstat(this.options.directory)).isSymbolicLink())throw new Error('扩展根目录不能是符号链接。');
+    const temporary=await mkdtemp(path.join(path.dirname(path.resolve(this.options.directory)),'.extension-remove-')),backup=path.join(temporary,'package');let moved=false,committed=false;
+    try{
+      if((await lstat(item.pkg.directory)).isSymbolicLink())throw new Error('插件目录不能是符号链接。');
+      await rename(item.pkg.directory,backup);moved=true;
+      const scanned=await scanExtensionPackages(this.roots()),fallback=scanned.packages.find(pkg=>pkg.manifest.id===id);
+      await this.store.change(id,{enabled:false,digest:fallback?.digest || ''});committed=true;
+      this.replacePackage(id,fallback);this.diagnostics=scanned.diagnostics;
+      return this.inventory();
+    }catch(error){if(moved && !committed){await rename(backup,item.pkg.directory);moved=false;}throw error;}
+    finally{if(!moved || committed)await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});}
+  });}
+  validateAppearanceSelection(input:InterfaceSelection){
+    const item=this.packages.get(input.interfaceId),groups=item?.pkg.manifest.interface?.appearanceGroups;
+    if(!item?.enabled || !groups || !Object.entries(input.values).every(([id,value])=>groups.find(group=>group.id===id)?.options.some(option=>option.id===value)))throw new Error('界面插件或外观选项已变更，请重新选择。');
+  }
   statuses(){return [...this.packages.values()].map(p=>extensionStatus(p.pkg.manifest,p.enabled,p.generation,this.store.get(p.pkg.manifest.id).views));}
   has(id:string){return this.packages.has(id);}
   reload(){return this.serial(async()=>{

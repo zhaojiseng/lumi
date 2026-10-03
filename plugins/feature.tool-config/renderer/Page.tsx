@@ -1,3 +1,4 @@
+import {ModalPresence} from '../../../src/components/ModalPresence';
 import {useEffect,useRef,useState} from 'react';
 import {ArrowRight,Check,FileCode2,History,Info,Eye,RotateCcw,KeyRound,CircleAlert,Download,RefreshCw,ChevronDown,Loader2} from 'lucide-react';
 import {useApp} from '../../../src/context';
@@ -67,7 +68,7 @@ function ToolForm({definition,tool,onPreview,runtime,chatgpt,onInstall,onDetect,
       <div className="endpoint-display"><span>接口地址</span><code>{site.url}{definition.endpointSuffix}</code></div><Button type="submit" variant="primary" busy={!!pending} className="full-width" disabled={locked || !selected || !group || !bootstrap.desktop}><Eye size={16}/>自动配钥并预览<ArrowRight size={15}/></Button>
     </form>}
     <ConfigFeedback pending={pending} error={error}/>
-    {keyInfo && <Modal title="自动使用专用密钥" subtitle={definition.label} onClose={()=>setKeyInfo(false)}><p className="key-info-copy">复用工具专用密钥，没有时自动创建。切换渠道时，预览操作会更新同一令牌的渠道，密钥保持不变；名称不包含渠道。额度随账户余额。</p><code className="key-info-token">{expected}</code><p className="muted">应用前可预览变更，原始配置会自动加密备份。</p><div className="modal-actions"><Button variant="primary" onClick={()=>setKeyInfo(false)}>知道了</Button></div></Modal>}
+    <ModalPresence>{keyInfo && <Modal title="自动使用专用密钥" subtitle={definition.label} onClose={()=>setKeyInfo(false)}><p className="key-info-copy">复用工具专用密钥，没有时自动创建。切换渠道时，预览操作会更新同一令牌的渠道，密钥保持不变；名称不包含渠道。额度随账户余额。</p><code className="key-info-token">{expected}</code><p className="muted">应用前可预览变更，原始配置会自动加密备份。</p><div className="modal-actions"><Button variant="primary" onClick={()=>setKeyInfo(false)}>知道了</Button></div></Modal>}</ModalPresence>
   </section>;
 }
 export default function Tools() {
@@ -166,7 +167,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     try{
       const states=await bridge.applyConfig(preview.id);if(!current(request))return;
       setConfigs(states);setPreview(null);
-      toast(preview.tool==='codex' ? '配置已应用，原文件已加密备份。配置与相关旧对话已同步。请重新打开 Codex。' : 'Claude Code CLI 配置已应用，原文件已加密备份。请重新启动 Claude Code。','success');
+      toast(preview.tool==='codex' ? '配置已应用，原文件已加密备份。配置与相关旧对话已同步，无需重启 ChatGPT / Codex。' : 'Claude Code CLI 配置已应用，原文件已加密备份。请重新启动 Claude Code。','success');
       syncBootstrap('apply');
     }catch(e){fail(request,e);}finally{finish(request);}
   }
@@ -193,7 +194,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     {!definitions.length && <p className="muted" role="status">暂无可用工具适配器。</p>}
     {syncNote && <p className="muted small-text" role="status">{syncNote}</p>}
     <div className="info-note"><Info size={15}/><span>设置中的环境变量只写入工具配置文件。系统或项目级环境变量可能覆盖这些设置；应用后请重启 Codex / Claude Code。与 CC Switch 同时切换配置时，请重新检查预览。</span></div>
-    {preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={()=>{if(!operation.current)setPreview(null);}}>
+    <ModalPresence>{preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={()=>{if(!operation.current)setPreview(null);}}>
       <div className="preview-token"><KeyRound size={16}/><span>{preview.token?.created ? '已创建' : '已复用'}专用令牌 <strong>{preview.token?.name}</strong> · {preview.token?.group}</span></div>
       <div className="preview-changes">{preview.changes.map((s,i)=><div key={i}><Check size={14}/><span>{s}</span></div>)}</div>
       {preview.tool==='codex' && <p className="muted small-text">相关历史对话会在应用时检查并同步。</p>}
@@ -201,12 +202,12 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
       {currentFile && <><p className="preview-path">{currentFile.path}</p><pre className="code-preview">{currentFile[view]}</pre></>}
       <ConfigFeedback pending={pending?.operation==='apply' ? pending : null} error={error?.operation==='apply' ? error.message : undefined}/>
       <div className="modal-actions"><span className="muted small-text">原配置会在写入前自动加密备份</span><Button onClick={()=>{if(!operation.current)setPreview(null);}} disabled={busy}>取消</Button><Button variant="primary" busy={busy} onClick={apply} disabled={busy || !bootstrap.desktop || !preview.files.length}><Check size={16}/>备份并应用</Button></div>
-    </Modal>}
-    {history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={()=>setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b=><div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{toolName(b.tool)}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button disabled={busy || !bootstrap.desktop} onClick={()=>{if(operation.current)return;setHistory(false);setError(null);setRestore(b);}}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}
-    {restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={()=>{if(!operation.current)setRestore(null);}}>
+    </Modal>}</ModalPresence>
+    <ModalPresence>{history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={()=>setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b=><div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{toolName(b.tool)}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button disabled={busy || !bootstrap.desktop} onClick={()=>{if(operation.current)return;setHistory(false);setError(null);setRestore(b);}}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}</ModalPresence>
+    <ModalPresence>{restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={()=>{if(!operation.current)setRestore(null);}}>
       <div className="info-note"><Info size={16}/><span>恢复会修改 {toolName(restore.tool)} 的本机配置，并先备份当前文件。若文件被其他程序修改，本次恢复将停止。</span></div>
       <ConfigFeedback pending={pending?.operation==='restore' ? pending : null} error={error?.operation==='restore' ? error.message : undefined}/>
       <div className="modal-actions"><Button disabled={busy} onClick={()=>{if(!operation.current)setRestore(null);}}>取消</Button><Button busy={busy} disabled={busy || !bootstrap.desktop} variant="primary" onClick={doRestore}><RotateCcw size={15}/>备份并恢复</Button></div>
-    </Modal>}
+    </Modal>}</ModalPresence>
   </div>;
 }

@@ -104,17 +104,15 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .site-row.selected { background: var(--accent-soft); border-color: var(--border); }
 .theme-options > button { border-color: var(--border); color: var(--text-secondary); padding: 7px; }
 .theme-options > button.active { border-color: var(--accent); background: var(--accent-soft); }
-.theme-preview { background: #eef3f0; border-color: #dce5df; }
-.theme-preview::before { background: #ffffff; border-color: #dce5df; z-index: 2; }
-.theme-preview span { position: relative; z-index: 2; background: #ffffff; }
-.theme-preview i { position: relative; z-index: 2; background: #81b298; }
-.theme-preview.dark { background: #17221b; border-color: #3a493e; }
-.theme-preview.dark::before { background: #2a3930; border-color: #3a493e; }
-.theme-preview.dark span { background: #2a3930; }
-.theme-preview.dark i { background: #a5d3b5; }
-.theme-preview.system { background: #eef3f0; }
-.theme-preview.system::after { content: ''; position: absolute; inset: 0 0 0 50%; background: #17221b; }
-.theme-preview.system span { background: #c3d4c8; }
+.theme-options { gap: 8px; }
+.theme-options > button { min-width: 0; border-radius: 6px; }
+.theme-options button > span { flex-wrap: wrap; justify-content: center; }
+.theme-preview.live iframe { position: absolute; inset: 0; max-width: none; border: 0; pointer-events: none; }
+.theme-preview.live .preview-error { position: absolute; inset: auto 0 0; width: auto; height: auto; margin: 0; padding: 2px; font-size: 10px; background: var(--panel); color: var(--red); }
+.appearance-group { padding: 0; margin: 18px 0 0; min-width: 0; border: 0; }
+.appearance-group legend { padding: 0; margin-bottom: 8px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.appearance-group .segmented { display: flex; flex-wrap: wrap; max-width: 100%; }
+.appearance-group .segmented button { flex: 1; white-space: normal; overflow-wrap: anywhere; }
 .welcome-page { gap: 18px; }
 .welcome-hero { padding: 42px; min-height: 420px; border-radius: 16px; background: var(--panel); }
 .welcome-hero h1 { margin: 28px 0 18px; font-size: 48px; letter-spacing: -1.6px; font-weight: 650; }

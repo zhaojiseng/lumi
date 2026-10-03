@@ -1,7 +1,7 @@
 import {useEffect,useLayoutEffect,useState} from 'react';
 import type {Theme} from '../../shared/types';
 /** Existing semantic CSS and cascade order stay intact. */
-export function useDefaultTheme(theme:Theme){
+export function useResolvedTheme(theme:Theme){
   const [systemDark,setSystemDark]=useState(()=>matchMedia('(prefers-color-scheme: dark)').matches);
   const resolved=theme==='system' ? systemDark ? 'dark' : 'light' : theme;
   useEffect(()=>{
@@ -9,6 +9,10 @@ export function useDefaultTheme(theme:Theme){
     const update=()=>setSystemDark(query.matches);
     update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);
   },[]);
+  return resolved;
+}
+export function useDefaultTheme(theme:Theme){
+  const resolved=useResolvedTheme(theme);
   useLayoutEffect(()=>{document.documentElement.dataset.theme=resolved;},[resolved]);
   return resolved;
 }

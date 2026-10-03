@@ -77,6 +77,20 @@ settings: {
 
 卡片和标签声明 `site` 或 `independent` 范围。站点切换只重置 NewAPI 内容，Codex 和本地会话保持独立。本地筛选保存在 `sourceSelections`，不继承在线令牌 ID；关闭详情/视图释放有限快照和句柄。会话正文只读、不上传、不进入应用日志。
 
+## 插件市场
+
+市场是宿主的插件管理入口，通过固定的 `extensionMarket`、`installExtension`、`removeExtension` IPC 浏览官方 `zhaojiseng/lumi-extensions` 仓库及管理用户目录包。renderer 不提供下载地址或文件路径；安装只接受已读取目录中的插件 ID 和提交 SHA。主进程固定 HTTPS 来源、不带账户凭据、不跟随重定向，限制响应大小和超时，并核对所有下载文件的 Git blob 摘要。
+
+下载到内存后，ExtensionHost 在同盘临时目录写入并复用目录包校验，原子替换用户插件目录；设置持久化失败恢复原目录和活动代次。安装/更新仅撤回目标插件，保持其它插件的固定字节和生命周期；更新后的目标停用，接受新清单后再启用。卸载保留独立设置、存储、凭据和外观选择，只有用户目录副本可删除。用户目录优先于随程序分发的同 ID 包，同一根目录中的重复 ID 仍是错误。
+
+目录缓存限时五分钟，可手动刷新；不可用或不兼容的清单显示诊断，不作为可安装条目。市场界面复用受限外观预览，安装/更新/卸载通过 PluginResource 更新贡献和清单，不调用 bootstrap 或重载设置。开发指南包括无需主程序源码的接入和发布步骤。
+
+## 外观贡献
+
+界面插件的 `interface` 可声明 `preview` 静态 HTML 片段和 `appearanceGroups`。宿主将受限 CSS、系统颜色模式、平台类和插件外观选择应用到独立 sandbox 预览文档；缺省使用系统示例模板。预览没有脚本、网络、SDK 或主窗口 bridge，非法模板回退到系统预览。
+
+外观组按插件声明生成选项，选择以 `interfaceSelections` 保存，经固定 preferences IPC 校验活动插件和合法选项。宿主在外壳设置 `data-appearance-<组ID>`，语义配色继续同步到浮窗/托盘；数值快照包含选择键，迟到配色不能覆盖新选择。插件撤回后隐藏外观组，保存值保留；已移除的选项按新清单默认值解析。完整独立开发契约及可运行模板见 [插件开发指南](PLUGIN_DEVELOPMENT.md#7-界面插件布局与皮肤)。
+
 ## Codex 订阅用量
 
 `provider.codex/subscriptionUsage.read` 经固定 `readCodexUsage` IPC 读取。发现 CLI 后，以 `-s read-only -a never app-server` 启动隐藏 stdio 子进程，发送初始化、`account/read`、`account/rateLimits/read` 和账户复核。不发送 turn/thread、登录、退出、购买或积分兑换命令。

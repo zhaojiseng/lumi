@@ -1,5 +1,5 @@
 import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
-import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol,systemPreferences } from 'electron';
 import path from 'node:path';
 import { writeFile,readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -7,7 +7,10 @@ import {createHash} from 'node:crypto';
 import { z } from 'zod';
 import {createBuiltinPlugins} from './host/plugins';
 import {ExtensionHost} from './extensions/host';
+import {ExtensionMarket} from './extensions/market';
+import {extensionId} from '../shared/extension-manifest';
 import {DEFAULT_INTERFACE_ID} from '../shared/contracts/interface';
+import {interfaceAppearanceKey,validInterfaceSelection} from '../shared/interface-appearance';
 import {SurfaceThemeState,parseSurfaceTheme} from '../shared/surface-theme';
 import {formattedWidget} from '../shared/widget';
 import {nativeMenuBarState,menuBarSelection} from '../shared/menu-bar';
@@ -22,6 +25,7 @@ import {ToolRuntimeService} from './services/tool-runtime';
 import {macUpdater} from './services/mac-updater';
 import {appLogs,captureConsole} from './services/app-logs';
 import {windowLayout,macMenu} from './window-layout';
+import {WindowCloseAnimation} from './services/window-close';
 import {DATA_REFRESH_ANIMATIONS} from '../shared/motion';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
@@ -46,6 +50,7 @@ const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema,
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const barRangeSchema=z.union([z.literal('follow'),z.literal('24h'),z.literal(1),z.literal(7),z.literal(30)]);
+const appearanceSelectionSchema=z.object({interfaceId:z.string().max(100),values:z.record(z.string().max(40),z.string().max(40))}).strict().refine(validInterfaceSelection);
 const preferenceSchema = z.object({ dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),widgetPeriod:z.union([z.literal('latest'),z.number().refine(value=>WIDGET_PERIODS.some(option=>option.value===value)).transform(value=>value as WidgetPeriod)]).optional(),widgetInputMode:z.enum(['total','uncached']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional(),sourceSelection:z.object({sourceId:z.enum(['source.local-sessions','feature.usage']),values:selectionSchema.shape.values}).strict().optional() }).strict();
 const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional(), disableAttributionHeader:z.boolean().optional() }).strict();
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
@@ -68,10 +73,21 @@ async function start() {
   win = new BrowserWindow({ ...windowLayout(process.platform,screen.getPrimaryDisplay().workAreaSize), show: false, backgroundColor: '#f5f7f8', icon,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
   });
+  const closeAnimation=new WindowCloseAnimation(win,()=>systemPreferences.getAnimationSettings().prefersReducedMotion);
+  const quit=()=>closeAnimation.run(()=>app.quit());
+  let closeAllowed=false;
   Menu.setApplicationMenu(process.platform==='darwin' ? Menu.buildFromTemplate(macMenu()) : null);
   if(process.platform==='darwin')win.setWindowButtonVisibility(true);
-  win.on('close',event=>{if(process.platform==='darwin' && !quitting && process.env.LUMI_SMOKE!=='1'){event.preventDefault();win.hide();appLogs.write('info','窗口','窗口关闭，点击 Dock 图标可重新打开。');}});
-  win.on('closed',()=>{if(process.platform!=='darwin' && !quitting)app.quit();});
+  win.on('close',event=>{
+    if(quitting || closeAllowed || process.env.LUMI_SMOKE==='1')return;
+    event.preventDefault();
+    closeAnimation.run(()=>{
+      if(win.isDestroyed())return;
+      if(process.platform==='darwin'){win.hide();appLogs.write('info','窗口','窗口关闭，点击 Dock 图标可重新打开。');}
+      else{closeAllowed=true;win.close();}
+    });
+  });
+  win.on('closed',()=>{closeAnimation.dispose();if(process.platform!=='darwin' && !quitting)app.quit();});
   win.webContents.on('console-message',details=>appLogs.write(details.level==='warning' ? 'warn' : details.level==='error' ? 'error' : details.level==='debug' ? 'debug' : 'info','界面',details.message));
   win.webContents.on('did-fail-load',(_event,code,description)=>appLogs.write('error','页面加载',`${code} ${description}`));
   win.webContents.on('render-process-gone',(_event,details)=>appLogs.write('error','渲染进程',`${details.reason} · ${details.exitCode}`));
@@ -95,7 +111,8 @@ async function start() {
   const navigate=(page:Page)=>{showWindow();win.webContents.send('lumi:navigate',page);};
   const resolvedTheme=()=>store.preferences.theme==='system' ? nativeTheme.shouldUseDarkColors ? 'dark' as const : 'light' as const : store.preferences.theme;
   let readInterfaceId=()=>DEFAULT_INTERFACE_ID;
-  const surfaceTheme=new SurfaceThemeState(()=>({interfaceId:readInterfaceId(),mode:resolvedTheme()})),surfaceThemeListeners=new Set<()=>void>();
+  let readAppearanceKey:()=>string|undefined=()=>undefined;
+  const surfaceTheme=new SurfaceThemeState(()=>({interfaceId:readInterfaceId(),mode:resolvedTheme(),appearanceKey:readAppearanceKey()})),surfaceThemeListeners=new Set<()=>void>();
   const notifySurfaceTheme=()=>surfaceThemeListeners.forEach(listener=>listener());
   let plugins:Awaited<ReturnType<typeof createBuiltinPlugins>>;
   plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();},desktop:{
@@ -105,7 +122,7 @@ async function start() {
     onThemeChanged:listener=>{nativeTheme.on('updated',listener);surfaceThemeListeners.add(listener);return()=>{nativeTheme.removeListener('updated',listener);surfaceThemeListeners.delete(listener);};},
     patch:async patch=>{const saved=await store.update(patch);await plugins.notifySurfaces();return saved;},
     setEnabled:async(id,enabled)=>{const statuses=await plugins.setEnabled(id,enabled);if(id==='surface.widget' && !win.isDestroyed())win.webContents.send('lumi:widgetVisibility',enabled);return statuses;},
-    navigate,showMain:showWindow,quit:()=>app.quit(),isQuitting:()=>quitting,log:(source,message)=>appLogs.write('warn',source,message),
+    navigate,showMain:showWindow,quit,isQuitting:()=>quitting,log:(source,message)=>appLogs.write('warn',source,message),
   }});
   const accountApi=plugins.port('provider.newapi','account.session'),onlineApi=plugins.port('provider.newapi','online.usage'),tokensApi=plugins.port('provider.newapi','tokens.manage');
   const usage=plugins.require('source.local-sessions','localSessions.read');
@@ -120,7 +137,10 @@ async function start() {
     },
   });
   await extensions.start();
+  const extensionMarket=new ExtensionMarket(extensions);
+  app.on('before-quit',()=>extensionMarket.dispose());
   readInterfaceId=()=>extensions.inventory().interfaceStyle?.id || DEFAULT_INTERFACE_ID;
+  readAppearanceKey=()=>{const style=extensions.inventory().interfaceStyle;return interfaceAppearanceKey(style?.appearanceGroups,style && store.preferences.interfaceSelections[style.id]);};
   protocol.handle('lumi-extension',request=>{const asset=extensions.asset(request.url);return asset ? new Response(new Uint8Array(asset.body),{headers:{'Content-Type':asset.type,'Content-Security-Policy':asset.csp,'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','X-Content-Type-Options':'nosniff'}}) : new Response('Extension unavailable',{status:404});});
   win.webContents.session.webRequest.onBeforeRequest((details,done)=>{
     const source=details.frame?.url || '';if(!source.startsWith('lumi-extension://')){done({});return;}
@@ -149,13 +169,16 @@ async function start() {
   // Run after startup paint, without delaying settings/account initialization or scanning browser caches.
   const initialCacheCleanup=updateEnabled && !macMounted ? cleanInstalledPackages() : Promise.resolve();
   const updatePanels=()=>{void plugins.notifySurfaces();};
-  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
+  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,quit,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
   handle('listPlugins',noPayload,allPluginStatuses);
   handle('syncSurfaceTheme',z.unknown().transform(parseSurfaceTheme),input=>{if(surfaceTheme.update(input))notifySurfaceTheme();});
   handle('extensionInventory',noPayload,()=>extensions.inventory());
+  handle('extensionMarket',z.object({force:z.boolean().optional()}).strict(),input=>extensionMarket.read(input));
+  handle('installExtension',z.object({id:z.string().regex(extensionId),revision:z.string().regex(/^[a-f0-9]{40}$/)}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensionMarket.install(input);updateSurfaceInterface(previous);return inventory;});
+  handle('removeExtension',z.string().regex(extensionId),async id=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensions.remove(id);updateSurfaceInterface(previous);return inventory;});
   handle('reloadExtensions',noPayload,async()=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensions.reload();updateSurfaceInterface(previous);return inventory;});
   handle('openExtensionsDirectory',noPayload,async()=>{const error=await shell.openPath(extensions.inventory().directory);if(error)throw new Error('扩展目录暂未能打开。');});
   handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read']),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
@@ -177,7 +200,7 @@ async function start() {
   handle('browserLogin', noPayload, () => plugins.runFeature('provider.newapi',async () => { if (loginPending) throw new Error('登录窗口已打开。'); loginPending=browserLogin(win,store,accountApi); try { return await loginPending; } finally { loginPending=null; } }));
   handle('logout', z.string().max(100), id => plugins.runFeature('provider.newapi',async () => {const p=await accountApi.logout(id);updatePanels();return p;}));
   handle('removeSite', z.string().max(100), async id => {const p=await store.removeSite(id);updatePanels();return p;});
-  handle('preferences', preferenceSchema.extend({skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,dataRefreshAnimation:z.enum(DATA_REFRESH_ANIMATIONS).optional(),widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {if(patch.widgetEnabled!==undefined)await plugins.setEnabled('surface.widget',patch.widgetEnabled);const p=await store.update(patch);await plugins.notifySurfaces();if(patch.widgetEnabled!==undefined && !win.isDestroyed())win.webContents.send('lumi:widgetVisibility',store.preferences.widgetEnabled);return p;});
+  handle('preferences', preferenceSchema.extend({interfaceSelection:appearanceSelectionSchema.optional(),skippedUpdateVersion:preferenceSchema.shape.dismissedUpdateVersion,dataRefreshAnimation:z.enum(DATA_REFRESH_ANIMATIONS).optional(),widgetEnabled:z.boolean().optional(),widgetPosition:z.object({x:z.number().int().min(-100000).max(100000),y:z.number().int().min(-100000).max(100000)}).strict().nullable().optional()}), async patch => {if(patch.interfaceSelection)extensions.validateAppearanceSelection(patch.interfaceSelection);if(patch.widgetEnabled!==undefined)await plugins.setEnabled('surface.widget',patch.widgetEnabled);const p=await store.update(patch);await plugins.notifySurfaces();if(patch.widgetEnabled!==undefined && !win.isDestroyed())win.webContents.send('lumi:widgetVisibility',store.preferences.widgetEnabled);return p;});
   handle('modelHealth',z.string().min(1).max(200),model => onlineApi.modelHealth(model));
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await onlineApi.dashboard(input.query,input.force);
@@ -243,6 +266,8 @@ async function start() {
         const b = await window.lumi.bootstrap();
         let ipcValidation=false;try { await window.lumi.updatePreferences({theme:'invalid'}); } catch { ipcValidation=true; }
         let toolIpcValidation=false;try { await window.lumi.installTool('untrusted-command'); } catch { toolIpcValidation=true; }
+        const marketRejections=[];for(const operation of [()=>window.lumi.extensionMarket({force:'true'}),()=>window.lumi.installExtension({id:'../escape',revision:'invalid'}),()=>window.lumi.installExtension({id:'extension.unknown.package',revision:'1'.repeat(40)}),()=>window.lumi.removeExtension('../escape')]){try{await operation();marketRejections.push(false);}catch{marketRejections.push(true);}}
+        const marketIpcValid=marketRejections.every(Boolean);
         const pluginStatuses=await window.lumi.listPlugins();
         const catalogInput={siteId:b.preferences.activeSiteId,siteUrl:b.preferences.sites.find(site=>site.id===b.preferences.activeSiteId).url};
         const catalog=await window.lumi.readCatalog(catalogInput);
@@ -268,7 +293,7 @@ async function start() {
         const trayDisabled=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='surface.tray' && s.state==='disabled');
         await window.lumi.setPluginEnabled('surface.tray',true);
         let invalidCodex=false,noCodex=false;try{await window.lumi.readCodexUsage({path:'../auth.json'});}catch{invalidCodex=true;}try{await window.lumi.readCodexUsage({});}catch{noCodex=true;}
-        const pluginIpcValid=invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===4;
+        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===4;
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});
@@ -327,14 +352,19 @@ async function start() {
         // Hidden Chromium windows can commit the selection before updating stylesheet geometry.
         await until(()=>shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.sidebar').getBoundingClientRect().width<width,'enable layout');
         const saved=(await window.lumi.extensionInventory()).interfaceStyle?.id==='extension.lumi.compact';
-        const checks={saved,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
+        const rose=document.querySelector('[aria-label="强调色"] [role=radio]:last-child');rose.click();
+        await until(()=>shell.dataset.appearanceAccent==='rose' && [...document.querySelectorAll('.theme-preview iframe')].every(frame=>frame.srcdoc.includes('data-appearance-accent="rose"')),'appearance selection');
+        let appearanceSaved=false;for(let i=0;i<50;i++){appearanceSaved=(await window.lumi.bootstrap()).preferences.interfaceSelections['extension.lumi.compact']?.accent==='rose';if(appearanceSaved)break;await new Promise(r=>setTimeout(r,20));}
+        let invalidAppearance=false;try{await window.lumi.updatePreferences({interfaceSelection:{interfaceId:'extension.lumi.compact',values:{accent:'unknown'}}});}catch{invalidAppearance=true;}
+        const checks={saved,appearanceSaved,invalidAppearance,appearancePreviews:document.querySelectorAll('.theme-preview iframe').length===3,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
         document.querySelector('.extension-manager .button:last-child').click();
         await new Promise(r=>setTimeout(r,20));
         await until(()=>!document.querySelector('.extension-manager .button:last-child').disabled,'reload');
         const reloadRetained=shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===settings && input.value==='34.5';
         const noOverlay=!document.querySelector('.interface-recovery');Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面').click();
         await until(()=>shell.dataset.interface==='interface.default' && document.querySelector('.sidebar').getBoundingClientRect().width===width,'recover layout');
-        return {...checks,reloadRetained,noOverlay,defaultSelected:!(await window.lumi.extensionInventory()).interfaceStyle,defaultWidth:document.querySelector('.sidebar').getBoundingClientRect().width===width,recoveredSettings:document.querySelector('.settings-page')===settings,recoveredDraft:input.value==='34.5'};
+        let disabledAppearance=false;try{await window.lumi.updatePreferences({interfaceSelection:{interfaceId:'extension.lumi.compact',values:{accent:'blue'}}});}catch{disabledAppearance=true;}
+        return {...checks,reloadRetained,noOverlay,disabledAppearance,appearanceWithdrawn:!document.querySelector('[aria-label="强调色"]') && !shell.hasAttribute('data-appearance-accent'),defaultSelected:!(await window.lumi.extensionInventory()).interfaceStyle,defaultWidth:document.querySelector('.sidebar').getBoundingClientRect().width===width,recoveredSettings:document.querySelector('.settings-page')===settings,recoveredDraft:input.value==='34.5'};
       })()`);
       result.interfacePluginValid=Object.values(result.interfacePluginChecks).every(Boolean);
       await plugins.setEnabled('surface.widget',true);

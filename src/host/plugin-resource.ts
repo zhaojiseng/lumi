@@ -1,10 +1,13 @@
 import type {PluginStatus,PluginViewId} from '../../shared/contracts/plugins';
 import {validatePluginView} from '../../shared/plugin-preferences';
 import type {ExtensionInventory} from '../../shared/contracts/extensions';
+import type {ExtensionMarketInstall} from '../../shared/contracts/extension-market';
 
 export interface PluginManagementBridge {
   extensionInventory?():Promise<ExtensionInventory>;
   reloadExtensions?():Promise<ExtensionInventory>;
+  installExtension?(input:ExtensionMarketInstall):Promise<ExtensionInventory>;
+  removeExtension?(id:string):Promise<ExtensionInventory>;
   listPlugins():Promise<PluginStatus[]>;
   setPluginEnabled(id:string,enabled:boolean):Promise<PluginStatus[]>;
   setPluginView(id:string,view:PluginViewId,enabled:boolean):Promise<PluginStatus[]>;
@@ -30,6 +33,14 @@ export class PluginResource {
     try{const extensions=await this.bridge.reloadExtensions(),statuses=await this.bridge.listPlugins();if(version===this.version){this.registerExtensions?.(extensions);this.publish({...this.state,extensions,statuses,busyId:null});}}
     catch(error){if(version===this.version)this.publish({...this.state,busyId:null,error:error instanceof Error ? error.message : String(error)});throw error;}
   };
+  private async changePackage(id:string,action:()=>Promise<ExtensionInventory>){
+    if(this.state.busyId)throw new Error('插件状态正在更新，请稍后再试。');
+    const version=++this.version;this.publish({...this.state,busyId:'extensions:'+id,error:''});
+    try{const extensions=await action(),statuses=await this.bridge.listPlugins();if(version===this.version){this.registerExtensions?.(extensions);this.publish({...this.state,extensions,statuses,busyId:null});}}
+    catch(error){if(version===this.version)this.publish({...this.state,busyId:null,error:error instanceof Error ? error.message : String(error)});throw error;}
+  }
+  installExtension=async(input:ExtensionMarketInstall)=>{if(!this.bridge.installExtension)throw new Error('宿主不支持插件市场安装。');await this.changePackage(input.id,()=>this.bridge.installExtension!(input));};
+  removeExtension=async(id:string)=>{if(!this.bridge.removeExtension)throw new Error('宿主不支持插件卸载。');await this.changePackage(id,()=>this.bridge.removeExtension!(id));};
   setView=async(id:string,view:PluginViewId,enabled:boolean)=>{
     validatePluginView(id,view,this.state.statuses.map(status=>status.manifest));
     if(this.state.busyId)throw new Error('插件状态正在更新，请稍后再试。');

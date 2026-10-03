@@ -4,13 +4,13 @@ import type {MenuBarSelection,Page} from './types';
 export const TRAY_PANEL_WIDTH=396,TRAY_PANEL_MIN_HEIGHT=160,TRAY_PANEL_MAX_HEIGHT=648,TRAY_RESIZE_DURATION=230,TRAY_CLOSE_DURATION=150;
 export type TrayAction={type:'close'}|{type:'refresh'|'quit'}|{type:'navigate';page:Page}|{type:'select';selection:MenuBarSelection}
   |{type:'layout';height:number;reducedMotion:boolean}|{type:'closeComplete';id:number};
-export interface TrayPanelState {palette?:SurfacePalette;usage:NativeMenuBarState;theme:'light'|'dark';motion?:{id:number;phase:'hidden'|'visible'|'closing'};}
+export interface TrayPanelState {material?:'acrylic';palette?:SurfacePalette;usage:NativeMenuBarState;theme:'light'|'dark';motion?:{id:number;phase:'hidden'|'visible'|'closing'};}
 export interface TrayPanelBridge {snapshot():Promise<TrayPanelState>;action(event:TrayAction):Promise<void>;onState(listener:(state:TrayPanelState)=>void):()=>void;}
 
 type Rectangle={x:number;y:number;width:number;height:number};
 /** Intrinsic chrome + rows, independent of the current viewport and its scrolling/clipping. */
-export function trayPanelContentHeight(chromeHeight:number,sectionContentHeight=0){
-  return Math.min(TRAY_PANEL_MAX_HEIGHT,Math.max(TRAY_PANEL_MIN_HEIGHT,Math.ceil(chromeHeight+sectionContentHeight+8)));
+export function trayPanelContentHeight(chromeHeight:number,sectionContentHeight=0,topInset=8){
+  return Math.min(TRAY_PANEL_MAX_HEIGHT,Math.max(TRAY_PANEL_MIN_HEIGHT,Math.ceil(chromeHeight+sectionContentHeight+topInset)));
 }
 /** Keep the whole popup inside the selected display, including side/top taskbars. */
 export function trayPanelBounds(anchor:Rectangle,area:Rectangle,size={width:TRAY_PANEL_WIDTH,height:TRAY_PANEL_MAX_HEIGHT}){

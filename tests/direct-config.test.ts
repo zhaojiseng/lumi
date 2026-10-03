@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,mkdir,writeFile,readFile,access} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,readFile,access,copyFile} from 'node:fs/promises';
+import {spawnSync} from 'node:child_process';
+import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {parse} from 'smol-toml';
@@ -30,6 +32,28 @@ test('config application atomically migrates active and archived Lumi sessions a
  db=new DatabaseSync(dbPath);assert.deepEqual({...db.prepare('SELECT model_provider,model FROM threads WHERE id=?').get('one')},{model_provider:'custom',model:'new-model'});db.close();
  const [backup]=await f.service.backups();await f.service.restore(backup.id);for(let i=0;i<3;i++)assert.equal(await readFile(files[i],'utf8'),contents[i]);
  db=new DatabaseSync(dbPath);assert.equal(db.prepare('SELECT model_provider FROM threads WHERE id=?').get('one')?.model_provider,'lumi');db.close();
+});
+test('Codex configuration applies and restores while a Codex process is running',async()=>{
+ const f=await fixture(),file=path.join(f.dir,'sessions','running.jsonl'),content=rollout('running','lumi');await mkdir(path.dirname(file));await writeFile(file,content);
+ const executable=path.join(f.root,process.platform==='win32' ? 'codex.exe' : 'codex');await copyFile(process.execPath,executable);
+ // The isolated runner itself has the process name previously blocked by the idle check.
+ const script=`
+ import assert from 'node:assert/strict';
+ import os from 'node:os';
+ import {SettingsStore} from ${JSON.stringify(pathToFileURL(path.resolve('electron/services/store.ts')).href)};
+ import {ConfigService} from ${JSON.stringify(pathToFileURL(path.resolve('electron/services/config.ts')).href)};
+ const cipher={available:()=>true,encrypt:s=>Buffer.from(s).toString('base64'),decrypt:s=>Buffer.from(s,'base64').toString()};
+ assert.equal(os.homedir(),${JSON.stringify(f.home)});
+ const store=new SettingsStore(${JSON.stringify(path.join(f.root,'app'))},cipher);await store.load();
+ const service=new ConfigService(store,${JSON.stringify(path.join(f.root,'app'))},undefined,async()=>({siteId:store.activeSite().id,siteUrl:store.activeSite().url,key:'sk-only-fixture',tokenId:1,tokenName:'Lumi-test',group:'test',created:false}));
+ const preview=await service.preview(${JSON.stringify(req)});
+ assert.ok(preview.changes.some(text=>text.includes('无需退出或重启 ChatGPT / Codex')));
+ assert.ok(!preview.changes.some(text=>text.includes('请先关闭') || text.includes('重新打开')));
+ assert.equal((await service.apply(preview.id)).find(state=>state.tool==='codex').model,'new-model');
+ const [backup]=await service.backups();await service.restore(backup.id);
+ `;
+ const result=spawnSync(executable,['--import','tsx','--input-type=module','--eval',script],{cwd:process.cwd(),encoding:'utf8',windowsHide:true,timeout:30000,env:{...process.env,HOME:f.home,USERPROFILE:f.home,CODEX_HOME:f.dir,CODEX_SQLITE_HOME:f.dir,CLAUDE_CONFIG_DIR:path.join(f.home,'.claude'),LUMI_TEST_HOME:''}});
+ assert.equal(result.error,undefined);assert.equal(result.status,0,result.stderr);assert.equal(await readFile(file,'utf8'),content);await assert.rejects(access(path.join(f.dir,'config.toml')));
 });
 test('SQLite conflicts roll back configuration and history rather than overwrite concurrent updates',async()=>{
  const f=await fixture();await mkdir(path.join(f.dir,'sessions'));const file=path.join(f.dir,'sessions','one.jsonl'),content=rollout('one','lumi');await writeFile(file,content);

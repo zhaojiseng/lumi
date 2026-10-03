@@ -4,9 +4,11 @@ import {pathToFileURL} from 'node:url';
 import type {NativeMenuEvent} from './native-menu-bar';
 import {parseTrayAction,trayPanelBounds,trayPanelBoundsAt,trustedTrayUrl,TRAY_CLOSE_DURATION,TRAY_PANEL_WIDTH,TRAY_RESIZE_DURATION,type TrayPanelState} from '../../shared/tray';
 import {menuBarPanelHeight} from '../../shared/menu-bar';
+import {surfaceBackdrop} from './surface-backdrop';
 
 /** Separate sandbox/preload: the tray can access formatted statistics and an action allowlist. */
 export class TrayPanel {
+  private backdrop=surfaceBackdrop();
   private win?:BrowserWindow;private loading?:Promise<void>;private opening?:Promise<void>;private closed=false;private lastHidden=0;private visibility=0;
   private phase:'hidden'|'visible'|'closing'='hidden';private hideReason='';private anchor?:Electron.Rectangle;
   private layout?:{height:number;reducedMotion:boolean};private layoutReady?:Promise<void>;private resolveLayout?:()=>void;
@@ -32,13 +34,12 @@ export class TrayPanel {
     });
   }
   private url(){return this.options.devUrl ? new URL('tray.html',this.options.devUrl.endsWith('/') ? this.options.devUrl : this.options.devUrl+'/').href : pathToFileURL(path.join(this.options.root,'dist/tray.html')).href;}
-  private snapshot():TrayPanelState{return {...this.options.state(),motion:{id:this.visibility,phase:this.phase}};}
+  private snapshot():TrayPanelState{return {...this.options.state(),material:this.backdrop.backgroundMaterial==='acrylic' ? 'acrylic' : undefined,motion:{id:this.visibility,phase:this.phase}};}
   private trusted(event:Electron.IpcMainInvokeEvent){return !!this.win && !this.win.isDestroyed() && event.sender===this.win.webContents && event.senderFrame===event.sender.mainFrame && trustedTrayUrl(event.senderFrame?.url,this.url());}
   private async ensureWindow(){
     if(this.closed)throw new Error('Tray closed');if(this.loading)return this.loading;if(this.win && !this.win.isDestroyed())return;
     this.layout=undefined;this.layoutReady=new Promise(resolve=>{this.resolveLayout=resolve;});
-    // WS_THICKFRAME adds a second Windows show animation and an invisible native frame.
-    const win=new BrowserWindow({width:TRAY_PANEL_WIDTH,height:648,show:false,frame:false,thickFrame:false,hasShadow:false,transparent:true,backgroundColor:'#00000000',resizable:false,maximizable:false,minimizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,title:'Lumi · 用量',webPreferences:{preload:this.options.preload,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:false,backgroundThrottling:false}});this.win=win;
+    const win=new BrowserWindow({width:TRAY_PANEL_WIDTH,height:648,show:false,frame:false,hasShadow:false,...this.backdrop,resizable:false,maximizable:false,minimizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,title:'Lumi · 用量',webPreferences:{preload:this.options.preload,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:false,backgroundThrottling:false}});this.win=win;
     win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());
     win.webContents.session.setPermissionRequestHandler((_wc,_p,done)=>done(false));win.webContents.session.setPermissionCheckHandler(()=>false);
     win.on('blur',()=>this.hide('blur'));win.on('closed',()=>{if(this.win===win){this.cancelTimers();this.resolveLayout?.();this.win=undefined;this.phase='hidden';this.visibility++;}});

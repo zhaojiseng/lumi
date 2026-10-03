@@ -35,7 +35,15 @@ ID 格式为 `extension.<作者>.<名称>`，后两段各以小写字母开头�
 3. 点击“重新扫描”，检查诊断信息。
 4. 功能插件用滑块启用；界面插件在“界面插件”中选择。
 
-“重新扫描”就是已安装程序自带的包校验入口；不需要仓库检查脚本。格式不合法、缺入口/许可或重复 ID 时会显示诊断，修正后再扫描。目录包是目前的分发形式；如果收到 ZIP，先手动解压，再复制插件目录，没有 ZIP 自动安装或在线市场。
+“重新扫描”就是已安装程序自带的包校验入口；不需要仓库检查脚本。格式不合法、缺入口/许可或重复 ID 时会显示诊断，修正后再扫描。独立分发仍采用目录包；如果收到 ZIP，先手动解压，再复制插件目录。
+
+### 从插件市场安装
+
+设置 → 常规 → 插件 → 插件市场可浏览 [官方额外插件仓库](https://github.com/zhaojiseng/lumi-extensions)，搜索、筛选功能/界面插件并查看权限、许可和源码。点击安装或更新后，包写入额外插件目录并刷新插件管理，无需重启或重新加载设置页。新安装及更新的插件为停用状态；功能插件通过原有滑块启用，界面插件在“界面插件”中选择。
+
+市场读取官方仓库 `main` 中的 `plugins/<插件ID>/` 完整可运行目录包；每次目录读取固定提交 SHA，下载文件核对该提交的 Git blob 摘要、路径及大小，再运行宿主包校验。安装不需要 GitHub 登录或 Node.js。当前版本不接受自定义市场地址，也不直接安装任意 URL 或 ZIP；第三方作者可按官方仓库的贡献指南提交包。
+
+作者每次更新需要递增 `plugin.json` 的 `version`；市场按版本识别更新，不覆盖版本更高的本地包。更新保留 ID 对应的数据、加密凭据与显示选择，并要求重新启用新清单。市场可卸载用户额外插件目录中的包，保留保存的数据；随程序提供的只读包不能卸载，用户覆盖副本卸载后回到停用的随程序版本。手动复制目录的安装方式继续可用。
 
 可以直接在额外插件目录编辑文件，也可在自己的工作目录编辑后复制覆盖。每次修改后重新扫描并重新启用；不是修改后立即热更新。
 
@@ -195,7 +203,7 @@ SOFTWARE.
 | `networkOrigins` | 默认 `[]`；最多 20 个完整 HTTPS origin；有值时需 `network.read` |
 | `switches` | 默认 `[]`，最多 30 个自定义滑块 |
 | `contributions` | 默认 `[]`，最多 30 个；功能插件至少声明一个 |
-| `interface` | 界面插件必填 `{ "stylesheet": "interface.css" }`；功能插件不能声明 |
+| `interface` | 界面插件必填 `stylesheet`，可声明 `preview` 与 `appearanceGroups`（见第 7 节）；功能插件不能声明 |
 
 ### 自定义开关
 
@@ -448,6 +456,7 @@ flowchart LR
 extension.author.layout/
   plugin.json
   interface.css
+  preview.html
   LICENSE
 ```
 
@@ -464,11 +473,20 @@ extension.author.layout/
   "description": "调整侧栏宽度、间距和强调色。",
   "author": "Author",
   "license": "MIT",
-  "interface": {"stylesheet": "interface.css"}
+  "interface": {
+    "stylesheet": "interface.css",
+    "preview": "preview.html",
+    "appearanceGroups": [{
+      "id": "accent",
+      "title": "强调色",
+      "defaultOption": "blue",
+      "options": [{"id": "blue", "title": "蓝色"}, {"id": "rose", "title": "玫红"}]
+    }]
+  }
 }
 ```
 
-界面包不能声明非空 permissions、networkOrigins、switches 或 contributions，无需 HTML 或 SDK。清单的 stylesheet 必须指向包内 `.css` 文件。
+界面包不能声明非空 permissions、networkOrigins、switches 或 contributions，无需脚本或 SDK。清单的 stylesheet 必须指向包内 `.css` 文件。`preview` 和 `appearanceGroups` 是可选新增接口；原有仅声明 stylesheet 的包仍可直接加载。旧版本程序不识别新增字段，请使用支持外观预览和外观组的新版程序。
 
 ### interface.css
 
@@ -479,6 +497,12 @@ extension.author.layout/
   --accent: #3561b7;
   --accent-soft: rgba(53, 97, 183, .11);
   --accent-hover: #284d98;
+}
+:scope[data-appearance-accent="rose"] {
+  --accent: light-dark(#b53e71, #ffb1d1);
+  --accent-soft: light-dark(rgba(181, 62, 113, .11), rgba(255, 177, 209, .15));
+  --accent-hover: light-dark(#96305c, #ffd1e4);
+  --accent-foreground: light-dark(#fff, #4a152c);
 }
 :scope > .sidebar { border-radius: 12px; padding: 20px 14px; }
 :scope > .titlebar { padding-left: 210px; }
@@ -492,6 +516,26 @@ extension.author.layout/
 ```
 
 宿主包装为 `@scope (.desktop-shell[data-interface="<插件ID>"])`。`:scope` 指向外壳，不能用 `:root`、html 或 body 改全局文档。功能 iframe 的内容有独立样式，主窗口 CSS 不会进入其中。
+
+### preview.html：实时预览模板
+
+外观缩略图由宿主将当前插件 CSS、浅/深模式和外观组选择应用到独立预览文档生成。没有 `preview` 时自动使用系统示例布局，缩略图也会跟随当前插件配色和布局；不再显示固定绿色图片。“跟随系统”缩略图显示当前系统实际模式。
+
+声明 `preview` 时，将下面的完整静态片段保存为包内 `preview.html`。宿主在片段外提供 `.desktop-shell`、`data-interface`、`data-theme`、平台类和 `data-appearance-<组ID>`，不要再创建外层 desktop-shell。片段通过与实际窗口相同的主题 CSS 渲染，无需手工生成 PNG。
+
+```html
+<header class="titlebar"><div class="titlebar-brand"><strong>Lumi</strong></div><div class="breadcrumb">工作台</div></header>
+<aside class="sidebar surface"><div class="brand-row"><strong>Lumi</strong></div><nav><div class="nav-item active">工作台</div><div class="nav-item">用量分析</div></nav></aside>
+<main class="main-area"><div class="content-container"><div class="page-intro"><h1>我的工作台</h1></div><section class="surface panel"><div class="stat-top">余额</div><strong class="stat-number">$ 28.60</strong></section></div></main>
+```
+
+模板最多 32 KiB / 500 个元素，只接受 `div`、`span`、`strong`、`b`、`em`、`p`、`h1/h2/h3`、`header`、`aside`、`main`、`nav`、`section`、`article`、`ul/ol/li`、`i`、`hr`、`br`，以及 `class`、`aria-label`、`aria-hidden` 属性。样式写在 interface.css 中。预览没有脚本、网络、SDK、表单和主窗口权限；非法模板回退到自动预览，显示提示，不影响主界面。文件缺失或超限则扫描不通过。
+
+### 外观组：配色、密度等主题选项
+
+插件可以声明最多 8 个外观组，每组 2–12 个选项。`id` 和选项 ID 以小写字母开头，后续只允许小写字母、数字、短横线，总长最多 40；组 ID 和组内选项 ID 各自唯一，不能用 constructor/prototype，`defaultOption` 必须引用组内选项。标题最多 80 字符。系统颜色模式仍使用浅色、深色和跟随系统；配色、间距、布局变体等额外选项使用外观组。
+
+上例在外观区新增“强调色”组。选择玫红后，宿主设置 `data-appearance-accent="rose"`，上面的 CSS 立即生效，预览、曲线、浮窗和托盘同步配色。其它组同样通过 `:scope[data-appearance-<组ID>="<选项ID>"]` 使用。选择按插件 ID 保存，重启或切换回该插件时恢复；插件停用后撤回选项且保留已保存选择，选项被新版包删除时采用该组默认值。修改外观不会重建设置页、清空草稿或滚动位置。
 
 | 区域 | 选择器 / 变量 |
 | --- | --- |
@@ -547,7 +591,7 @@ Lumi 0.5.1 起，工作台和用量分析曲线、模型分布及图例的首个
 
 一次启用一个额外界面；选择新的包会原子停用旧包，选择默认界面会停用当前包。切换/扫描仅改样式，保留设置和功能页节点、草稿、焦点及滚动。缺包或文件变化回到默认；非法 CSS 保留默认布局，在设置的“界面插件”中提示错误。恢复时选择设置中的“默认界面”。
 
-本节清单、CSS 和第 3 节 LICENSE 即为完整可运行包。安装后选中“我的紧凑界面”，侧栏应变窄、强调色变蓝；在设置中选择“默认界面”后还原。不需要额外 JS、HTML、内置界面源码或仓库样例。
+本节清单、CSS、preview.html 和第 3 节 LICENSE 即为完整可运行包。安装后选中“我的紧凑界面”，侧栏应变窄、外观预览随主题变化，并可选择蓝色/玫红；在设置中选择“默认界面”后还原。不需要内置界面源码或仓库样例。
 
 ## 8. 文件限制与独立构建
 
@@ -652,7 +696,7 @@ export interface ExtensionManifest {
   permissions?:ExtensionPermission[];networkOrigins?:string[];
   switches?:{id:string;title:string;defaultEnabled?:boolean}[];
   contributions?:{id:string;slot:ExtensionSlot;title:string;entry:string;order?:number;scope?:'site'|'independent';switch?:string;section?:'workspace'|'tools'|'settings'}[];
-  interface?:{stylesheet:string};
+  interface?:{stylesheet:string;preview?:string;appearanceGroups?:{id:string;title:string;defaultOption:string;options:{id:string;title:string}[]}[]};
 }
 /** Formatted presentation data, not an account/consumption-log API. */
 export interface NativeMenuBarState {

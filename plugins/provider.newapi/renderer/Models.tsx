@@ -1,3 +1,4 @@
+import {ModalPresence} from '../../../src/components/ModalPresence';
 import {MotionSwap} from '../../../src/components/MotionSwap';
 import {useMemo,useState,useRef,useEffect,useLayoutEffect} from 'react';
 import {Search,Star,ArrowUpRight,SlidersHorizontal,Info,Repeat2,Bell,Check,History} from 'lucide-react';
@@ -42,7 +43,7 @@ function CatalogChanges({state,persisted,catalogReady,onRead}:{state:CatalogChan
       <div className="catalog-monitor-copy"><strong aria-live="polite">{pending ? `发现 ${pending} 项目录变动` : '本地变动监控'}</strong><span>{!catalogReady ? '等待有效目录，保留上次基线与变动记录' : !state ? '等待完整目录，首次读取仅建立基线' : pending ? `${unread.length} 次更新未读 · 模型增删与计价规则变动` : events.length ? '变动已读，将继续比较后续目录' : '已建立基线，后续模型增删与计价规则变动会在这里提示'}{!persisted && ' · 本地存储不可用，仅本次打开有效'}</span></div>
       <div className="catalog-monitor-actions"><Button variant="ghost" disabled={!events.length} onClick={()=>setOpen(true)}><History size={14}/>查看明细{events.length>0 && <span>{events.length}</span>}</Button>{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部已读</Button>}</div>
     </section>
-    {open && <Modal className="catalog-changes-modal" title="模型目录变动" subtitle="仅在本机保存有限的公共计价规则和价格变动，保留最近 20 次变动。" onClose={()=>setOpen(false)}>
+    <ModalPresence>{open && <Modal className="catalog-changes-modal" title="模型目录变动" subtitle="仅在本机保存有限的公共计价规则和价格变动，保留最近 20 次变动。" onClose={()=>setOpen(false)}>
       <p className="catalog-change-price-note">单价为模型基础价，未乘渠道倍率；渠道倍率单独比较。</p>
       <div className="catalog-change-history">{events.map(event=><section className="catalog-change-event" key={event.id}>
         <div className="catalog-change-event-heading"><time dateTime={new Date(event.detectedAt).toISOString()}>{new Date(event.detectedAt).toLocaleString('zh-CN',{hour12:false})}</time><Pill tone={event.read ? 'muted' : 'orange'}>{event.read ? '已读' : '未读'}</Pill>{!event.read && <button className="text-link" onClick={()=>onRead([event.id])}>标为已读</button>}</div>
@@ -57,7 +58,7 @@ function CatalogChanges({state,persisted,catalogReady,onRead}:{state:CatalogChan
         </li>)}</ul>
       </section>)}</div>
       <div className="modal-actions">{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部标为已读</Button>}<Button onClick={()=>setOpen(false)}>关闭</Button></div>
-    </Modal>}
+    </Modal>}</ModalPresence>
   </>;
 }
 
@@ -149,6 +150,6 @@ export default function Models(){
     <div className="vendor-tabs"><button className={vendor==='all' ? 'active' : ''} onClick={()=>setVendor('all')}>全部模型<span>{d.catalog.models.length}</span></button>{vendors.map(v=><button key={v} className={vendor===v ? 'active' : ''} onClick={()=>setVendor(v)}>{v}<span>{d.catalog.models.filter(m=>m.vendor===v).length}</span></button>)}<span className="results-label">{models.length} 个结果</span></div>
     <MotionSwap identity={JSON.stringify([vendor,group,favoritesOnly,query,models.map(m=>m.model_name)])}>{models.length ? <ModelGrid models={models} snapshot={d} filterGroup={group} onDetails={setPricingModel}/> : <Empty title="没有找到模型" description="尝试调整关键词、提供商或渠道。" action={<Button onClick={reset}>重置筛选</Button>}/>}</MotionSwap>
     <div className="info-note"><Info size={15}/><span>首次显示最低价渠道；手动选择后，价格与工具配置沿用所选渠道并自动保存。卡片档位按钮切换站点公布的上下文档位，单价包含当前时间倍率，时间规则以橙色显示。分时倍率随时钟变化不会产生目录变动提示。健康度为最近 24 小时全部渠道统计，渠道健康度见详细定价。</span></div>
-    {pricingModel && <PricingDetailsModal key={pricingModel.model_name} snapshot={d} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}
+    <ModalPresence>{pricingModel && <PricingDetailsModal key={pricingModel.model_name} snapshot={d} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}</ModalPresence>
   </div>;
 }

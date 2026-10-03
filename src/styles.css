@@ -282,7 +282,7 @@ h1,h2,h3,h4 {
   align-items: flex-end;
   flex-shrink: 0;
   gap: 9px;
-  margin: 21px 5px 12px;
+  margin: 21px 0 12px;
 }
 
 .site-icon {
@@ -2282,72 +2282,12 @@ h1,h2,h3,h4 {
 }
 
 .theme-preview {
-  height: 77px;
-  border-radius: 7px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  aspect-ratio: 8 / 5;
+  border-radius: 4px;
   position: relative;
   border: 1px solid var(--border);
   overflow: hidden;
-  background: #eef3f0;
-}
-
-.theme-preview:before {
-  content: '';
-  position: absolute;
-  width: 24%;
-  height: 60px;
-  left: 5px;
-  top: 8px;
-  background: #eef3f0;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-
-.theme-preview span {
-  display: block;
-  height: 21px;
-  width: 60%;
-  margin-left: auto;
-  background: #eef3f0;
-  border-radius: 4px;
-}
-
-.theme-preview i {
-  display: block;
-  height: 6px;
-  width: 29%;
-  background: #eef3f0;
-  margin: 0 2px 0 auto;
-  border-radius: 3px;
-}
-
-.theme-preview.dark {
-  background: #25322d;
-  border-color: var(--border);
-}
-
-.theme-preview.dark:before {
-  background: #25322d;
-  border-color: var(--border);
-}
-
-.theme-preview.dark span {
-  background: #25322d;
-}
-
-.theme-preview.dark i {
-  background: #25322d;
-}
-
-.theme-preview.system {
-  background: #eef3f0;
-}
-
-.theme-preview.system span {
-  background: #eef3f0;
+  background: var(--canvas);
 }
 
 .theme-options button>span {
