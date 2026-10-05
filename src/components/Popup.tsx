@@ -52,7 +52,7 @@ export function PopupLayer({kind='dialog',label,children,onClose,open=true,class
     const timer=setTimeout(complete,exitMs);return()=>clearTimeout(timer);
   },[open,parent.active,revoked,controlledExit,complete,exitMs]);
   useLayoutEffect(()=>{
-    if(displayed && exiting && !layer.current?.getAnimations().length)complete();
+    if(displayed && exiting && !layer.current?.getAnimations({subtree:true}).length)complete();
   },[displayed,exiting,complete]);
   useLayoutEffect(()=>{
     if(!active || !panel.current || !layer.current)return;
