@@ -24,7 +24,7 @@ const SettingsPage = lazy(() => import('./pages/Settings'));
 const legacyNav:readonly NavigationItem[] = [
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手',section:'settings' },
 ];
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.5.6', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.5.7', configs: [], secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }

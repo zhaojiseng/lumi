@@ -18,13 +18,17 @@
 .motion-frame{min-width:0}.motion-panel{min-width:0}.motion-panel.leaving{animation:panel-out .11s ease-in forwards;pointer-events:none}.motion-panel.entering{animation:panel-in .2s ease-out}.usage-tab-content>.motion-panel{display:flex;flex-direction:column;gap:18px}.motion-panel:has(>.page){display:block}
 @keyframes panel-out{to{opacity:.3;transform:translateY(-3px)}}@keyframes panel-in{from{opacity:.3;transform:translateY(5px)}to{opacity:1;transform:none}}
 @keyframes picker-open{from{opacity:0;transform:translateY(-4px) scale(.98)}to{opacity:1;transform:none}}@keyframes picker-close{to{opacity:0;transform:translateY(-3px) scale(.98)}}
-.modal-overlay{animation:modal-backdrop-in .16s ease-out}
-.modal-overlay>.modal{animation:modal-dialog-in .18s cubic-bezier(.2,.8,.2,1)}
-.modal-overlay[data-modal-phase="exiting"]{animation:modal-backdrop-out .16s ease-in forwards;pointer-events:none}
-.modal-overlay[data-modal-phase="exiting"]>.modal{animation:modal-dialog-out .16s ease-in forwards}
+:root{--modal-enter-duration:180ms;--modal-exit-duration:160ms;--modal-enter-easing:cubic-bezier(.2,.8,.2,1);--modal-exit-easing:ease-in}
+.modal-overlay{animation:modal-backdrop-in var(--modal-enter-duration) var(--modal-enter-easing)}
+.modal-overlay>.modal{animation:modal-dialog-in var(--modal-enter-duration) var(--modal-enter-easing)}
+.modal-overlay[data-modal-phase="exiting"]{animation:modal-backdrop-out var(--modal-exit-duration) var(--modal-exit-easing) forwards;pointer-events:none}
+.modal-overlay[data-modal-phase="exiting"]>.modal{animation:modal-dialog-out var(--modal-exit-duration) var(--modal-exit-easing) forwards}
 @keyframes modal-backdrop-in{from{opacity:0}to{opacity:1}}@keyframes modal-backdrop-out{to{opacity:0}}
 @keyframes modal-dialog-in{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
 @keyframes modal-dialog-out{to{opacity:0;transform:translateY(4px) scale(.985)}}
+/* Interface packages reference host-owned keyframes without defining global rules. */
+@keyframes modal-backdrop-filter-in{from{backdrop-filter:blur(0px)}to{backdrop-filter:var(--modal-backdrop-filter,blur(0px))}}
+@keyframes modal-backdrop-filter-out{from{backdrop-filter:var(--modal-backdrop-filter,blur(0px))}to{backdrop-filter:blur(0px)}}
 @media(prefers-reduced-motion:reduce){.modal-overlay,.modal-overlay>.modal{animation:none!important}}
 .segmented button,.page-tabs button,.vendor-tabs button,.metric-tabs button,.model-card{transition:background .18s ease,color .18s ease,border-color .18s ease,box-shadow .18s ease}
 .request-log-table,.table-scroll,.stat-number{transition:opacity .18s ease}.table-loading{opacity:.7}
