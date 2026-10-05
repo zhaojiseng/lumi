@@ -1,8 +1,9 @@
-import {logMetrics,requestStatus} from './logs';
+import {logMetrics,requestStatus,requestTiming} from './logs';
 import type {UsageLog,UsageQuality} from './types';
 
 export function summarizeQuality(logs:UsageLog[],window:{start_timestamp:number;end_timestamp:number},fetchedAt=Date.now()):UsageQuality {
   let requestCount=0,cacheSamples=0,speedSamples=0,inputTokens=0,cacheReadTokens=0,outputTokens=0,durationSeconds=0;
+  let netSpeedSamples=0,netOutputTokens=0,subsequentDurationSeconds=0;
   for(const log of logs){
     if(log.type!==2 || !Number.isFinite(log.created_at) || log.created_at<window.start_timestamp || log.created_at>window.end_timestamp || requestStatus(log).isError)continue;
     requestCount++;
@@ -11,6 +12,7 @@ export function summarizeQuality(logs:UsageLog[],window:{start_timestamp:number;
       cacheSamples++;inputTokens+=log.prompt_tokens;cacheReadTokens+=metrics.cacheRead;
     }
     if(metrics.speed!==null){speedSamples++;outputTokens+=log.completion_tokens;durationSeconds+=log.use_time;}
+    if(metrics.netSpeed!==null){netSpeedSamples++;netOutputTokens+=log.completion_tokens;subsequentDurationSeconds+=requestTiming(log).subsequentMs!/1000;}
   }
-  return {requestCount,cacheSamples,speedSamples,inputTokens,cacheReadTokens,outputTokens,durationSeconds,cacheHitRate:inputTokens>0 ? cacheReadTokens/inputTokens : null,averageTokenSpeed:durationSeconds>0 ? outputTokens/durationSeconds : null,fetchedAt};
+  return {requestCount,cacheSamples,speedSamples,inputTokens,cacheReadTokens,outputTokens,durationSeconds,netSpeedSamples,netOutputTokens,subsequentDurationSeconds,cacheHitRate:inputTokens>0 ? cacheReadTokens/inputTokens : null,averageTokenSpeed:durationSeconds>0 ? outputTokens/durationSeconds : null,averageNetTokenSpeed:subsequentDurationSeconds>0 ? netOutputTokens/subsequentDurationSeconds : null,fetchedAt};
 }

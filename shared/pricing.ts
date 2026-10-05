@@ -58,7 +58,7 @@ export function compilePrice(expression: string) { const parser=new Parser(lex(e
 export function isExpression(model: ModelInfo) { return !!model.billing_expr?.trim() && model.billing_mode !== 'ratio'; }
 export const TOKEN_FIELDS = [{key:'p',label:'普通输入'},{key:'c',label:'输出'},{key:'cr',label:'缓存读取'},{key:'cc',label:'缓存写入'},{key:'cc1h',label:'缓存写入 · 1h'},{key:'img',label:'图片输入'},{key:'img_cr',label:'图片缓存读取'},{key:'img_o',label:'图片输出'},{key:'ai',label:'音频输入'},{key:'ao',label:'音频输出'}];
 export interface PriceRow { key:string; label:string; usd:number; unit:string; }
-export interface TimeRate { condition:string; multiplier?:number; current?:boolean; }
+export interface TimeRate { condition:string; identity?:string; multiplier?:number; current?:boolean; }
 export interface PublishedPriceSection { label:string; condition:string; rows:PriceRow[]; current?:boolean; selectionCondition?:string; timeRates?:TimeRate[]; }
 export function legacyPrices(model:ModelInfo,status:SiteStatus):PriceRow[] {
   if(model.quota_type===1)return [{key:'request',label:'每次调用',usd:model.model_price,unit:'次'}];
@@ -163,7 +163,7 @@ function priceBranches(node:Node,now:Date):PriceBranch[] {
       const mark=(b:PriceBranch,yes:boolean):PriceBranch=>{
         const label=yes ? condition : '非 '+condition;
         const factor=literal(yes ? n.yes : n.no);
-        return {...b,...(active===null ? {} : {current:b.current===false ? false : yes ? active : !active}),conditions:[label,...b.conditions],selectionConditions:clock ? b.selectionConditions : [label,...b.selectionConditions],timeRates:clock ? [{condition:yes ? clockDescription(n.cond) : '其余时段',...(factor===null ? {} : {multiplier:factor}),...(active===null ? {} : {current:yes ? active : !active})},...b.timeRates] : b.timeRates};
+        return {...b,...(active===null ? {} : {current:b.current===false ? false : yes ? active : !active}),conditions:[label,...b.conditions],selectionConditions:clock ? b.selectionConditions : [label,...b.selectionConditions],timeRates:clock ? [{condition:yes ? clockDescription(n.cond) : '其余时段',identity:label,...(factor===null ? {} : {multiplier:factor}),...(active===null ? {} : {current:yes ? active : !active})},...b.timeRates] : b.timeRates};
       };
       return [...expand(n.yes).map(b=>mark(b,true)),...expand(n.no).map(b=>mark(b,false))];
     }

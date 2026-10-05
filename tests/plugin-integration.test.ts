@@ -18,9 +18,10 @@ function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>
 const request=(store:SettingsStore)=>({siteId:store.activeSite().id,siteUrl:store.activeSite().url});
 function snapshot(store:SettingsStore):CatalogSnapshot{return {...request(store),loggedIn:false,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},status:{system_name:'Fixture',quota_per_unit:1},warnings:[],fetchedAt:1};}
 
-test('four product plugins own declared settings and extensible custom switches',()=>{
-  assert.deepEqual(settingsGroups().map(g=>[g.title,g.views.map(v=>v.title)]),[['NewAPI',['工作台','用量分析','模型广场','API令牌']],['Codex',['工作台']],['浮窗',[]],['托盘',[]]]);
-  assert.deepEqual(builtinManifests.filter(m=>m.configurable).map(m=>m.id),['provider.newapi','provider.codex','surface.widget','surface.tray']);
+test('product and tool plugins own declared settings and extensible custom switches',()=>{
+  assert.deepEqual(settingsGroups().map(g=>[g.title,g.views.map(v=>v.title)]),[['NewAPI',['工作台','用量分析','模型广场','API令牌']],['Codex',['工作台']],['浮窗',[]],['托盘',[]],['Codex 工具配置',[]],['Claude Code 工具配置',[]]]);
+  assert.deepEqual(builtinManifests.filter(m=>m.configurable).map(m=>m.id),['provider.newapi','provider.codex','surface.widget','surface.tray','adapter.tool.codex','adapter.tool.claude']);
+  assert.deepEqual(settingsGroups().filter(group=>group.group==='tools').map(group=>group.id),['adapter.tool.codex','adapter.tool.claude']);
   const custom={...builtinManifests[0],id:'provider.custom',settings:{title:'Custom',description:'',order:50,views:[{id:'history',title:'History',defaultEnabled:false}]}};
   validatePluginView('provider.custom','history',[custom]);assert.throws(()=>validatePluginView('provider.custom','tokens',[custom]));
   assert.deepEqual(normalizePluginViews({'provider.custom':{history:true,tokens:false}},{},[custom]),{'provider.custom':{history:true}});
@@ -115,10 +116,51 @@ test('catalog remains narrow; renderer and restricted preloads preserve privileg
   for(const file of ['electron/widget-preload.ts','electron/tray-preload.ts'])assert.doesNotMatch(await readFile(file,'utf8'),/readCatalog|readCodexUsage|setPluginEnabled|setPluginView|listPlugins/);
   const main=await readFile('electron/main.ts','utf8');for(const op of ['readCatalog','readCodexUsage','listPlugins','setPluginEnabled','setPluginView'])assert.ok(main.includes(`handle('${op}',`));
 });
-test('all four products can stay disabled across restart with shared systems and adapters available',async t=>{
+test('all product and tool plugins can stay disabled across restart with shared systems available',async t=>{
   const {root,store}=await fixture(t),host=await createBuiltinPlugins(store,{localHome:root});t.after(()=>host.dispose());for(const m of builtinManifests.filter(m=>m.configurable))await host.setEnabled(m.id,false);
   const restored=new SettingsStore(root,cipher);await restored.load();const next=await createBuiltinPlugins(restored,{localHome:root});t.after(()=>next.dispose());for(const s of next.list())assert.equal(s.state,s.manifest.configurable ? 'disabled' : 'active',s.manifest.id);
-  for(const id of ['feature.workbench','feature.usage','feature.models','feature.tokens','feature.tool-config','adapter.tool.codex','theme.default'])await assert.rejects(next.setEnabled(id,false),/不能切换/);
+  for(const id of ['feature.workbench','feature.usage','feature.models','feature.tokens','feature.tool-config','theme.default'])await assert.rejects(next.setEnabled(id,false),/不能切换/);
   const input={request:{tool:'codex' as const,model:'fixture',group:'default'},config:null,auth:'{"tokens":{}}',baseUrl:'https://fixture.invalid',key:'fake-key',configDir:path.join(root,'.codex')};
+  assert.throws(()=>next.require('adapter.tool.codex','toolConfig.build'),/未启用/);assert.throws(()=>next.require('adapter.tool.claude','toolConfig.build'),/未启用/);
+  await next.setEnabled('adapter.tool.codex',true);await next.setEnabled('adapter.tool.claude',true);
   assert.match(next.require('adapter.tool.codex','toolConfig.build').build(input).config,/model_provider = "custom"/);assert.equal(JSON.parse(next.require('adapter.tool.claude','toolConfig.build').build({...input,request:{...input.request,tool:'claude'}}).config).env.ANTHROPIC_MODEL,'fixture');
+});
+
+test('tool plugins toggle and reload independently without stopping the shared tool page',async t=>{
+  const {root,store}=await fixture(t),host=await createBuiltinPlugins(store,{localHome:root});t.after(()=>host.dispose());
+  const old=host.require('adapter.tool.codex','toolConfig.build');
+  await host.setEnabled('adapter.tool.codex',false);
+  assert.equal(host.isEnabled('feature.tool-config'),true);assert.equal(host.isEnabled('adapter.tool.claude'),true);
+  assert.throws(()=>old.build({request:{tool:'codex',model:'fixture',group:'default'},config:null,auth:null,baseUrl:'https://fixture.invalid',key:'fake-key',configDir:root}),/active/i);
+  const restored=new SettingsStore(root,cipher);await restored.load();const next=await createBuiltinPlugins(restored,{localHome:root});t.after(()=>next.dispose());
+  assert.equal(next.isEnabled('adapter.tool.codex'),false);assert.equal(next.isEnabled('adapter.tool.claude'),true);assert.equal(next.isEnabled('feature.tool-config'),true);
+  await next.setEnabled('adapter.tool.codex',true);await next.setEnabled('adapter.tool.claude',false);
+  assert.equal(next.isEnabled('adapter.tool.codex'),true);assert.equal(next.isEnabled('feature.tool-config'),true);
+});
+
+test('tool disable invalidates only its previews and rejects restore until re-enabled, preserving files and backups',async t=>{
+  const {root,store}=await fixture(t),site=store.activeSite();let config:ConfigService;
+  const host=await createBuiltinPlugins(store,{localHome:root,beforeDisable:id=>{if(id==='adapter.tool.codex')config.invalidatePreviews('codex');if(id==='adapter.tool.claude')config.invalidatePreviews('claude');}});t.after(()=>host.dispose());
+  config=new ConfigService(store,root,root,async request=>({key:'fake-'+request.tool,tokenName:'fixture-'+request.tool,tokenId:request.tool==='codex' ? 1 : 2,group:'default',created:false,siteId:site.id,siteUrl:site.url}),tool=>host.require('adapter.tool.'+tool,'toolConfig.build'));
+  const codex=await config.preview({tool:'codex',model:'fixture',group:'default'}),claude=await config.preview({tool:'claude',model:'fixture',group:'default'});
+  await host.setEnabled('adapter.tool.codex',false);await assert.rejects(config.apply(codex.id),/预览.*过期|重新预览/);
+  await config.apply(claude.id);const file=path.join(root,'.claude','settings.json'),content=await readFile(file,'utf8'),backups=await config.backups();
+  assert.equal(backups.length,1);assert.equal(JSON.parse(content).env.ANTHROPIC_MODEL,'fixture');
+  await host.setEnabled('adapter.tool.claude',false);
+  await assert.rejects(config.preview({tool:'claude',model:'fixture',group:'default'}),/未启用/);
+  await assert.rejects(config.restore(backups[0].id),/未启用/);
+  assert.equal(await readFile(file,'utf8'),content);assert.deepEqual(await config.backups(),backups);
+  await host.setEnabled('adapter.tool.claude',true);await config.restore(backups[0].id);
+  await assert.rejects(readFile(file),error=>error instanceof Error && 'code' in error && error.code==='ENOENT');
+});
+
+test('an actual pending tool preview locks only its plugin until provisioning settles',async t=>{
+  const {root,store}=await fixture(t),site=store.activeSite(),waiting=deferred<void>(),started=deferred<void>();let config:ConfigService;
+  const host=await createBuiltinPlugins(store,{localHome:root,beforeDisable:id=>{if(id.startsWith('adapter.tool.'))config.invalidatePreviews(id.endsWith('codex') ? 'codex' : 'claude');}});t.after(()=>host.dispose());
+  config=new ConfigService(store,root,root,async()=>{started.resolve();await waiting.promise;return {key:'fake-key',tokenName:'fixture',tokenId:1,group:'default',created:false,siteId:site.id,siteUrl:site.url};},tool=>host.require('adapter.tool.'+tool,'toolConfig.build'));
+  const preview=host.runFeature('adapter.tool.claude',()=>host.runFeature('provider.newapi',()=>config.preview({tool:'claude',model:'fixture',group:'default'})));
+  await started.promise;await assert.rejects(host.setEnabled('adapter.tool.claude',false),/正在执行/);
+  await host.setEnabled('adapter.tool.codex',false);assert.equal(host.isEnabled('adapter.tool.claude'),true);
+  waiting.resolve();const prepared=await preview;await host.setEnabled('adapter.tool.claude',false);
+  await assert.rejects(config.apply(prepared.id),/预览.*过期|重新预览/);assert.deepEqual(await config.backups(),[]);
 });

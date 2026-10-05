@@ -6,7 +6,7 @@ import {
   readCatalogChanges,subscribeCatalogChanges,writeCatalogChanges,type CatalogChange,type CatalogChangeStorage,
 } from '../shared/catalog-changes';
 import {pricingChoices} from '../shared/pricing';
-import {publicModelPricing} from '../shared/catalog-change-details';
+import {publicModelPricing,catalogPriceDisplay,publicCatalogPricing,readCatalogChangePricing,catalogTierPrice} from '../shared/catalog-change-details';
 import type {ModelCatalog,ModelInfo,SiteStatus} from '../shared/types';
 
 const status:SiteStatus={system_name:'Fixture',quota_per_unit:500000};
@@ -16,7 +16,7 @@ function catalog(models:ModelInfo[]=[model]):ModelCatalog {
   return {models,groupRatio:{standard:1,premium:.5},usableGroups:{standard:'标准',premium:'优选'},autoGroups:['standard','premium'],vendors:[]};
 }
 function snapshot(models:ModelInfo[]=[model]) {return createCatalogSnapshot(catalog(models),status);}
-function summary(changes:CatalogChange[]) {return changes.map(({details,detailsHash,...change})=>change);}
+function summary(changes:CatalogChange[]) {return changes.map(({details,detailsHash,pricing,pricingHash,...change})=>change);}
 class MemoryStorage implements CatalogChangeStorage {
   values=new Map<string,string>();writes=0;failRead=false;failWrite=false;
   getItem(key:string):string|null {if(this.failRead)throw new Error('Denied');return this.values.get(key) ?? null;}
@@ -36,10 +36,10 @@ test('first observation establishes a quiet baseline, and the same rules never p
 test('model additions, removals and a valid empty catalog yield concise named changes',()=>{
   const before=snapshot([model,{...model,model_name:'model-2'}]);
   const after=snapshot([{...model,model_name:'model-3'},model]);
-  assert.deepEqual(diffCatalogSnapshots(before,after),[
+  assert.deepEqual(summary(diffCatalogSnapshots(before,after)),[
     {kind:'added',modelName:'model-3',fields:[]},{kind:'removed',modelName:'model-2',fields:[]},
   ]);
-  assert.deepEqual(diffCatalogSnapshots(snapshot(),snapshot([])),[{kind:'removed',modelName:'model-1',fields:[]}]);
+  assert.deepEqual(summary(diffCatalogSnapshots(snapshot(),snapshot([]))),[{kind:'removed',modelName:'model-1',fields:[]}]);
 });
 
 test('all published calculation, quota and ratio fields are compared, including plugin and schema rules',()=>{
@@ -109,7 +109,7 @@ test('failed catalog requests preserve the baseline; a recovered or valid empty 
   assert.equal(storage.writes,1);
   assert.equal(observeCatalogChanges(site,catalog(),status,{storage,warnings:['健康度暂不可用']}).pendingCount,0);
   const emptied=observeCatalogChanges(site,catalog([]),status,{storage});
-  assert.deepEqual(emptied.state?.events[0].changes,[{kind:'removed',modelName:model.model_name,fields:[]}]);
+  assert.deepEqual(summary(emptied.state!.events[0].changes),[{kind:'removed',modelName:model.model_name,fields:[]}]);
 });
 
 test('site ID and URL isolate records, read status survives reload and refresh does not recreate it',()=>{
@@ -366,4 +366,201 @@ test('gpt-6-luna p*.1 to p*.15 and cr*.02 to cr*.03 retain readable prices witho
   const state=advanceCatalogChanges(advanceCatalogChanges(null,snapshot([old]),1000),snapshot([next]),2000);
   assert.equal(writeCatalogChanges(storage,key,state),true);
   assert.deepEqual(readCatalogChanges(storage,key)!.events[0].changes[0].details,details);
+});
+
+test('added and removed cards preserve detection-time prices, request conditions and routes within the public whitelist',()=>{
+  const old={...model,model_name:'gpt-removed',billing_mode:'tiered_expr',billing_expr:'(p*2+c*4)*(param("service_tier")=="fast" ? 2 : 1)',group_ratio:{standard:.75},description:'do-not-store-private-description'};
+  const next={...old,model_name:'gpt-added',billing_expr:old.billing_expr.replace('p*2','p*3'),group_ratio:{standard:1.5}};
+  const changes=diffCatalogSnapshots(snapshot([old]),snapshot([next]),1000),added=changes.find(change=>change.kind==='added')!,removed=changes.find(change=>change.kind==='removed')!;
+  assert.equal(added.details!.find(detail=>detail.label==='普通输入价格')!.after,'$3 / 1M Tokens');
+  assert.equal(removed.details!.find(detail=>detail.label==='普通输入价格')!.before,'$2 / 1M Tokens');
+  assert.equal(added.details!.find(detail=>detail.label==='请求条件 · Fast')!.after,'×2');
+  assert.equal(removed.details!.find(detail=>detail.label==='模型渠道「standard」倍率')!.before,'×0.75');
+  assert.ok(!JSON.stringify(changes).includes('do-not-store-private-description'));
+  const storage=new MemoryStorage(),key='listing-history';
+  const state=advanceCatalogChanges(advanceCatalogChanges(null,snapshot([old]),500),snapshot([next]),1000);
+  assert.equal(writeCatalogChanges(storage,key,state),true);
+  assert.deepEqual(readCatalogChanges(storage,key)!.events[0].changes,changes);
+  const poisoned=structuredClone(state);poisoned.events[0].changes[0].details![0].after='$999';
+  storage.values.set(key,JSON.stringify(poisoned));assert.equal(readCatalogChanges(storage,key),null);
+});
+
+test('Fast and Priority changes identify the affected request option without repeating all context-tier prices',()=>{
+  const old={...model,billing_mode:'tiered_expr',billing_expr:'(len<=272000 ? p*2+c*4 : p*4+c*8)*(param("service_tier")=="fast" ? 2 : 1)*(param("service_tier")=="priority" ? 3 : 1)'};
+  const next={...old,billing_expr:old.billing_expr.replace('"fast" ? 2','"fast" ? 4')};
+  const details=diffCatalogSnapshots(snapshot([old]),snapshot([next]),1000)[0].details!;
+  assert.deepEqual(details,[{label:'请求条件 · Fast',before:'×2',after:'×4'}]);
+  const addedRule={...old,billing_expr:old.billing_expr+'*(header("anthropic-beta") has "fast-mode" ? 6 : 1)'};
+  const added=diffCatalogSnapshots(snapshot([old]),snapshot([addedRule]),1000)[0].details!;
+  assert.ok(added.some(detail=>detail.label==='请求条件 · Fast（fast-mode）' && detail.before===undefined && detail.after==='×6'));
+  const removed=diffCatalogSnapshots(snapshot([old]),snapshot([{...old,billing_expr:'len<=272000 ? p*2+c*4 : p*4+c*8'}]),1000)[0].details!;
+  assert.ok(removed.some(detail=>detail.label==='请求条件 · Fast' && detail.before==='×2' && detail.after===undefined));
+  assert.ok(removed.some(detail=>detail.label==='请求条件 · Fast（Priority）' && detail.before==='×3' && detail.after===undefined));
+});
+
+test('unsupported, limited and absent plugin expressions cannot inherit default Fast request factors',()=>{
+  const base={...model,billing_mode:'tiered_expr',billing_expr:'p*2*(param("service_tier")=="fast" ? 2 : 1)',billing_plugin_variants:[
+    {plugin_key:'unsupported',plugin_name:'Unsupported',billing_expr:'vendorPrice(p,2)'},
+    {plugin_key:'limited',plugin_name:'Limited',billing_expr:'p*2+'+'p+'.repeat(16000)+'0'},
+    {plugin_key:'absent',plugin_name:'Absent',billing_expr:''},
+    {plugin_key:'independent',plugin_name:'Independent',billing_expr:'p*3*(param("service_tier")=="fast" ? 7 : 1)'},
+  ]};
+  const next={...base,billing_expr:base.billing_expr.replace('"fast" ? 2','"fast" ? 4')};
+  const changed=diffCatalogSnapshots(snapshot([base]),snapshot([next]),1000)[0].details!;
+  assert.deepEqual(changed.filter(detail=>detail.label.includes('请求条件')),[{label:'请求条件 · Fast',before:'×2',after:'×4'}]);
+  const added=diffCatalogSnapshots(snapshot([]),snapshot([base]),1000)[0].details!;
+  assert.deepEqual(added.filter(detail=>detail.label.includes('请求条件')),[{label:'请求条件 · Fast',after:'×2'},{label:'插件「independent」 · 请求条件 · Fast',after:'×7'}]);
+  const removed=diffCatalogSnapshots(snapshot([base]),snapshot([]),1000)[0].details!;
+  assert.deepEqual(removed.filter(detail=>detail.label.includes('请求条件')),[{label:'请求条件 · Fast',before:'×2'},{label:'插件「independent」 · 请求条件 · Fast',before:'×7'}]);
+  assert.ok(!added.some(detail=>detail.label.startsWith('插件「absent」') && detail.label.endsWith('价格')),'absent expression must not borrow default prices');
+});
+
+test('an unreadable default rule does not hide an independent safe plugin price or add an unchanged unknown formula',()=>{
+  for(const billing_expr of ['vendorPrice(p,2)','p*2+'+'p+'.repeat(16000)+'0']) {
+    const before={...model,billing_mode:'tiered_expr',billing_expr,billing_plugin_variants:[{plugin_key:'valid',plugin_name:'Valid',billing_expr:'p*2'}]};
+    const after={...before,billing_plugin_variants:[{plugin_key:'valid',plugin_name:'Valid',billing_expr:'p*3'}]};
+    const details=diffCatalogSnapshots(snapshot([before]),snapshot([after]),1000)[0].details!;
+    assert.deepEqual(details,[{label:'插件「valid」 · 普通输入价格',before:'$2 / 1M Tokens',after:'$3 / 1M Tokens'}]);
+    const listing=diffCatalogSnapshots(snapshot([]),snapshot([after]),1000)[0].details!;
+    assert.ok(listing.some(detail=>detail.label==='插件「valid」 · 普通输入价格' && detail.after==='$3 / 1M Tokens'));
+    assert.ok(listing.some(detail=>detail.label==='默认计价公式' && detail.formula?.after),'unknown base remains explicit in a new-model card');
+    assert.equal(listing.find(detail=>detail.label==='计费单位')!.after,'按公布规则','a safe plugin cannot establish the unknown default unit');
+  }
+});
+
+test('historical billing units follow active published expression prices rather than dormant legacy quota type',()=>{
+  for(const [quota_type,billing_expr,unit] of [[0,'fixed(.2)','按次调用'],[1,'p*2','按 Tokens'],[0,'p*p*2','按公布规则']] as const) {
+    const item={...model,quota_type,billing_mode:'tiered_expr',billing_expr};
+    const added=diffCatalogSnapshots(snapshot([]),snapshot([item]),1000)[0].details!;
+    assert.equal(added.find(detail=>detail.label==='计费单位')!.after,unit);
+    const removed=diffCatalogSnapshots(snapshot([item]),snapshot([]),1000)[0].details!;
+    assert.equal(removed.find(detail=>detail.label==='计费单位')!.before,unit);
+  }
+  const mixed={...model,billing_mode:'tiered_expr',billing_expr:'p*2',billing_plugin_variants:[{plugin_key:'request',plugin_name:'Request',billing_expr:'fixed(.2)'}]};
+  assert.equal(diffCatalogSnapshots(snapshot([]),snapshot([mixed]),1000)[0].details!.find(detail=>detail.label==='计费单位')!.after,'按公布规则');
+});
+
+test('unparsed expression fingerprints remain bounded and validated while older public rules remain readable',()=>{
+  const item={...model,billing_mode:'tiered_expr',billing_expr:'vendorPrice(p,2)'};
+  const pricing=publicModelPricing(item);
+  assert.match(pricing.expression.fingerprint!,/^[a-f0-9]{16}$/);
+  const storage=new MemoryStorage(),key='unknown-rule-fingerprint';
+  const state=advanceCatalogChanges(null,snapshot([item]),1000);
+  assert.equal(writeCatalogChanges(storage,key,state),true);
+  assert.deepEqual(readCatalogChanges(storage,key),state);
+  const invalid=structuredClone(state);invalid.baseline.models[0].pricing!.expression.fingerprint='x'.repeat(500);
+  storage.values.set(key,JSON.stringify(invalid));assert.equal(readCatalogChanges(storage,key),null);
+  // Reuse a legacy fixture's verified pricing hashes: fingerprints are optional in readers.
+  const {fingerprint,...withoutFingerprint}=pricing.expression;
+  const legacyItem=structuredClone(state) as any;
+  legacyItem.baseline.models[0].pricing.expression=withoutFingerprint;
+  const hash=(value:unknown)=>{let a=0x811c9dc5,b=0x9e3779b9;for(const c of JSON.stringify(value)){const code=c.charCodeAt(0);a=Math.imul(a^code,0x01000193);b=Math.imul(b^code,0x85ebca6b);}return (a>>>0).toString(16).padStart(8,'0')+(b>>>0).toString(16).padStart(8,'0');};
+  legacyItem.baseline.models[0].pricingHash=hash(legacyItem.baseline.models[0].pricing);
+  storage.values.set(key,JSON.stringify(legacyItem));
+  const legacy=readCatalogChanges(storage,key);assert.ok(legacy);assert.equal(legacy.baseline.models[0].pricing!.expression.fingerprint,undefined);
+});
+
+test('recorded tiers retain complete ordinary default prices when only Fast or the larger context tier changed',()=>{
+  const expression='(len>272000 ? p*4+c*15+cr*.4 : p*2+c*10+cr*.2)*(param("service_tier")=="fast" ? 2 : 1)';
+  const old={...model,billing_mode:'tiered_expr',billing_expr:expression};
+  for(const changed of [expression.replace('"fast" ? 2','"fast" ? 4'),expression.replace('p*4','p*6')]) {
+    const change=diffCatalogSnapshots(snapshot([old]),snapshot([{...old,billing_expr:changed}]),1000)[0],before=change.pricing!.before!,after=change.pricing!.after!;
+    const oldDefault=before.tiers.find(tier=>tier.key===before.defaultKey)!,nextDefault=after.tiers.find(tier=>tier.key===after.defaultKey)!;
+    assert.equal(nextDefault.label,'≤ 272K');assert.equal(nextDefault.sourceKey,'base');
+    assert.deepEqual(nextDefault.rows.map(row=>[row.label,row.price,row.unit]),[['普通输入','$2','1M Tokens'],['输出','$10','1M Tokens'],['缓存读取','$0.2','1M Tokens']]);
+    assert.deepEqual(nextDefault.rows,oldDefault.rows,'a changed non-default option cannot erase or modify ordinary prices');
+    assert.equal(nextDefault.requestModes[0].label,'Fast');
+    assert.equal(catalogTierPrice(nextDefault.rows[0],nextDefault.requestModes[0].multiplier),changed.includes('"fast" ? 4') ? '$8' : '$4');
+    assert.ok(after.tiers.some(tier=>tier.label==='> 272K'),'other context remains selectable');
+  }
+});
+
+test('recorded time tiers use the detection clock and retain independent selectable off-hours prices',()=>{
+  const old={...model,billing_mode:'tiered_expr',billing_expr:'(len<=272000 ? p*2 : p*4)*(hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? 2 : 1)'};
+  const next={...old,billing_expr:old.billing_expr.replace('? 2 : 1','? 3 : 1')};
+  const day=diffCatalogSnapshots(snapshot([old]),snapshot([next]),Date.parse('2026-10-02T02:00:00Z'))[0].pricing!;
+  const night=diffCatalogSnapshots(snapshot([old]),snapshot([next]),Date.parse('2026-10-02T12:00:00Z'))[0].pricing!;
+  assert.equal(day.after!.tiers.find(tier=>tier.key===day.after!.defaultKey)!.rows[0].price,'$6');
+  assert.equal(night.after!.tiers.find(tier=>tier.key===night.after!.defaultKey)!.rows[0].price,'$2');
+  assert.equal(day.after!.tiers.length,4);
+  assert.ok(day.after!.tiers.some(tier=>tier.label.includes('其余时段') && tier.rows[0].price==='$2'));
+  assert.ok(day.after!.tiers.find(tier=>tier.key===day.after!.defaultKey)!.timeRules.some(rule=>rule.active));
+  const captured=JSON.stringify(day);assert.equal(JSON.stringify(day),captured,'opening later does not reevaluate the snapshot');
+});
+
+test('tier snapshots keep unknown sources explicit and use the published plugin default when no base rule exists',()=>{
+  const unknown={...model,billing_mode:'tiered_expr',billing_expr:'vendorPrice(p,2)',billing_plugin_variants:[{plugin_key:'safe',plugin_name:'Safe',billing_expr:'p*3'}]};
+  const display=catalogPriceDisplay(publicModelPricing(unknown),publicCatalogPricing(catalog(),status),1000);
+  assert.equal(display.tiers.find(tier=>tier.key===display.defaultKey)!.sourceKey,'base');
+  assert.ok(display.tiers.find(tier=>tier.key===display.defaultKey)!.unknown);
+  assert.ok(display.tiers.some(tier=>tier.sourceKey==='plugin:safe' && tier.rows[0].price==='$3'));
+  assert.ok(!JSON.stringify(display).includes('vendorPrice'));
+  const onlyPlugin={...model,billing_mode:'tiered_expr',billing_plugin_variants:[{plugin_key:'fast',plugin_name:'Fast',billing_expr:'fixed(.2)'}]};
+  const plugin=catalogPriceDisplay(publicModelPricing(onlyPlugin),publicCatalogPricing(catalog(),status),1000);
+  assert.equal(plugin.tiers.find(tier=>tier.key===plugin.defaultKey)!.sourceKey,'plugin:fast');
+  assert.equal(plugin.billingUnit,'按次调用');
+});
+
+test('tier history enforces total row and option limits, validates hashes and drops unexpected properties',()=>{
+  const expression='(len<=272000 ? p+c+cr+cc+img+img_cr+img_o+ai+ao : (p+c+cr+cc+img+img_cr+img_o+ai+ao)*2)*(param("service_tier")=="fast" ? 2 : 1)';
+  const old={...model,billing_mode:'tiered_expr',billing_expr:expression,billing_plugin_variants:Array.from({length:12},(_,index)=>({plugin_key:'v'+index,plugin_name:'v'+index,billing_expr:expression}))};
+  const next={...old,billing_expr:expression.replace('p+c','p*2+c')},state=advanceCatalogChanges(advanceCatalogChanges(null,snapshot([old]),500),snapshot([next]),1000),change=state.events[0].changes[0];
+  const sides=[change.pricing!.before!,change.pricing!.after!];
+  assert.ok(sides.every(display=>display.limited));assert.ok(sides.reduce((sum,display)=>sum+display.tiers.reduce((count,tier)=>count+tier.rows.length,0),0)<=96);
+  assert.ok(sides.reduce((sum,display)=>sum+display.tiers.reduce((count,tier)=>count+tier.requestModes.length+tier.timeRules.length,0),0)<=96);
+  const storage=new MemoryStorage(),key='tier-history';assert.equal(writeCatalogChanges(storage,key,state),true);assert.deepEqual(readCatalogChanges(storage,key),state);
+  const poison=structuredClone(state) as any;poison.events[0].changes[0].pricing.after.tiers[0].rows[0].apiKey='do-not-store';
+  assert.equal(writeCatalogChanges(storage,key,poison),true);assert.ok(!storage.values.get(key)!.includes('do-not-store'));
+  const damaged=structuredClone(state);damaged.events[0].changes[0].pricing!.after!.tiers[0].rows[0].price='$999';storage.values.set(key,JSON.stringify(damaged));assert.equal(readCatalogChanges(storage,key),null);
+  const invalid=structuredClone(change.pricing!);invalid.after!.defaultKey='missing';assert.equal(readCatalogChangePricing(invalid),null);
+  const long=structuredClone(change.pricing!);long.after!.tiers[0].label='x'.repeat(241);assert.equal(readCatalogChangePricing(long),null);
+  const duplicate=structuredClone(change.pricing!);duplicate.after!.tiers.push(duplicate.after!.tiers[0]);assert.equal(readCatalogChangePricing(duplicate),null);
+});
+
+test('tier identities retain full conditions through branch insertion, deletion and threshold edits',()=>{
+  const original={...model,billing_mode:'tiered_expr',billing_expr:'len<=272000 ? p*2 : p*4'},inserted={...original,billing_expr:'len<=128000 ? p : len<=272000 ? p*2 : p*4'};
+  const pricing=diffCatalogSnapshots(snapshot([original]),snapshot([inserted]),1000)[0].pricing!;
+  const oldLarge=pricing.before!.tiers.find(tier=>tier.rows[0].price==='$4')!,newLarge=pricing.after!.tiers.find(tier=>tier.rows[0].price==='$4')!;
+  // Nested branches keep their complete condition: the new large branch also
+  // requires >128K, so it remains a separately recorded historical option.
+  assert.notEqual(oldLarge.key,newLarge.key);
+  assert.equal(oldLarge.rows[0].price,'$4');assert.equal(newLarge.rows[0].price,'$4');
+  assert.equal(new Set([...pricing.before!.tiers,...pricing.after!.tiers].map(tier=>tier.key)).size,5);
+  const threshold=diffCatalogSnapshots(snapshot([original]),snapshot([{...original,billing_expr:original.billing_expr.replace('272000','300000')}]),1000)[0].pricing!;
+  assert.ok(threshold.before!.tiers.every(old=>!threshold.after!.tiers.some(next=>next.key===old.key)),'new threshold cannot inherit an index identity');
+  assert.ok(threshold.after!.tiers.some(tier=>tier.label==='≤ 300K'));
+});
+
+test('time rule snapshots distinguish identical remaining-period labels after the original condition changed',()=>{
+  const original={...model,billing_mode:'tiered_expr',billing_expr:'p*2*(hour("Asia/Shanghai") >= 9 && hour("Asia/Shanghai") < 18 ? 2 : 1)'};
+  const change=diffCatalogSnapshots(snapshot([original]),snapshot([{...original,billing_expr:original.billing_expr.replace('< 18','< 20')}]),Date.parse('2026-10-02T02:00:00Z'))[0];
+  const oldRule=change.pricing!.before!.tiers.flatMap(tier=>tier.timeRules).find(rule=>rule.label==='其余时段')!,newRule=change.pricing!.after!.tiers.flatMap(tier=>tier.timeRules).find(rule=>rule.label==='其余时段')!;
+  assert.notEqual(oldRule.key,newRule.key);assert.equal(oldRule.multiplier,1);assert.equal(newRule.multiplier,1);
+  assert.ok(!JSON.stringify(change.pricing).includes('hour('),'the snapshot stores condition fingerprints rather than source expressions');
+  const removed=diffCatalogSnapshots(snapshot([original]),snapshot([{...original,billing_expr:'p*2'}]),1000)[0].pricing!;
+  assert.equal(removed.after!.tiers[0].timeRules.length,0);assert.equal(removed.before!.tiers.flatMap(tier=>tier.timeRules).length,2);
+});
+
+test('recorded time coefficients retain the context scope and older presentation snapshots remain readable',()=>{
+  const original={...model,billing_mode:'tiered_expr',billing_expr:'len<=272000 ? p*2*(hour("Asia/Shanghai") >= 9 ? 2 : 1) : p*4*(hour("Asia/Shanghai") >= 9 ? 3 : 1)'},display=catalogPriceDisplay(publicModelPricing(original),publicCatalogPricing(catalog(),status),Date.parse('2026-10-02T02:00:00Z'));
+  const low=display.tiers.filter(tier=>tier.label.startsWith('≤ 272K')),high=display.tiers.filter(tier=>tier.label.startsWith('> 272K'));
+  assert.equal(low.length,2);assert.equal(high.length,2);assert.equal(low[0].contextKey,low[1].contextKey);assert.equal(high[0].contextKey,high[1].contextKey);assert.notEqual(low[0].contextKey,high[0].contextKey);
+  assert.equal(low.find(tier=>tier.timeRules.some(rule=>rule.active))!.timeRules[0].multiplier,2);assert.equal(high.find(tier=>tier.timeRules.some(rule=>rule.active))!.timeRules[0].multiplier,3);
+  const legacy=structuredClone(display);legacy.tiers.forEach((tier,index)=>{delete tier.contextKey;tier.key=tier.sourceKey+':tier:'+index;tier.timeRules.forEach(rule=>delete rule.key);});legacy.defaultKey=legacy.tiers[0].key;
+  assert.deepEqual(readCatalogChangePricing({after:legacy}),{after:legacy});
+  const invalid=structuredClone(display);invalid.tiers[0].contextKey='not-a-hash';assert.equal(readCatalogChangePricing({after:invalid}),null);
+});
+
+test('repeated request conditions multiply safe factors, persist one option and keep overflow unknown',()=>{
+  const condition='param("service_tier")=="fast"',original={...model,billing_mode:'tiered_expr',billing_expr:'p*2'};
+  for(const [a,b,expected] of [[2,3,6],[0,3,0],[0,0,0]] as const){
+    const next={...original,billing_expr:'p*2*('+condition+' ? '+a+' : 1)*('+condition+' ? '+b+' : 1)'},state=advanceCatalogChanges(advanceCatalogChanges(null,snapshot([original]),500),snapshot([next]),1000);
+    const display=state.events[0].changes[0].pricing!.after!,tier=display.tiers.find(tier=>tier.key===display.defaultKey)!;
+    assert.equal(tier.rows[0].price,'$2');assert.equal(tier.requestModes.length,1);assert.equal(tier.requestModes[0].multiplier,expected);assert.equal(catalogTierPrice(tier.rows[0],expected),'$'+2*expected);
+    const storage=new MemoryStorage();assert.equal(writeCatalogChanges(storage,'repeated',state),true);assert.deepEqual(readCatalogChanges(storage,'repeated'),state);
+  }
+  const overflow={...original,billing_expr:'p*2*('+condition+' ? 1e308 : 1)*('+condition+' ? 1e308 : 1)'},state=advanceCatalogChanges(advanceCatalogChanges(null,snapshot([original]),500),snapshot([overflow]),1000);
+  const tier=state.events[0].changes[0].pricing!.after!.tiers[0];assert.equal(tier.rows[0].price,'$2');assert.equal(tier.requestModes.length,1);assert.equal(tier.requestModes[0].unknown,true);assert.equal(tier.requestModes[0].multiplier,undefined);
+  assert.equal(state.events[0].changes[0].details!.find(detail=>detail.label==='请求条件 · Fast')!.after,'未知');
+  const storage=new MemoryStorage();assert.equal(writeCatalogChanges(storage,'overflow',state),true);assert.deepEqual(readCatalogChanges(storage,'overflow'),state);
 });

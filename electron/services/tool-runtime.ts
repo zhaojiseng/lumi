@@ -175,7 +175,13 @@ export class ToolRuntimeService {
     const result={version:version && latestVersionPattern.test(version) ? version : undefined,checkedAt:Date.now()};
     this.latestCache.set(tool,result);return result;
   }
-  async inspect(force=false):Promise<ToolRuntimeState[]> {if(force)this.shellDirs=undefined;return Promise.all((['codex','claude','chatgpt'] as const).map(tool=>this.inspectOne(tool,force)));}
+  async inspect(force=false,tools:readonly Tool[]=['codex','claude']):Promise<ToolRuntimeState[]> {
+    if(!tools.length)return [];
+    if(force)this.shellDirs=undefined;
+    const allowed=([...new Set(tools)] as (Tool|'chatgpt')[]);
+    if(tools.includes('codex'))allowed.push('chatgpt');
+    return Promise.all(allowed.map(tool=>this.inspectOne(tool,force)));
+  }
   private async inspectOne(tool:Tool|'chatgpt',force:boolean) {
     const job=this.pending.get(tool);if(job)return job;
     const cached=this.states.get(tool);if(!force && cached && Date.now()-cached.checkedAt<30000)return structuredClone(cached);

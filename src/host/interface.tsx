@@ -10,7 +10,7 @@ import {usePluginSettings} from './plugins';
 import {InterfaceErrorContext} from './interface-settings';
 import {syncSurfaceTheme} from './surface-theme';
 import {interfaceAppearanceKey,resolveInterfaceAppearance} from '../../shared/interface-appearance';
-import {ModalScope} from '../components/ModalPresence';
+import {PopupScope} from '../components/PopupPresence';
 
 export interface InterfaceShellProps {
   bootstrap:Bootstrap;preferences:Preferences;dashboard:Dashboard|null;nav:readonly NavigationItem[];visiblePage:Page;catalogPending:number;status:string;loading:boolean;error:string;refreshDisabled:boolean;
@@ -67,5 +67,7 @@ export function InterfaceHost(props:InterfaceShellProps){
     return()=>observer.disconnect();
   },[style?.id,style?.css,active,props.preferences]);
   const dialogScope=JSON.stringify([props.visiblePage,props.preferences.sites.find(site=>site.id===props.preferences.activeSiteId),statuses?.map(status=>[status.manifest.id,status.state,status.generation,status.views])]);
-  return <ModalScope scope={dialogScope}><InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider></ModalScope>;
+  const site=props.preferences.sites.find(value=>value.id===props.preferences.activeSiteId);
+  const activeScope=JSON.stringify([props.visiblePage,props.preferences.activeSiteId,site?.url,site?.userId,site?.username,!!site?.accessTokenConfigured,!!site?.sessionAuth]);
+  return <PopupScope scope={dialogScope} activeScope={activeScope}><InterfaceErrorContext.Provider value={failure}><Shell {...props} interfaceId={active}/></InterfaceErrorContext.Provider></PopupScope>;
 }

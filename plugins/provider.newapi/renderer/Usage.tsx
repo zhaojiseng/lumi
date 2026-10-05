@@ -1,4 +1,4 @@
-import {ModalPresence} from '../../../src/components/ModalPresence';
+import {PopupPresence} from '../../../src/components/PopupPresence';
 import {Welcome} from '../../../src/components/Login';
 import {StatisticsFilter} from '../../../src/components/StatisticsFilter';
 import {MotionSwap} from '../../../src/components/MotionSwap';
@@ -47,7 +47,7 @@ export default function OnlineUsage({view:tab}:{view:'billing'|'logs'}) {
     </>}
     {tab === 'logs' && <section className="surface panel logs-panel"><SectionHeading title="请求明细" sub={rangeLabel(d.range,new Date(d.fetchedAt))} action={<div className="request-log-actions"><LogColumnsControl/><Button busy={exporting} onClick={doExport}><Download size={15}/>导出 CSV</Button></div>}/><div className="filter-bar"><Select label="筛选状态" value={type} onChange={v => setType(Number(v))}><option value="0">全部状态</option><option value="2">成功调用</option><option value="5">错误请求</option></Select><span className="filter-count">{busy ? <Loader2 size={15} className="spin"/> : `共 ${logs?.total || 0} 条`}</span></div><DataRefreshMotion {...motion} resetKey={JSON.stringify([refreshScope,page,type])} identity={JSON.stringify(logs)}><RequestLogTable logs={logs} busy={busy} page={page} onPage={setLogPage} onDetail={setDetail} status={d.status} catalog={d.catalog}/></DataRefreshMotion></section>}
 
-    </MotionSwap><ModalPresence>{detail && <RequestDetail log={detail} status={d.status} onClose={() => setDetail(null)}/>}</ModalPresence>
+    </MotionSwap><PopupPresence>{detail && <RequestDetail log={detail} status={d.status} onClose={() => setDetail(null)}/>}</PopupPresence>
 
   </>;
 }

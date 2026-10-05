@@ -2,11 +2,11 @@
 
 开发教程、完整示例和 SDK 说明见 [插件开发指南](PLUGIN_DEVELOPMENT.md)。本文说明宿主与各插件的职责及生命周期。
 
-Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的显示界面、设置选项和侧栏入口。`plugins/` 是静态构建的内置插件；`extensions/packages/` 是独立分发的额外插件，不编译进 EXE。设置分别显示内置/额外插件；额外包在运行时扫描并经隔离 web 界面和 SDK 接入，无需修改内置注册表。作者格式、权限、开发/安装和贡献流程见 [extensions/README.md](../extensions/README.md)。
+Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的显示界面、设置选项和侧栏入口。`plugins/` 是静态构建的内置插件；`extensions/packages/` 是独立分发的额外插件，不编译进 EXE。设置以可折叠分组和插件列表展示“内置插件 / 工具配置 / 额外插件”，点击插件打开说明与设置弹窗；额外包在运行时扫描并经隔离 web 界面和 SDK 接入，无需修改内置注册表。作者格式、权限、开发/安装和贡献流程见 [extensions/README.md](../extensions/README.md)。
 
 ## 产品插件与统一系统
 
-设置页的大项对应四个可启停的产品插件：
+设置页展示以下六个可独立启停的插件：
 
 | 插件 | 设置分组 | 向系统贡献的内容 |
 | --- | --- | --- |
@@ -14,10 +14,12 @@ Lumi 的插件可以向系统内置界面提供内容，也可以声明自己的
 | `provider.codex` | Codex：工作台 | ChatGPT 订阅限额、周窗口、重置时间及剩余积分 |
 | `surface.widget` | 浮窗 | 从用量展示服务读取内容，在独立受限窗口显示 |
 | `surface.tray` | 托盘 | 从工作台展示服务读取内容，在 Windows 托盘或 macOS 菜单栏显示 |
+| `adapter.tool.codex` | 工具配置 → Codex 工具配置 | Codex CLI 专属字段与配置格式 |
+| `adapter.tool.claude` | 工具配置 → Claude Code 工具配置 | Claude Code CLI 专属字段与配置格式 |
 
 `feature.workbench`、`feature.usage`、`feature.models`、`feature.tokens` 和 `feature.tool-config` 是固定的统一系统模块，负责页面壳、插槽和操作编排。它们不作为设置页的大项开关。New API 拥有实际协议、账户、缓存、令牌服务/编辑器和专用令牌复用策略；工具配置通过 `toolCredential.provision` 消费能力，不引用令牌页面。
 
-`source.local-sessions`、Codex/Claude CLI 适配器和默认主题保持固定基础模块。工具专属字段和配置格式由 `adapter.tool.codex`、`adapter.tool.claude` 提供；事务、加密备份、冲突检查、原子写入和回滚由 ConfigService 协调。停用 NewAPI 后，本地工具检测、安装、配置检查和备份恢复仍可使用，在线配钥/预览/应用不可用。
+`source.local-sessions` 和默认主题保持固定基础模块。两个工具适配器默认启用，系统工具页通过可选依赖消费它们；停用一个只撤回该工具，不重挂载另一个工具的表单。事务、加密备份、冲突检查、原子写入和回滚由 ConfigService 协调。适配器停用会使所属预览失效，安装及配置提交/恢复不可用，不再发起其版本检测，已写入配置与加密备份保留。ChatGPT 桌面版本随 Codex 工具检测；两工具全关闭时跳过查询。正在配钥、安装或写入时拒绝停用。停用 NewAPI 后，已启用工具的本地检测、安装、配置检查和备份恢复仍可使用，在线配钥/预览/应用不可用。
 
 ## 独立界面插件
 
@@ -38,7 +40,7 @@ settings: {
 }
 ```
 
-子开关 ID 必须是限长的小写字母、数字、点或短横线，不得重复；只接受当前插件明确声明的选项。配置记录在非敏感的 `pluginViews[pluginId][viewId]`。未保存值使用 `defaultEnabled`，未声明默认值则启用。
+子开关 ID 必须是限长的小写字母、数字、点或短横线，不得重复；只接受当前插件明确声明的选项。配置记录在非敏感的 `pluginViews[pluginId][viewId]`。未保存值使用 `defaultEnabled`，未声明默认值则启用。`settings.group: 'tools'` 指定工具配置分组。分组可折叠，插件末级是独立列表行；点击行或开关右侧的设置按钮打开详情弹窗，包含介绍、启用状态、自身设置及显示子项。关闭保留列表分组、滚动及已访问插件的设置草稿，并恢复触发按钮焦点；失活时撤回插件组件，错误状态仍可见。
 
 `src/host/renderer-registry.ts` 的 `RendererContribution` 提供以下贡献点：
 
@@ -49,13 +51,16 @@ settings: {
 | `models`、`tokens` | 注册模型广场/令牌管理的来源内容 |
 | `toolConfigs` | 注册 CLI 专属选项、验证和运行时扩展 |
 | `sidebar` | 注册自定义懒加载页面、导航分组及入口 |
-| `settings.component` | 在插件设置组内注册自定义 React 设置内容 |
+| `settings.component` | 兼容原有自定义 React 设置内容，在所属插件详情弹窗显示 |
+| `settings.sections` | 注册插件自身的具名设置项，支持懒加载组件及显示子项关联 |
 | `connections` | 在常规设置的“连接”区域注册插件自己的连接选项 |
 | `settingsTabs` | 注册设置页顶栏标签及懒加载内容，例如浮窗、托盘 |
 
 贡献可带 `view`，关联该插件声明的子开关。未指定时，系统卡片/标签默认跟随 `workbench`/`usage`/`models`/`tokens` 对应子项。额外侧栏页面 ID 为 `plugin:<manifest.id>:<name>`；入口与页面 ID 必须一致，禁止重复、覆盖设置页或引用未声明的开关。没有内置内容的系统页面隐藏；独立本地分析和工具配置仍保留。
 
 连接选项和设置标签采用同一命名空间，声明 `id`、`label`、`order`、懒加载 `component`，以及可选的 `view`。宿主拒绝重复 ID 和未声明的子开关，仅挂载活动贡献。NewAPI 注册站点及专用令牌连接设置，Codex 注册本机 CLI 连接检测；浮窗、托盘分别注册自己的设置标签。停用插件立即移除连接、顶栏标签及内容，当前标签被撤回时回到常规设置，退出动画也不保留撤回内容。常规设置和实时日志属于固定宿主标签。插件状态更新保留设置页实例及仍可用组件的编辑状态。
+
+`settings.sections` 的每项声明 `id`、`title`、可选 `description` / `view` 和 React `component`。ID 在所属插件内唯一，关联的显示子项必须由 manifest 声明；组件通过既有受限 bridge 和偏好补丁读写，不提供通用字段写入器。宿主首次打开详情弹窗才加载组件，关闭再打开保留活动组件草稿。六个可配置内置插件均注册自身设置；工具适配器复用自己已有的上下文等选项，保存后用于下一次配置预览。外部包现有 `settingsTab` 同时映射到所属插件的详情弹窗，仍在隔离 frame 中运行。
 
 内置插件自己的 renderer 组件也只能经现有受限 bridge 访问数据。声明设置或页面不会授予文件、网络或通用 IPC 权限；新增特权操作必须同时增加窄 DTO、固定 preload 方法和校验过的 main handler。外部插件不能复用可信 main/React 模块接口；以 JSON 清单声明贡献和权限，通过 sandbox frame、固定 SDK broker 获取受控数据与网络/独立存储。外部 JS 不进入宿主界面或主进程执行。
 
@@ -103,6 +108,6 @@ settings: {
 
 ## 验证与保留边界
 
-运行 `npm run pretest` 后，可针对 `plugin-host`、`plugin-catalog`、`plugin-integration`、`renderer-plugins`、`codex-subscription`、`workbench-sources-ui`、`plugin-layout-ui`、`desktop-plugin-lifecycle` 测试文件检查生命周期、设置迁移、持久化回滚、内容/侧栏/连接/设置标签贡献、实际配置预览撤销、浏览器权限及构建边界。隐藏 Chromium 用真实设置组件验证四个父开关、五个子开关及编辑状态保留；真实 App/CSS 在 1280/1100 宽度检查页面间距、溢出及标题栏下方的悬浮圆角侧栏。构建后的 `npm run test:desktop` 验证固定 IPC、提供者重启、设置持久化、受限浮窗/托盘的关闭重建及本地详情。
+运行 `npm run pretest` 后，可针对 `plugin-host`、`plugin-catalog`、`plugin-integration`、`renderer-plugins`、`codex-subscription`、`workbench-sources-ui`、`plugin-layout-ui`、`plugin-settings-tree-ui`、`tools-plugin-lifecycle-ui`、`desktop-plugin-lifecycle` 测试文件检查生命周期、设置迁移、持久化回滚、内容/侧栏/连接/设置标签贡献、实际配置预览撤销、浏览器权限及构建边界。隐藏 Chromium 用真实设置组件验证六个父开关、五个子开关、树状折叠及编辑状态保留；真实 App/CSS 在 1280/1100 宽度检查页面间距、溢出及标题栏下方的悬浮圆角侧栏。构建后的 `npm run test:desktop` 验证固定 IPC、提供者重启、设置持久化、受限浮窗/托盘的关闭重建及本地详情。
 
 `extensions` 与 `interface-plugin-ui` 回归验证界面清单、独占选择、原子持久化、更新/缺包回退、受限 CSS、真实 App 布局及设置草稿/焦点/滚动保留；桌面 smoke 验证实际 IPC、启停、扫描及恢复。测试使用隔离目录、模拟 CLI/服务和假凭据。现有 AppContext/Dashboard 仍有兼容数据路径；子项隐藏不代表停止所有目录/用量请求。默认主题继续提供语义 token；外部界面样式在其上覆盖。Codex 历史同步和工具事务继续由 ConfigService 管理，不能把只读统计与显式 apply/restore 写入混淆。

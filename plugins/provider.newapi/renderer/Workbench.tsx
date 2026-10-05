@@ -3,9 +3,9 @@ import {StatisticsFilter} from '../../../src/components/StatisticsFilter';
 import {rangeLabel} from '../../../shared/range';
 import {DEFAULT_ACTIVITY_COLUMNS,normalizeActivityColumns} from '../../../shared/logs';
 import {useSavedSelection} from '../../../src/selections';
-import { Wallet, ArrowDownLeft, Layers, Activity, ArrowUpRight, ArrowRight, Clock3, Zap, CircleCheck, ChevronRight } from 'lucide-react';
+import { Wallet, ArrowDownLeft, Layers, Activity, ArrowUpRight, ArrowRight, Clock3, Zap, CircleCheck } from 'lucide-react';
 import { useApp } from '../../../src/context';
-import { Pill, SectionHeading, ToolIcon, Button, Empty } from '../../../src/components/ui';
+import { Pill, SectionHeading, Button, Empty } from '../../../src/components/ui';
 import { ModelDonut } from '../../../src/components/charts';
 import {UsageTrend} from '../../../src/components/UsageTrend';
 import {UsageQuality} from '../../../src/components/UsageQuality';
@@ -13,7 +13,7 @@ import {DataRefreshMotion} from '../../../src/components/DataRefreshMotion';
 import { currency, formatMoney, compact } from '../../../shared/utils';
 import {Welcome} from '../../../src/components/Login';
 export default function Overview() {
-  const { dashboard: d, preferences, bootstrap, loading,openLogin,setPage } = useApp();
+  const { dashboard: d, preferences, loading,openLogin,setPage } = useApp();
   const [savedActivityColumns,setActivityColumns]=useSavedSelection<string[]>('overview.activityColumns',DEFAULT_ACTIVITY_COLUMNS,Array.isArray);
   const activityColumns=normalizeActivityColumns(savedActivityColumns);
   if (!d?.user) return loading ? <p role="status">正在读取 New API 账户…</p> : <Welcome onLogin={openLogin}/>;
@@ -40,13 +40,6 @@ export default function Overview() {
       <section className="surface panel trend-panel"><UsageTrend dashboard={d} preferenceKey="overview.trend"/></section>
       <section className="surface panel distribution-panel"><SectionHeading title="模型分布" action={<button className="icon-button" onClick={() => setPage('usage')} aria-label="查看详细用量"><ArrowUpRight size={17}/></button>}/><DataRefreshMotion {...motion} className="distribution-content" identity={JSON.stringify(modelData)}>{modelData.length ? <ModelDonut data={modelData} total={formatMoney(d.series.reduce((s, p) => s + p.quota, 0), d.status)} symbol={c.symbol}/> : <Empty title="暂无模型消耗" description="开始使用后即可查看分布。"/>}</DataRefreshMotion><button className="panel-bottom-link" onClick={() => setPage('usage')}>探索用量详情<ArrowRight size={14}/></button></section>
     </div>
-    <div className="section-title-row"><h3>你的开发伙伴<span>CONNECTED TO YOUR FLOW</span></h3><button className="text-link" onClick={() => setPage('tools')}>管理工具<ChevronRight size={14}/></button></div>
-    <div className="tools-summary-grid">{(['codex', 'claude'] as const).map(tool => {
-      const b = preferences.bindings.find(x => x.tool === tool && x.siteId === preferences.activeSiteId);
-      const toolStat = d.toolStats?.find(t => t.tool === tool)?.stat; const config = bootstrap.configs.find(x => x.tool === tool);
-      const connected = !!config?.baseUrl; const model = config?.model || b?.model;
-      return <button className="surface tool-summary" key={tool} onClick={() => setPage('tools')}><ToolIcon tool={tool}/><div className="tool-summary-name"><h3>{tool === 'codex' ? 'Codex' : 'Claude Code'}<span className={`connection-dot ${connected ? '' : 'inactive'}`}/></h3><p>{model || '尚未配置模型'}</p></div><div className="tool-summary-cost"><strong>{toolStat ? formatMoney(toolStat.quota, d.status) : '—'}</strong><span>区间工具消费</span></div><ChevronRight size={16} className="muted"/></button>;
-    })}</div>
     <section className="surface panel recent-panel"><SectionHeading title="最近活动" sub="每一次调用，都有记录" action={<div className="recent-activity-actions"><RecentActivityColumnsControl key={preferences.activeSiteId} columns={activityColumns} onChange={setActivityColumns}/><button className="text-link" onClick={() => setPage('usage')}>查看全部<ArrowUpRight size={14}/></button></div>}/><DataRefreshMotion {...motion} identity={JSON.stringify([d.logs.items,activityColumns])}>{d.logs.items.length ? <RecentActivity logs={d.logs.items} status={d.status} catalog={d.catalog} columns={activityColumns}/> : <Empty title="还没有请求记录" description="连接站点或开始调用模型后，记录会自动更新。"/>}</DataRefreshMotion></section>
     <div className="page-footer"><span><CircleCheck size={13}/>数据来自当前 New API 站点</span><span>Lumi · 为专注而设计</span></div>
   </div>;

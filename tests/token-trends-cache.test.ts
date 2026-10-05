@@ -16,7 +16,7 @@ async function fixture(){
     let data:unknown={};
     if(url.pathname==='/api/log/self'){
       const page=Number(url.searchParams.get('p')),size=Number(url.searchParams.get('page_size'));
-      const items=Array.from({length:Math.min(size,Math.max(0,total-(page-1)*size))},(_,i)=>({id:(page-1)*size+i+1,created_at:timestamp,type:2,model_name:i%2 ? 'model-a' : 'model-b',token_name:i%2 ? 'Token A' : 'Token B',token_id:i%2 ? 1 : 2,prompt_tokens:10,completion_tokens:5,use_time:2,quota:100,content:'Content must not reach the curve',other:JSON.stringify({cache_tokens:5,metadata:'Private metadata must not reach the curve'})}));
+      const items=Array.from({length:Math.min(size,Math.max(0,total-(page-1)*size))},(_,i)=>({id:(page-1)*size+i+1,created_at:timestamp,type:2,model_name:i%2 ? 'model-a' : 'model-b',token_name:i%2 ? 'Token A' : 'Token B',token_id:i%2 ? 1 : 2,prompt_tokens:10,completion_tokens:5,use_time:2,is_stream:true,quota:100,content:'Content must not reach the curve',other:JSON.stringify({cache_tokens:5,frt:1000,metadata:'Private metadata must not reach the curve'})}));
       data=legacy ? items : {items,total};
     }
     if(url.pathname==='/api/token/'){
@@ -81,6 +81,9 @@ test('efficiency metrics share complete logs with token curves and refresh on ma
   const f=await fixture();try{
     const [quality,curve]=await Promise.all([f.api.usageQuality(1),f.api.tokenUsage(1)]);
     assert.equal(quality.cacheHitRate,.5);assert.equal(quality.averageTokenSpeed,2.5);assert.equal(quality.requestCount,150);assert.deepEqual(quality,curve.quality);
+    assert.equal(quality.averageNetTokenSpeed,5);assert.equal(quality.netSpeedSamples,150);
+    assert.equal(curve.points.reduce((n,p)=>n+(p.netOutputTokens || 0),0),750);
+    assert.equal(curve.points.reduce((n,p)=>n+(p.subsequentDurationSeconds || 0),0),150);
     assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,2);
     f.setTotal(10);assert.equal((await f.api.usageQuality(1)).requestCount,150);
     await f.api.dashboard(1,true);assert.equal((await f.api.usageQuality(1)).requestCount,10);
@@ -99,6 +102,7 @@ test('multi-filter dashboard and paginated logs share complete cached records ac
   const f=await fixture();try{
     const q={range:1,models:['model-a'],tokenIds:[1]},a=await f.api.dashboard(q);
     assert.equal(a.detailed,true);assert.equal(a.logs.total,75);assert.equal(a.series.reduce((s,p)=>s+p.count,0),75);assert.equal(a.stat?.quota,7500);assert.equal(a.quality?.cacheHitRate,.5);
+    assert.equal(a.quality?.averageNetTokenSpeed,5);assert.equal(a.quality?.netSpeedSamples,75);
     const reads=f.seen.filter(r=>r.path==='/api/log/self');assert.equal(reads.length,2);assert.ok(reads.every(r=>r.query.get('type')==='0'));
     const second=await f.api.dashboard({range:1,models:['model-a','model-b'],tokenIds:[2]});assert.equal(second.logs.total,75);assert.ok(second.series.every(p=>p.token_id===2));
     const logs=await f.api.logs({days:1,page:2,pageSize:15,models:['model-a'],tokenIds:[1]});assert.equal(logs.total,75);assert.equal(logs.items.length,15);

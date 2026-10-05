@@ -1,20 +1,22 @@
-import {ModalPresence} from '../../../src/components/ModalPresence';
+import {PopupPresence} from '../../../src/components/PopupPresence';
 import {MotionSwap} from '../../../src/components/MotionSwap';
 import {useMemo,useState,useRef,useEffect,useLayoutEffect} from 'react';
 import {Search,Star,ArrowUpRight,SlidersHorizontal,Info,Repeat2,Bell,Check,History} from 'lucide-react';
 import {useApp} from '../../../src/context';
 import {useCatalog} from '../../../src/host/catalog';
+import {useToolConfigViews} from '../../../src/host/tool-config';
 import type {CatalogSnapshot} from '../../../shared/contracts/catalog';
 import {useSavedSelection} from '../../../src/selections';
 import {modelSelectionKey,selectionValue} from '../../../shared/selections';
 import {Button,PageIntro,Select,Pill,Empty,ToolIcon,Modal,Skeleton} from '../../../src/components/ui';
 import {Health} from '../../../src/components/Health';
-import {ProviderIcon} from '../../../src/components/BrandIcon';
+import {ModelCardFrame} from '../../../src/components/ModelCardFrame';
+import {CatalogChangeCard} from '../../../src/components/CatalogChangeCard';
 import {ChannelSelect} from '../../../src/components/ChannelSelect';
 import {PricingDetailsModal,PriceTable,PricingTimeInfo} from '../../../src/components/Pricing';
 import {availableGroups,groupRatio,groupLabel,defaultModelGroup,cheapestGroup,sortModels} from '../../../shared/catalog';
 import {displayPricingChoices,publishedRequestPricing,defaultPricingChoice} from '../../../shared/pricing';
-import {CATALOG_CHANGE_LABELS,acknowledgeCatalogChanges,catalogChangesStorageKey,getCatalogChanges,subscribeCatalogChanges,type CatalogChangeState,type CatalogChangeView} from '../../../shared/catalog-changes';
+import {acknowledgeCatalogChanges,catalogChangesStorageKey,getCatalogChanges,subscribeCatalogChanges,type CatalogChangeState,type CatalogChangeView} from '../../../shared/catalog-changes';
 import type {ModelInfo,SelectionValue} from '../../../shared/types';
 import '../../../src/models-market.css';
 
@@ -43,22 +45,14 @@ function CatalogChanges({state,persisted,catalogReady,onRead}:{state:CatalogChan
       <div className="catalog-monitor-copy"><strong aria-live="polite">{pending ? `发现 ${pending} 项目录变动` : '本地变动监控'}</strong><span>{!catalogReady ? '等待有效目录，保留上次基线与变动记录' : !state ? '等待完整目录，首次读取仅建立基线' : pending ? `${unread.length} 次更新未读 · 模型增删与计价规则变动` : events.length ? '变动已读，将继续比较后续目录' : '已建立基线，后续模型增删与计价规则变动会在这里提示'}{!persisted && ' · 本地存储不可用，仅本次打开有效'}</span></div>
       <div className="catalog-monitor-actions"><Button variant="ghost" disabled={!events.length} onClick={()=>setOpen(true)}><History size={14}/>查看明细{events.length>0 && <span>{events.length}</span>}</Button>{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部已读</Button>}</div>
     </section>
-    <ModalPresence>{open && <Modal className="catalog-changes-modal" title="模型目录变动" subtitle="仅在本机保存有限的公共计价规则和价格变动，保留最近 20 次变动。" onClose={()=>setOpen(false)}>
-      <p className="catalog-change-price-note">单价为模型基础价，未乘渠道倍率；渠道倍率单独比较。</p>
-      <div className="catalog-change-history">{events.map(event=><section className="catalog-change-event" key={event.id}>
-        <div className="catalog-change-event-heading"><time dateTime={new Date(event.detectedAt).toISOString()}>{new Date(event.detectedAt).toLocaleString('zh-CN',{hour12:false})}</time><Pill tone={event.read ? 'muted' : 'orange'}>{event.read ? '已读' : '未读'}</Pill>{!event.read && <button className="text-link" onClick={()=>onRead([event.id])}>标为已读</button>}</div>
-        <ul>{event.changes.map((change,index)=><li key={index}>
-          <div><strong>{change.modelName || '站点价格规则'}</strong><Pill tone={change.kind==='added' ? 'green' : change.kind==='removed' ? 'red' : 'orange'}>{change.kind==='added' ? '新增模型' : change.kind==='removed' ? '移除模型' : change.kind==='pricing' ? '计价变动' : '站点规则变动'}</Pill></div>
-          {change.details?.length ? <dl className="catalog-change-details">{change.details.map((detail,detailIndex)=><div className="catalog-change-detail" key={detailIndex}>
-            <dt>{detail.label}</dt>
-            {(detail.before!==undefined || detail.after!==undefined) && <dd className="catalog-change-values"><span className="catalog-change-before">{detail.before ?? '未公布 / 已移除'}</span><span aria-label="变更为">→</span><span className="catalog-change-after">{detail.after ?? '未公布 / 已移除'}</span></dd>}
-            {detail.note && <dd className="catalog-change-note">{detail.note}</dd>}
-            {detail.formula && <dd><details className="catalog-change-formula"><summary>展开公式与条件对比</summary><div><span>原规则</span><code>{detail.formula.before ?? '未公布 / 已移除'}</code></div><div><span>新规则</span><code>{detail.formula.after ?? '未公布 / 已移除'}</code></div></details></dd>}
-          </div>)}</dl> : change.fields.length>0 && <p className="catalog-change-legacy"><span>{change.fields.map(field=>CATALOG_CHANGE_LABELS[field]).join('、')}已变更。</span><span>此历史记录未保存价格值，无法还原旧价。</span></p>}
-        </li>)}</ul>
-      </section>)}</div>
+    <PopupPresence>{open && <Modal className="catalog-changes-modal models-market" title="模型目录变动" subtitle="最近 20 次更新 · 每个模型一张卡片，变动项目以颜色和旧 → 新标出。" onClose={()=>setOpen(false)}>
+      <p className="catalog-change-price-note"><span><i className="change-dot added"/>新增</span><span><i className="change-dot changed"/>修改</span><span><i className="change-dot removed"/>移除</span><small>价格为检测时刻的基础价；渠道倍率单列。</small></p>
+      <div className="catalog-change-history">{events.map((event,index)=><details className="catalog-change-event" key={event.id} open={!event.read || index===0}>
+        <summary className="catalog-change-event-heading"><time dateTime={new Date(event.detectedAt).toISOString()}>{new Date(event.detectedAt).toLocaleString('zh-CN',{hour12:false})}</time><Pill tone={event.read ? 'muted' : 'orange'}>{event.read ? '已读' : '未读'}</Pill><span>{event.changes.length} 张变动卡片</span>{!event.read && <button className="text-link" onClick={e=>{e.preventDefault();e.stopPropagation();onRead([event.id]);}}>标为已读</button>}</summary>
+        <div className="catalog-change-grid">{event.changes.map((change,index)=><CatalogChangeCard change={change} key={index}/>)}</div>
+      </details>)}</div>
       <div className="modal-actions">{pending>0 && <Button onClick={()=>onRead()}><Check size={14}/>全部标为已读</Button>}<Button onClick={()=>setOpen(false)}>关闭</Button></div>
-    </Modal>}</ModalPresence>
+    </Modal>}</PopupPresence>
   </>;
 }
 
@@ -102,6 +96,7 @@ function ModelGrid({models,filterGroup,onDetails,snapshot}:{models:ModelInfo[];f
 
 function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;filterGroup:string;snapshot:CatalogSnapshot;onDetails(model:ModelInfo):void}) {
   const {preferences,updatePreferences,configureModel,toast}=useApp();
+  const tools=useToolConfigViews();
   const [savedGroup,setGroup]=useSavedSelection<string>(modelSelectionKey(m.model_name,'group'),'');
   const [priceKey,setPriceKey]=useSavedSelection<string>(modelSelectionKey(m.model_name,'price'),'');
   const [modeKey,setModeKey]=useSavedSelection<string>(modelSelectionKey(m.model_name,'mode'),'');
@@ -111,11 +106,10 @@ function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;f
   const variant=m.billing_plugin_variants?.find(v=>'plugin:'+v.plugin_key===choice?.sourceKey),rules=publishedRequestPricing(variant ? {...m,...variant,billing_mode:variant.billing_mode || 'tiered_expr'} : m).rules,mode=rules.find(rule=>rule.condition===modeKey);
   const favorite=preferences.favoriteModels.includes(m.model_name);
   async function toggleFavorite(){try{await updatePreferences({favoriteModels:favorite ? preferences.favoriteModels.filter(n=>n!==m.model_name) : [...preferences.favoriteModels,m.model_name]});}catch(e:any){toast(e.message,'error');}}
-  return <article className="surface model-card">
-    <div className="model-card-top"><ProviderIcon vendor={m.vendor} modelName={m.model_name} size={32}/><div className="model-card-heading"><h3 title={m.model_name}>{m.model_name}</h3><span>{m.vendor || '其他'}</span></div><div className="model-card-actions">
+  return <ModelCardFrame name={m.model_name} vendor={m.vendor} actions={<>
       <button className={'icon-button star-button '+(favorite ? 'starred' : '')} aria-label={(favorite ? '取消收藏 ' : '收藏 ')+m.model_name} onClick={toggleFavorite}><Star size={16} fill={favorite ? 'currentColor' : 'none'}/></button>
       {choices.length>1 && <button type="button" className="pricing-state-button" aria-label={m.model_name+' 定价档位：'+choice?.label} title={'切换至 '+choices[(index+1)%choices.length].label} onClick={()=>setPriceKey(choices[(index+1)%choices.length].key)}><Repeat2 size={12}/>{choice?.label}</button>}
-    </div></div>
+    </>}>
     <p className="model-description" title={m.description}>{m.description || '站点可用模型。单价与计费条件由站点提供。'}</p>
     {String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).length>0 && <div className="model-tags">{String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).map(t=><Pill tone="muted" key={t}>{t}</Pill>)}</div>}
     <Health health={d.health?.models.find(h=>h.model_name===m.model_name)} error={d.healthError} windowEnd={d.health?.window_end}/>
@@ -127,8 +121,8 @@ function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;f
     {ratio===undefined ? <p className="price-caption">{displayGroup==='auto' ? '自动路由价格随实际渠道变化' : displayGroup ? '倍率未公布' : '暂无可用渠道'}</p> : <div className="model-published-prices">{choice?.sourceName && <p className="model-price-condition">{choice.sourceName}</p>}{choice?.section ? <PriceTable model={choice.model} status={d.status} ratio={ratio*(mode?.multiplier ?? 1)} rows={choice.section.rows}/> : <p className="price-caption">站点规则定价 · 详见定价详情</p>}</div>}
     <div className="model-card-price-actions"><button className="model-price-action" onClick={()=>onDetails(m)}><SlidersHorizontal size={13}/>详细定价<ArrowUpRight size={13}/></button></div>
     {choice && <PricingTimeInfo choice={choice}/>}
-    <div className="model-card-bottom"><span>{routes.length} 个可用渠道</span><div><button aria-label={'在 Codex 中配置 '+m.model_name} title="配置 Codex" onClick={()=>configureModel(m.model_name,'codex',displayGroup)}><ToolIcon tool="codex" size={21}/></button><button aria-label={'在 Claude Code 中配置 '+m.model_name} title="配置 Claude Code" onClick={()=>configureModel(m.model_name,'claude',displayGroup)}><ToolIcon tool="claude" size={21}/></button></div></div>
-  </article>;
+    <div className="model-card-bottom"><span>{routes.length} 个可用渠道</span><div>{tools.map(tool=><button key={tool.tool} aria-label={'在 '+tool.label+' 中配置 '+m.model_name} title={'配置 '+tool.label} onClick={()=>configureModel(m.model_name,tool.tool,displayGroup)}><ToolIcon tool={tool.tool} size={21}/></button>)}</div></div>
+  </ModelCardFrame>;
 }
 
 export default function Models(){
@@ -156,6 +150,6 @@ export default function Models(){
     <div className="vendor-tabs"><button className={vendor==='all' ? 'active' : ''} onClick={()=>setVendor('all')}>全部模型<span>{d.catalog.models.length}</span></button>{vendors.map(v=><button key={v} className={vendor===v ? 'active' : ''} onClick={()=>setVendor(v)}>{v}<span>{d.catalog.models.filter(m=>m.vendor===v).length}</span></button>)}<span className="results-label">{models.length} 个结果</span></div>
     <MotionSwap identity={JSON.stringify([vendor,group,favoritesOnly,query,models.map(m=>m.model_name)])}>{models.length ? <ModelGrid models={models} snapshot={d} filterGroup={group} onDetails={setPricingModel}/> : <Empty title="没有找到模型" description="尝试调整关键词、提供商或渠道。" action={<Button onClick={reset}>重置筛选</Button>}/>}</MotionSwap>
     <div className="info-note"><Info size={15}/><span>首次显示最低价渠道；上下文档位和 Fast 等请求条件可分别切换，选择按站点保存。单价包含所选分组、当前时间与请求条件倍率；条件同时命中时按规则叠乘。健康度为最近 24 小时全部渠道统计，完整档位与条件见详细定价。</span></div>
-    <ModalPresence>{pricingModel && <PricingDetailsModal key={pricingModel.model_name} snapshot={d} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}</ModalPresence>
+    <PopupPresence>{pricingModel && <PricingDetailsModal key={pricingModel.model_name} snapshot={d} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}</PopupPresence>
   </div>;
 }

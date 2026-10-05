@@ -115,7 +115,7 @@ async function start() {
   const surfaceTheme=new SurfaceThemeState(()=>({interfaceId:readInterfaceId(),mode:resolvedTheme(),appearanceKey:readAppearanceKey()})),surfaceThemeListeners=new Set<()=>void>();
   const notifySurfaceTheme=()=>surfaceThemeListeners.forEach(listener=>listener());
   let plugins:Awaited<ReturnType<typeof createBuiltinPlugins>>;
-  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();},desktop:{
+  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();if(id==='adapter.tool.codex')configs.invalidatePreviews('codex');if(id==='adapter.tool.claude')configs.invalidatePreviews('claude');},desktop:{
     root,preloadDirectory:__dirname,devUrl:process.env.LUMI_DEV_URL,platform:process.platform,packaged:app.isPackaged,resourcesPath:process.resourcesPath,smoke:process.env.LUMI_SMOKE==='1',
     preferences:()=>store.preferences,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');},
     theme:resolvedTheme,palette:()=>surfaceTheme.palette(),
@@ -190,8 +190,8 @@ async function start() {
   handle('appCache',noPayload,()=>appCache.snapshot());
   handle('clearAppCache',noPayload,()=>updates.withCacheMaintenance(()=>appCache.clear()));
   handle('inspectConfigs',noPayload,()=>configs.inspect());
-  handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force));
-  handle('installTool',toolSchema,tool=>plugins.runFeature('feature.tool-config',()=>runtimes.install(tool)));
+  handle('toolRuntimes',z.boolean().optional(),force=>runtimes.inspect(force,(['codex','claude'] as const).filter(tool=>plugins.isEnabled('adapter.tool.'+tool))));
+  handle('installTool',toolSchema,tool=>plugins.runFeature('adapter.tool.'+tool,()=>plugins.runFeature('feature.tool-config',()=>runtimes.install(tool))));
   handle('saveSite', siteSchema, async input => {const p=await store.saveSite(input as SiteInput);updatePanels();return p;});
   handle('loginInfo', noPayload, () => accountApi.loginInfo());
   handle('login', z.object({ username:z.string().trim().min(1).max(100),password:z.string().min(1).max(1024),turnstileToken:z.string().max(4096).optional() }).strict(), input => plugins.runFeature('provider.newapi',()=>accountApi.login(input)));
@@ -231,7 +231,7 @@ async function start() {
   handle('localSessionContent',snapshotPageSchema.extend({pageSize:z.number().int().min(1).max(20),recordId:z.string().min(1).max(200).optional()}),input=>usage.localSessionContent(input));
   handle('localSessionRaw',z.object({snapshotId:z.string().uuid(),eventId:z.string().regex(/^[1-9]\d{0,15}$/),offset:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)}).strict(),input=>usage.localSessionRaw(input));
   handle('releaseLocalSession',z.object({requestId:z.string().uuid().optional(),snapshotId:z.string().uuid().optional()}).strict().refine(value=>!!(value.requestId || value.snapshotId)),input=>usage.releaseLocalSession(input));
-  handle('previewConfig', configSchema, req => plugins.runFeature('provider.newapi',()=>configs.preview(req as ConfigRequest)));
+  handle('previewConfig', configSchema, req => plugins.runFeature('adapter.tool.'+req.tool,()=>plugins.runFeature('provider.newapi',()=>configs.preview(req as ConfigRequest))));
   handle('applyConfig', z.string().uuid(), id => plugins.runFeature('provider.newapi',()=>configs.apply(id)));
   handle('backups', noPayload, () => configs.backups());
   handle('restoreBackup', z.string().uuid(), id => plugins.runFeature('feature.tool-config',()=>configs.restore(id)));
@@ -289,11 +289,23 @@ async function start() {
         const localTools=Array.isArray(await window.lumi.inspectConfigs());
         await window.lumi.setPluginEnabled('provider.newapi',true);
         const restartedCatalog=await window.lumi.readCatalog(catalogInput);
+        await window.lumi.setPluginEnabled('adapter.tool.codex',false);
+        const independentTool=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='adapter.tool.claude' && s.state==='active');
+        await window.lumi.setPluginEnabled('adapter.tool.claude',false);
+        const stoppedTools=await window.lumi.listPlugins(),savedTools=(await window.lumi.bootstrap()).preferences.pluginEnabled;
+        let toolCommandsRejected=true;
+        for(const tool of ['codex','claude']){
+          try{await window.lumi.installTool(tool);toolCommandsRejected=false;}catch(error){toolCommandsRejected &&=error.message.includes('未启用');}
+          try{await window.lumi.previewConfig({tool,model:'fixture',group:'default'});toolCommandsRejected=false;}catch(error){toolCommandsRejected &&=error.message.includes('未启用');}
+        }
+        const toolAdaptersValid=independentTool && stoppedTools.some(s=>s.manifest.id==='feature.tool-config' && s.state==='active') && savedTools['adapter.tool.codex']===false && savedTools['adapter.tool.claude']===false && toolCommandsRejected && (await window.lumi.toolRuntimes()).length===0;
+        await window.lumi.setPluginEnabled('adapter.tool.codex',true);
+        await window.lumi.setPluginEnabled('adapter.tool.claude',true);
         await window.lumi.setPluginEnabled('surface.tray',false);
         const trayDisabled=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='surface.tray' && s.state==='disabled');
         await window.lumi.setPluginEnabled('surface.tray',true);
         let invalidCodex=false,noCodex=false;try{await window.lumi.readCodexUsage({path:'../auth.json'});}catch{invalidCodex=true;}try{await window.lumi.readCodexUsage({});}catch{noCodex=true;}
-        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===4;
+        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && toolAdaptersValid && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===6;
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});

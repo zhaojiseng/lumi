@@ -1085,48 +1085,6 @@ h1,h2,h3,h4 {
   }
 }
 
-.section-title-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1px;
-  margin-bottom: -6px;
-}
-
-.section-title-row h3 {
-  font-size: 12px;
-  font-weight: 550;
-  color: var(--text);
-}
-
-.section-title-row h3 span {
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 1.2px;
-  color: var(--text);
-  margin-left: 13px;
-}
-
-.tools-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 16px;
-}
-
-.tool-summary {
-  text-align: left;
-  border-radius: 14px;
-  padding: 17px 18px;
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  transition: background .2s;
-}
-
-.tool-summary:hover {
-  background: var(--hover);
-}
-
 .tool-icon {
   display: flex;
   align-items: center;
@@ -1147,20 +1105,6 @@ h1,h2,h3,h4 {
   border: 1px solid var(--border);
 }
 
-.tool-summary-name {
-  flex: 1;
-  min-width: 0;
-}
-
-.tool-summary h3 {
-  font-size: 12px;
-  font-weight: 550;
-  color: var(--text);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .connection-dot {
   display: inline-block;
   width: 4px;
@@ -1171,34 +1115,6 @@ h1,h2,h3,h4 {
 
 .connection-dot.inactive {
   background: var(--text-muted);
-}
-
-.tool-summary p {
-  font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tool-summary-cost {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-  margin-right: 7px;
-}
-
-.tool-summary-cost strong {
-  font-size: 15px;
-  color: var(--text);
-  font-weight: 500;
-}
-
-.tool-summary-cost span {
-  font-size: 11px;
-  color: var(--text-secondary);
 }
 
 .recent-panel {
@@ -3082,10 +2998,6 @@ h1,h2,h3,h4 {
     font-size: 14px;
   }
 
-  .section-title-row h3 span {
-    display: none;
-  }
-
   .tool-config-card {
     padding: 21px;
   }
@@ -3252,14 +3164,6 @@ h1,h2,h3,h4 {
 }
 
 .model-cell>div:last-child>span {
-  font-size: 11px;
-}
-
-.tool-summary p {
-  font-size: 10px;
-}
-
-.tool-summary-cost span {
   font-size: 11px;
 }
 

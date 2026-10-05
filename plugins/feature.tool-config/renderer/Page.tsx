@@ -1,4 +1,4 @@
-import {ModalPresence} from '../../../src/components/ModalPresence';
+import {PopupPresence} from '../../../src/components/PopupPresence';
 import {useEffect,useRef,useState} from 'react';
 import {ArrowRight,Check,FileCode2,History,Info,Eye,RotateCcw,KeyRound,CircleAlert,Download,RefreshCw,ChevronDown,Loader2} from 'lucide-react';
 import {useApp} from '../../../src/context';
@@ -68,7 +68,7 @@ function ToolForm({definition,tool,onPreview,runtime,chatgpt,onInstall,onDetect,
       <div className="endpoint-display"><span>接口地址</span><code>{site.url}{definition.endpointSuffix}</code></div><Button type="submit" variant="primary" busy={!!pending} className="full-width" disabled={locked || !selected || !group || !bootstrap.desktop}><Eye size={16}/>自动配钥并预览<ArrowRight size={15}/></Button>
     </form>}
     <ConfigFeedback pending={pending} error={error}/>
-    <ModalPresence>{keyInfo && <Modal title="自动使用专用密钥" subtitle={definition.label} onClose={()=>setKeyInfo(false)}><p className="key-info-copy">复用工具专用密钥，没有时自动创建。切换渠道时，预览操作会更新同一令牌的渠道，密钥保持不变；名称不包含渠道。额度随账户余额。</p><code className="key-info-token">{expected}</code><p className="muted">应用前可预览变更，原始配置会自动加密备份。</p><div className="modal-actions"><Button variant="primary" onClick={()=>setKeyInfo(false)}>知道了</Button></div></Modal>}</ModalPresence>
+    <PopupPresence>{keyInfo && <Modal title="自动使用专用密钥" subtitle={definition.label} onClose={()=>setKeyInfo(false)}><p className="key-info-copy">复用工具专用密钥，没有时自动创建。切换渠道时，预览操作会更新同一令牌的渠道，密钥保持不变；名称不包含渠道。额度随账户余额。</p><code className="key-info-token">{expected}</code><p className="muted">应用前可预览变更，原始配置会自动加密备份。</p><div className="modal-actions"><Button variant="primary" onClick={()=>setKeyInfo(false)}>知道了</Button></div></Modal>}</PopupPresence>
   </section>;
 }
 export default function Tools() {
@@ -95,24 +95,30 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
   const mounted=useRef(false),lifetime=useRef(0),runtimeRequest=useRef(0);
   const syncVersion=useRef(0);
   const operation=useRef<ConfigOperation|null>(null),historyRequest=useRef(false);
+  const withdrawnOperations=useRef(new WeakSet<ConfigOperation>());
   const installs=useRef(new Set<Tool>());
+  const enabledTools=useRef(definitions.map(definition=>definition.tool));
+  enabledTools.current=definitions.map(definition=>definition.tool);
+  const toolScope=enabledTools.current.join(',');
   const busy=!!pending,locked=busy || waitingForPrevious || historyLoading || !!preview || !!restore || history;
   const currentFile=preview?.files[fileIndex];
   const alive=(session:number)=>mounted.current && lifetime.current===session;
-  const current=(request:ConfigOperation)=>mounted.current && operation.current===request;
+  const current=(request:ConfigOperation)=>mounted.current && operation.current===request && !withdrawnOperations.current.has(request) && enabledTools.current.includes(request.tool);
+  const runtimeEnabled=(tool:ToolRuntimeState['tool'])=>enabledTools.current.includes(tool==='chatgpt' ? 'codex' : tool);
   const message=(e:unknown,fallback:string)=>e && typeof e==='object' && 'message' in e && typeof e.message==='string' && e.message ? e.message : fallback;
 
   async function detect(force=false) {
-    const session=lifetime.current,request=++runtimeRequest.current;
-    try{const states=await bridge.toolRuntimes(force);if(alive(session) && request===runtimeRequest.current)setRuntimes(states);}
-    catch(e){if(alive(session) && request===runtimeRequest.current)toast(message(e,'工具检测失败。'),'error');}
+    const session=lifetime.current,request=++runtimeRequest.current,scope=enabledTools.current.join(',');
+    if(!scope){setRuntimes([]);return;}
+    const fresh=()=>alive(session) && request===runtimeRequest.current && scope===enabledTools.current.join(',');
+    try{const states=await bridge.toolRuntimes(force);if(fresh())setRuntimes(states.filter(state=>runtimeEnabled(state.tool)));}
+    catch(e){if(fresh())toast(message(e,'工具检测失败。'),'error');}
   }
   useEffect(()=>{
     mounted.current=true;lifetime.current++;
     const updateLock=()=>{if(mounted.current)setWaitingForPrevious(!!inFlight && inFlight!==operation.current);};
     operationListeners.add(updateLock);updateLock();
-    void detect();
-    const stopRuntime=bridge.onToolRuntime(state=>{if(mounted.current)setRuntimes(states=>[...states.filter(r=>r.tool!==state.tool),state]);});
+    const stopRuntime=bridge.onToolRuntime(state=>{if(mounted.current && runtimeEnabled(state.tool))setRuntimes(states=>[...states.filter(r=>r.tool!==state.tool),state]);});
     const stopProgress=bridge.onConfigProgress?.(progress=>{
       const request=operation.current;
       if(!request || !current(request) || progress.tool!==request.tool || progress.operation!==request.operation)return;
@@ -122,6 +128,15 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     const focus=()=>void detect();window.addEventListener('focus',focus);
     return()=>{mounted.current=false;lifetime.current++;operation.current=null;historyRequest.current=false;installs.current.clear();operationListeners.delete(updateLock);stopRuntime();stopProgress?.();window.removeEventListener('focus',focus);};
   },[]);
+  useEffect(()=>{
+    // Withdrawing one tool does not reset the other tool's form or saved options.
+    if(operation.current && !enabledTools.current.includes(operation.current.tool))withdrawnOperations.current.add(operation.current);
+    setPreview(value=>value && !enabledTools.current.includes(value.tool) ? null : value);
+    setRestore(value=>value && !enabledTools.current.includes(value.tool) ? null : value);
+    setError(value=>value && !enabledTools.current.includes(value.tool) ? null : value);
+    setRuntimes(states=>states.filter(state=>runtimeEnabled(state.tool)));
+    void detect();
+  },[toolScope]);
 
   async function install(tool:Tool) {
     if(!mounted.current || locked || inFlight || historyRequest.current || installs.current.has(tool))return;
@@ -136,11 +151,11 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
   }
   function begin(tool:Tool,kind:ConfigProgress['operation']) {
     // The ref takes the lock synchronously, before React renders disabled buttons.
-    if(!mounted.current || inFlight || operation.current || historyRequest.current)return null;
+    if(!mounted.current || inFlight || operation.current || historyRequest.current || !enabledTools.current.includes(tool))return null;
     const request:ConfigOperation={tool,operation:kind};operation.current=request;inFlight=request;notifyOperation();syncVersion.current++;setSyncNote('');setPending(request);setError(null);return request;
   }
   function finish(request:ConfigOperation) {
-    if(current(request)){operation.current=null;setPending(null);}
+    if(mounted.current && operation.current===request){operation.current=null;setPending(null);}
     if(inFlight===request){inFlight=null;notifyOperation();}
   }
   function fail(request:ConfigOperation,e:unknown) {
@@ -191,10 +206,10 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     <PageIntro title="让工具，顺手起来" description="检测安装与版本，选择模型和渠道，预览后应用。" action={<Button busy={historyLoading} disabled={locked} onClick={openHistory}><History size={16}/>配置备份</Button>}/>
     {waitingForPrevious && <p className="muted small-text" role="status">上一项工具配置操作仍在处理中，请稍候。</p>}
     <div className="tools-config-grid">{definitions.map(definition=><ToolForm key={`${definition.tool}-${preferences.activeSiteId}`} definition={definition} tool={definition.tool} config={configs?.find(s=>s.tool===definition.tool)} locked={locked} pending={pending?.tool===definition.tool && pending.operation==='preview' ? pending : undefined} error={error?.tool===definition.tool && error.operation==='preview' ? error.message : undefined} onPreview={previewConfig} runtime={runtimes.find(r=>r.tool===definition.tool)} chatgpt={runtimes.find(r=>r.tool==='chatgpt')} onInstall={tool=>void install(tool)} onDetect={()=>void detect(true)}/>)}</div>
-    {!definitions.length && <p className="muted" role="status">暂无可用工具适配器。</p>}
+    {!definitions.length && <p className="muted" role="status">暂无启用的工具配置插件，请在设置的“工具配置”分组中启用。</p>}
     {syncNote && <p className="muted small-text" role="status">{syncNote}</p>}
     <div className="info-note"><Info size={15}/><span>设置中的环境变量只写入工具配置文件。系统或项目级环境变量可能覆盖这些设置；应用后请重启 Codex / Claude Code。与 CC Switch 同时切换配置时，请重新检查预览。</span></div>
-    <ModalPresence>{preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={()=>{if(!operation.current)setPreview(null);}}>
+    <PopupPresence>{preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={()=>{if(!operation.current)setPreview(null);}}>
       <div className="preview-token"><KeyRound size={16}/><span>{preview.token?.created ? '已创建' : '已复用'}专用令牌 <strong>{preview.token?.name}</strong> · {preview.token?.group}</span></div>
       <div className="preview-changes">{preview.changes.map((s,i)=><div key={i}><Check size={14}/><span>{s}</span></div>)}</div>
       {preview.tool==='codex' && <p className="muted small-text">相关历史对话会在应用时检查并同步。</p>}
@@ -202,12 +217,12 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
       {currentFile && <><p className="preview-path">{currentFile.path}</p><pre className="code-preview">{currentFile[view]}</pre></>}
       <ConfigFeedback pending={pending?.operation==='apply' ? pending : null} error={error?.operation==='apply' ? error.message : undefined}/>
       <div className="modal-actions"><span className="muted small-text">原配置会在写入前自动加密备份</span><Button onClick={()=>{if(!operation.current)setPreview(null);}} disabled={busy}>取消</Button><Button variant="primary" busy={busy} onClick={apply} disabled={busy || !bootstrap.desktop || !preview.files.length}><Check size={16}/>备份并应用</Button></div>
-    </Modal>}</ModalPresence>
-    <ModalPresence>{history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={()=>setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b=><div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{toolName(b.tool)}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button disabled={busy || !bootstrap.desktop} onClick={()=>{if(operation.current)return;setHistory(false);setError(null);setRestore(b);}}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}</ModalPresence>
-    <ModalPresence>{restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={()=>{if(!operation.current)setRestore(null);}}>
+    </Modal>}</PopupPresence>
+    <PopupPresence>{history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={()=>setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b=><div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{toolName(b.tool)}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button disabled={busy || !bootstrap.desktop || !enabledTools.current.includes(b.tool)} title={!enabledTools.current.includes(b.tool) ? '请先在设置中启用此工具配置插件' : undefined} onClick={()=>{if(operation.current || !enabledTools.current.includes(b.tool))return;setHistory(false);setError(null);setRestore(b);}}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}</PopupPresence>
+    <PopupPresence>{restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={()=>{if(!operation.current)setRestore(null);}}>
       <div className="info-note"><Info size={16}/><span>恢复会修改 {toolName(restore.tool)} 的本机配置，并先备份当前文件。若文件被其他程序修改，本次恢复将停止。</span></div>
       <ConfigFeedback pending={pending?.operation==='restore' ? pending : null} error={error?.operation==='restore' ? error.message : undefined}/>
       <div className="modal-actions"><Button disabled={busy} onClick={()=>{if(!operation.current)setRestore(null);}}>取消</Button><Button busy={busy} disabled={busy || !bootstrap.desktop} variant="primary" onClick={doRestore}><RotateCcw size={15}/>备份并恢复</Button></div>
-    </Modal>}</ModalPresence>
+    </Modal>}</PopupPresence>
   </div>;
 }

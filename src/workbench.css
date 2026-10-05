@@ -10,11 +10,11 @@
   background: rgba(18,29,24,.42);
 }
 
-.brand-row strong,.stat-number,.stat-number small,.tool-summary h3,.tool-config-heading h2,.model-card h3,.model-cell strong,.money-cell,.chart-topline strong,.donut-label strong,.billing-total strong,.billing-tool strong,.token-overview-card strong,.modal-heading h2,.empty-state h3,.site-row-info strong {
+.brand-row strong,.stat-number,.stat-number small,.tool-config-heading h2,.model-card h3,.model-cell strong,.money-cell,.chart-topline strong,.donut-label strong,.billing-total strong,.billing-tool strong,.token-overview-card strong,.modal-heading h2,.empty-state h3,.site-row-info strong {
   color: var(--text)!important;
 }
 
-.page-intro p,.model-description,.model-card-top>span:not(.brand-icon),.model-pricing span,.model-pricing small,.model-card-bottom>span,.stat-top,.stat-bottom,.section-heading p,.chart-note,.chart-topline span,.model-legend,.tool-summary p,.tool-summary-cost span,.sidebar-tip p,.sidebar-tip h4,.brand-row p,.sidebar-site,.sidebar-status,.app-statusbar,.breadcrumb,.field-help,.field-label>span,.info-note,.current-config>span,.current-config code,.endpoint-display,.setting-control p,.theme-options button>span,.site-row-info>span,.site-row-info>div>span,.page-footer,.muted,.preview-changes,.modal-heading p,.empty-state p,.eyebrow,.results-label,.data-table td,.data-table th,.sidebar-caption,.nav-item,.nav-shortcut,.nav-count,.nav-item:hover {
+.page-intro p,.model-description,.model-card-top>span:not(.brand-icon),.model-pricing span,.model-pricing small,.model-card-bottom>span,.stat-top,.stat-bottom,.section-heading p,.chart-note,.chart-topline span,.model-legend,.sidebar-tip p,.sidebar-tip h4,.brand-row p,.sidebar-site,.sidebar-status,.app-statusbar,.breadcrumb,.field-help,.field-label>span,.info-note,.current-config>span,.current-config code,.endpoint-display,.setting-control p,.theme-options button>span,.site-row-info>span,.site-row-info>div>span,.page-footer,.muted,.preview-changes,.modal-heading p,.empty-state p,.eyebrow,.results-label,.data-table td,.data-table th,.sidebar-caption,.nav-item,.nav-shortcut,.nav-count,.nav-item:hover {
   color: var(--text-secondary)!important;
 }
 
@@ -602,7 +602,7 @@
   }
 }
 
-.model-pricing strong,.tool-summary-cost strong,.setting-control strong,.safety-panel h3,.token-help h3,.about-panel h3,.site-row-info strong,.billing-total>span,.billing-tool>div>span {
+.model-pricing strong,.setting-control strong,.safety-panel h3,.token-help h3,.about-panel h3,.site-row-info strong,.billing-total>span,.billing-tool>div>span {
   color: var(--text)!important;
 }
 

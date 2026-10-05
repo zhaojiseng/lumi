@@ -11,7 +11,7 @@ const status={system_name:'Fixture',quota_per_unit:500000,quota_display_type:'US
 const model:ModelInfo={model_name:'gpt-fixture',quota_type:0,model_ratio:1.5,model_price:0,completion_ratio:5,cache_ratio:.1,create_cache_ratio:1.25,enable_groups:['default'],supported_endpoint_types:[]};
 const log:UsageLog={id:1,created_at:1,type:2,model_name:'gpt-fixture',token_name:'Lumi-Codex',prompt_tokens:1500,completion_tokens:1200,quota:500000,use_time:4,is_stream:true,group:'standard'};
 test('request cache fields preserve zero, merge real breakdowns once, and do not duplicate the aggregate',() => {
- assert.deepEqual(logMetrics({...log,other:JSON.stringify({cache_tokens:0,cache_creation_tokens:200,cache_creation_tokens_5m:100,cache_creation_tokens_1h:150,frt:750})}),{cacheRead:0,cacheWrite:250,speed:300,firstTokenMs:750});
+ assert.deepEqual(logMetrics({...log,other:JSON.stringify({cache_tokens:0,cache_creation_tokens:200,cache_creation_tokens_5m:100,cache_creation_tokens_1h:150,frt:750})}),{cacheRead:0,cacheWrite:250,speed:300,netSpeed:1200/3.25,firstTokenMs:750});
  assert.equal(logMetrics({...log,other:JSON.stringify({cache_creation_tokens:200})}).cacheWrite,200);
  assert.equal(logMetrics({...log,other:JSON.stringify({billing_tokens:{cr:30,cc:40,cc1h:50}})}).cacheWrite,90);
  assert.equal(logMetrics({...log,other:JSON.stringify({cache_creation_tokens_5m:0,cache_creation_tokens_1h:0})}).cacheWrite,0);
@@ -60,6 +60,7 @@ test('CSV keeps cache, speed and upstream fields regardless of table column pref
 test('CSV includes reported reasoning effort and leaves unavailable effort blank',()=>{
  const csv=logsToCsv([{...log,other:'{"reasoning_effort":"high"}'},{...log,id:2,other:undefined}],status);
  assert.match(csv,/思考强度/);
- assert.ok(csv.split('\r\n')[1].endsWith(',"high"'));
- assert.ok(csv.split('\r\n')[2].endsWith(',""'));
+ const rows=csv.split('\r\n');
+ assert.ok(rows[1].endsWith(',"high","",""'));
+ assert.ok(rows[2].endsWith(',"","",""'));
 });

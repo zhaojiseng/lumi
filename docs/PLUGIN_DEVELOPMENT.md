@@ -517,6 +517,8 @@ extension.author.layout/
 
 宿主包装为 `@scope (.desktop-shell[data-interface="<插件ID>"])`。`:scope` 指向外壳，不能用 `:root`、html 或 body 改全局文档。功能 iframe 的内容有独立样式，主窗口 CSS 不会进入其中。
 
+Lumi 0.5.6 将主窗口弹出界面统一挂载到该外壳内。对话框保留 `.modal-overlay` / `.modal`，筛选浮层保留 `.multi-popover`；公共层提供 `data-popup-kind="dialog"` / `"popover"` 与 `data-popup-phase="open"` / `"exiting"`。界面包可沿用这些类和属性设置背景、边框与阴影，显示层级、关闭交互和退出生命周期由宿主管理。需要虚化弹窗背后的页面时，将 `backdrop-filter` 放在遮罩的伪元素上，保持伪元素不接收点击，避免给弹窗内容使用 `filter`；全屏遮罩本身不要设置会改变固定定位包含块的滤镜。
+
 ### preview.html：实时预览模板
 
 外观缩略图由宿主将当前插件 CSS、浅/深模式和外观组选择应用到独立预览文档生成。没有 `preview` 时自动使用系统示例布局，缩略图也会跟随当前插件配色和布局；不再显示固定绿色图片。“跟随系统”缩略图显示当前系统实际模式。

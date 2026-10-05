@@ -1,5 +1,5 @@
 import type {ModelCatalog,ModelInfo,SiteStatus} from './types';
-import {catalogPricingDetails,modelPricingDetails,publicCatalogPricing,publicModelPricing,readCatalogChangeDetails,readPublicCatalogPricing,readPublicModelPricing,type CatalogChangeDetail,type PublicCatalogPricing,type PublicModelPricing} from './catalog-change-details';
+import {catalogPricingDetails,catalogPriceDisplay,modelListingDetails,modelPricingDetails,publicCatalogPricing,publicModelPricing,readCatalogChangeDetails,readCatalogChangePricing,readPublicCatalogPricing,readPublicModelPricing,type CatalogChangeDetail,type CatalogChangePricing,type PublicCatalogPricing,type PublicModelPricing} from './catalog-change-details';
 
 export const CATALOG_CHANGES_KEY = 'lumi.models.catalog-changes.v1';
 export const CATALOG_CHANGES_EVENT = 'lumi:catalog-changes';
@@ -31,6 +31,8 @@ export interface CatalogChange {
   fields:CatalogChangeField[];
   details?:CatalogChangeDetail[];
   detailsHash?:string;
+  pricing?:CatalogChangePricing;
+  pricingHash?:string;
 }
 export interface CatalogChangeEvent {id:string;detectedAt:number;read:boolean;changes:CatalogChange[];}
 export interface CatalogChangeState {version:1|2;revision:number;baseline:CatalogSnapshot;events:CatalogChangeEvent[];}
@@ -120,13 +122,14 @@ export function diffCatalogSnapshots(before:CatalogSnapshot,after:CatalogSnapsho
   const changes:CatalogChange[]=[];
   for(const model of after.models) {
     const old=previous.get(model.name);
-    if(!old)changes.push({kind:'added',modelName:model.name,fields:[]});
+    if(!old){const details=model.pricing && after.pricing ? modelListingDetails(model.pricing,after.pricing,detectedAt,'added') : undefined,pricing=model.pricing && after.pricing ? {after:catalogPriceDisplay(model.pricing,after.pricing,detectedAt)} : undefined;changes.push({kind:'added',modelName:model.name,fields:[],...(details ? {details,detailsHash:fingerprint(details)} : {}),...(pricing ? {pricing,pricingHash:fingerprint(pricing)} : {})});}
     else if(old.fingerprint!==model.fingerprint){
       const details=old.pricing && model.pricing && before.pricing && after.pricing ? modelPricingDetails(old.pricing,model.pricing,before.pricing,after.pricing,detectedAt) : undefined;
-      changes.push({kind:'pricing',modelName:model.name,fields:changedFields(old.fields,model.fields,modelFields),...(details ? {details,detailsHash:fingerprint(details)} : {})});
+      const pricing=old.pricing && model.pricing && before.pricing && after.pricing ? {before:catalogPriceDisplay(old.pricing,before.pricing,detectedAt),after:catalogPriceDisplay(model.pricing,after.pricing,detectedAt)} : undefined;
+      changes.push({kind:'pricing',modelName:model.name,fields:changedFields(old.fields,model.fields,modelFields),...(details ? {details,detailsHash:fingerprint(details)} : {}),...(pricing ? {pricing,pricingHash:fingerprint(pricing)} : {})});
     }
   }
-  for(const model of before.models)if(!next.has(model.name))changes.push({kind:'removed',modelName:model.name,fields:[]});
+  for(const model of before.models)if(!next.has(model.name)){const details=model.pricing && before.pricing ? modelListingDetails(model.pricing,before.pricing,detectedAt,'removed') : undefined,pricing=model.pricing && before.pricing ? {before:catalogPriceDisplay(model.pricing,before.pricing,detectedAt)} : undefined;changes.push({kind:'removed',modelName:model.name,fields:[],...(details ? {details,detailsHash:fingerprint(details)} : {}),...(pricing ? {pricing,pricingHash:fingerprint(pricing)} : {})});}
   const fields=changedFields(before.fields,after.fields,catalogFields);
   if(fields.length){const details=before.pricing && after.pricing ? catalogPricingDetails(before.pricing,after.pricing) : undefined;changes.push({kind:'catalog',fields,...(details ? {details,detailsHash:fingerprint(details)} : {})});}
   return changes;
@@ -136,7 +139,7 @@ export function advanceCatalogChanges(state:CatalogChangeState|null,snapshot:Cat
   // v1 hashes still confirm real changes, but cannot reconstruct any old public values.
   const upgrading=state.version===1 || !state.baseline.pricing || state.baseline.models.some(model=>!model.pricing);
   const diff=diffCatalogSnapshots(state.baseline,snapshot,detectedAt);
-  const changes=upgrading ? diff.map(({details,detailsHash,...change})=>change) : diff;
+  const changes=upgrading ? diff.map(({details,detailsHash,pricing,pricingHash,...change})=>change) : diff;
   if(!changes.length)return upgrading ? {version:2,revision:state.revision,baseline:snapshot,events:state.events} : state;
   const revision=state.revision+1;
   const event:CatalogChangeEvent={id:revision+':'+snapshot.fingerprint,detectedAt,read:false,changes};
@@ -195,9 +198,13 @@ function readState(value:unknown):CatalogChangeState|null {
       if((kind==='added' || kind==='removed') ? change.fields.length!==0 : change.fields.length===0)return null;
       if(kind!=='catalog' && (typeof change.modelName!=='string' || !change.modelName || change.modelName.length>500))return null;
       const details=value.version===2 && change.details!==undefined ? readCatalogChangeDetails(change.details) : undefined;
-      if(details===null || details && (kind==='added' || kind==='removed' || change.detailsHash!==fingerprint(details)))return null;
+      if(details===null || details && change.detailsHash!==fingerprint(details))return null;
+      if(details && (kind==='added' && details.some(detail=>detail.before!==undefined || detail.formula?.before!==undefined) || kind==='removed' && details.some(detail=>detail.after!==undefined || detail.formula?.after!==undefined)))return null;
       if(value.version===2 && change.details===undefined && change.detailsHash!==undefined)return null;
-      changes.push({kind,...(kind==='catalog' ? {} : {modelName:change.modelName as string}),fields:change.fields as CatalogChangeField[],...(details ? {details,detailsHash:fingerprint(details)} : {})});
+      const pricing=value.version===2 && change.pricing!==undefined ? readCatalogChangePricing(change.pricing) : undefined;
+      if(pricing===null || pricing && (kind==='catalog' || kind==='added' && (pricing.before || !pricing.after) || kind==='removed' && (pricing.after || !pricing.before) || kind==='pricing' && (!pricing.before || !pricing.after) || change.pricingHash!==fingerprint(pricing)))return null;
+      if(value.version===2 && change.pricing===undefined && change.pricingHash!==undefined)return null;
+      changes.push({kind,...(kind==='catalog' ? {} : {modelName:change.modelName as string}),fields:change.fields as CatalogChangeField[],...(details ? {details,detailsHash:fingerprint(details)} : {}),...(pricing ? {pricing,pricingHash:fingerprint(pricing)} : {})});
     }
     ids.add(event.id);events.push({id:event.id,detectedAt:event.detectedAt,read:event.read,changes});
   }

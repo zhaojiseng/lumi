@@ -18,7 +18,7 @@ export interface ToolBinding {
   tool: Tool; model: string; group: string; tokenName: string; tokenId?: number; siteId: string;
   sonnet?: string; opus?: string; haiku?: string; appliedAt?: number; contextWindow?:number; disableAttributionHeader?:boolean;
 }
-export const LOG_COLUMN_IDS = ['time','model','reasoning','token','input','output','cacheRead','cacheWrite','cost','duration','speed','channel','status','firstToken','group','requestId','stream','tool'] as const;
+export const LOG_COLUMN_IDS = ['time','model','reasoning','token','input','output','cacheRead','cacheWrite','cost','duration','speed','netSpeed','channel','status','firstToken','group','requestId','stream','tool'] as const;
 export type LogColumnId = typeof LOG_COLUMN_IDS[number];
 export const DEFAULT_LOG_COLUMNS: LogColumnId[] = ['time','model','reasoning','token','input','output','cacheRead','cost','duration','speed','channel','status'];
 export const MENU_BAR_SECTION_IDS = ['balance','totals','tokenDetail','efficiency','chart','models'] as const;
@@ -69,14 +69,16 @@ export interface StatisticsQuery { range: RangeQuery; models?: string[]; tokenId
 export type DashboardQuery = RangeQuery | StatisticsQuery;
 export interface LogQuery { range?: RangeQuery; days: number; page: number; pageSize: number; model?: string; tokenName?: string; models?: string[]; tokenIds?: number[]; type?: number; }
 export interface LogPage { items: UsageLog[]; total: number; page: number; pageSize: number; }
-export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; cacheInputTokens?:number; cacheReadTokens?:number; }
+export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; cacheInputTokens?:number; cacheReadTokens?:number; outputTokens?:number; durationSeconds?:number; speedSamples?:number; netOutputTokens?:number; subsequentDurationSeconds?:number; netSpeedSamples?:number; }
 export interface UsageQuality {
   requestCount:number;cacheSamples:number;speedSamples:number;inputTokens:number;cacheReadTokens:number;
   outputTokens:number;durationSeconds:number;cacheHitRate:number|null;averageTokenSpeed:number|null;fetchedAt:number;
+  /** Absent on older snapshots; valid streamed timing samples only. */
+  netSpeedSamples?:number;netOutputTokens?:number;subsequentDurationSeconds?:number;averageNetTokenSpeed?:number|null;
 }
 export interface TokenUsage { points: QuotaPoint[]; quality:UsageQuality; logCount: number; fetchedAt: number; }
 export type TrendGrouping = 'total' | 'model' | 'token';
-export type TrendMetric = 'cost' | 'tokens' | 'requests' | 'cacheHitRate';
+export type TrendMetric = 'cost' | 'tokens' | 'requests' | 'cacheHitRate' | 'speed' | 'netSpeed';
 export interface UpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'verifying' | 'ready' | 'installing' | 'error' | 'unsupported';
   currentVersion: string; version?: string; releaseUrl?: string; checkedAt?: number;

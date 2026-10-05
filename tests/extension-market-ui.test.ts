@@ -30,7 +30,7 @@ const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{
 await until(()=>document.querySelector('.settings-page') && document.querySelector('[aria-label="余额提醒阈值"]'));
 const settings=document.querySelector('.settings-page'),threshold=document.querySelector('[aria-label="余额提醒阈值"]'),scroll=document.querySelector('.content-scroll');
 Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(threshold,'123.4');threshold.dispatchEvent(new Event('input',{bubbles:true}));scroll.scrollTop=80;
-const open=()=>[...document.querySelectorAll('.plugin-settings>.section-heading button')].find(button=>button.textContent.includes('插件市场')).click();open();await until(()=>document.querySelector('.extension-market [role=alert]'));
+const open=()=>[...document.querySelectorAll('.plugin-settings-overview>.section-heading button')].find(button=>button.textContent.includes('插件市场')).click();open();await until(()=>document.querySelector('.extension-market [role=alert]'));
 document.querySelector('.extension-market [role=alert] button').click();await until(()=>document.querySelectorAll('.market-item').length===2);
 const kinds=document.querySelectorAll('.market-kinds button');kinds[2].click();await until(()=>document.querySelectorAll('.market-item').length===1);check(document.querySelector('.market-item').textContent.includes('紧凑界面'),'Interface filter failed');kinds[0].click();
 const search=document.querySelector('[aria-label="搜索插件"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(search,'便笺');search.dispatchEvent(new Event('input',{bubbles:true}));await until(()=>document.querySelectorAll('.market-item').length===1);

@@ -175,7 +175,9 @@ test('preview and apply failures preserve selections and confirmation, release l
   const h=await harness();
   h.bridge.previewConfig=async()=>{throw new Error('专用密钥暂不可用');};
   await h.form().onPreview(request());assert.match(h.html(),/role="alert">专用密钥暂不可用/);assert.equal(h.form().locked,false);
-  assert.match(h.html(),/<option value="gateway.codex-actual"[^>]*selected="">gateway.codex-actual/);
+  const selectedModel=h.html().match(/<option\b(?=[^>]*\bvalue="gateway.codex-actual")(?=[^>]*\bselected="")[^>]*>([\s\S]*?)<\/option>/);
+  assert.ok(selectedModel,'failed preview retains the selected model option');
+  assert.equal(selectedModel[1].replace(/<[^>]*>/g,''),'gateway.codex-actual');
   h.bridge.previewConfig=async()=>previewFor();await h.form().onPreview(request());
   h.bridge.applyConfig=async()=>{throw new Error('文件被其他程序修改');};
   await h.button('备份并应用').onClick();assert.ok(h.modal('确认配置变更'));assert.equal(h.button('取消').disabled,false);

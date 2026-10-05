@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,readFile,writeFile,readdir} from 'node:fs/promises';
 import path from 'node:path';
+import {runInNewContext} from 'node:vm';
+import {transform} from 'esbuild';
 import {ToolRuntimeService,type Command,versionFromOutput,chatGPTStoreVersion} from '../electron/services/tool-runtime';
 
 test('CLI detection prioritizes a discovered tool, reports broken installs and caches simultaneous reads',async()=>{
@@ -59,4 +61,26 @@ test('latest version lookup is cached and failure leaves local versions intact',
   const service=new ToolRuntimeService({directory:'.test-data/unused',platform:'linux',find:async name=>name==='codex' ? '/mock/codex' : undefined,run:async()=>({code:0,stdout:'codex-cli 0.159.1',stderr:''}),latest:async tool=>{calls.push(tool);if(tool==='claude')throw new Error('offline');return tool==='codex' ? '0.159.3' : undefined;}});
   const first=await service.inspect();assert.equal(first.find(r=>r.tool==='codex')?.version,'0.159.1');assert.equal(first.find(r=>r.tool==='codex')?.latestVersion,'0.159.3');assert.equal(first.find(r=>r.tool==='claude')?.latestVersion,undefined);assert.ok(first.every(r=>r.latestCheckedAt));
   await service.inspect();assert.equal(calls.length,3);await service.inspect(true);assert.equal(calls.length,6);service.close();
+});
+
+test('runtime inspection only probes enabled tools and queries ChatGPT with Codex',async()=>{
+  const found:string[]=[],latest:string[]=[],commands:Command[]=[];
+  const service=new ToolRuntimeService({directory:'.test-data/unused',platform:'win32',find:async name=>{found.push(name);return '/mock/'+name+'.exe';},latest:async tool=>{latest.push(tool);return undefined;},run:async command=>{commands.push(command);const script=command.args.includes('-EncodedCommand') ? Buffer.from(command.args.at(-1)!,'base64').toString('utf16le') : '';return {code:0,stdout:script ? '[]' : command.file.endsWith('node.exe') ? 'v24.18.0' : 'tool 1.2.3',stderr:''};}});
+  assert.deepEqual(await service.inspect(true,[]),[]);assert.equal(found.length,0);assert.equal(latest.length,0);assert.equal(commands.length,0,'Empty scope does not read shell paths or spawn probes');
+  const claude=await service.inspect(false,['claude']);assert.deepEqual(claude.map(state=>state.tool),['claude']);assert.ok(found.includes('claude'));assert.ok(!found.includes('codex'));assert.deepEqual(latest,['claude']);assert.ok(!commands.some(command=>command.args.some(argument=>{try{return Buffer.from(argument,'base64').toString('utf16le').includes('Get-AppxPackage');}catch{return false;}})),'Claude does not inspect ChatGPT registration');
+  found.length=0;latest.length=0;commands.length=0;
+  const codex=await service.inspect(true,['codex','codex']);assert.deepEqual(codex.map(state=>state.tool),['codex','chatgpt']);assert.ok(found.includes('codex'));assert.ok(!found.includes('claude'));assert.deepEqual(latest.sort(),['chatgpt','codex']);assert.ok(commands.some(command=>command.args.includes('-EncodedCommand') && Buffer.from(command.args.at(-1)!,'base64').toString('utf16le').includes('Get-AppxPackage')));
+  found.length=0;latest.length=0;commands.length=0;
+  assert.deepEqual(await service.inspect(true,[]),[]);assert.equal(found.length,0);assert.equal(latest.length,0);assert.equal(commands.length,0,'Empty scope avoids fresh and cached tool reads');service.close();
+});
+
+test('main runtime handler derives allowed tools from active adapters without broadening the IPC argument',async()=>{
+  const source=await readFile('electron/main.ts','utf8'),line=source.split(/\r?\n/).find(value=>value.includes("handle('toolRuntimes',"));assert.ok(line);
+  let handler!:(force?:boolean)=>Promise<unknown>;
+  const enabled=new Set(['adapter.tool.claude']),calls:{force?:boolean;tools:string[]}[]=[];
+  const schema={optional:()=>schema};
+  runInNewContext((await transform(line,{loader:'ts'})).code,{z:{boolean:()=>schema},handle:(name:string,received:unknown,callback:typeof handler)=>{assert.equal(name,'toolRuntimes');assert.equal(received,schema);handler=callback;},plugins:{isEnabled:(id:string)=>enabled.has(id)},runtimes:{inspect:async(force:boolean|undefined,tools:string[])=>{calls.push({force,tools:[...tools]});return [];}}});
+  await handler();assert.deepEqual(calls.at(-1),{force:undefined,tools:['claude']});
+  enabled.add('adapter.tool.codex');await handler(true);assert.deepEqual(calls.at(-1),{force:true,tools:['codex','claude']});
+  enabled.clear();await handler(false);assert.deepEqual(calls.at(-1),{force:false,tools:[]});
 });

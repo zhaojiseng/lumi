@@ -16,7 +16,7 @@ import type {SettingsStore} from '../services/store';
 import type {Command} from '../services/tool-runtime';
 import type {DesktopSurfaceEnvironment} from '../../shared/contracts/desktop-surface';
 
-/** Four configurable product plugins; uniform system surfaces remain host infrastructure. */
+/** Product and tool plugins can be toggled independently; system surfaces stay host-owned. */
 export async function createBuiltinPlugins(store:SettingsStore,options:{catalog?:CatalogReadCapability;localHome?:string;resolveCodex?:()=>Promise<Command|undefined>;beforeDisable?:(id:string)=>void;desktop?:DesktopSurfaceEnvironment}={}){
   let dataEpoch=0;
   const desktop=options.desktop ? {...options.desktop,identity:()=>JSON.stringify([options.desktop!.identity(),dataEpoch])} : undefined;

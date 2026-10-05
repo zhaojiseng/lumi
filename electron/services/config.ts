@@ -34,7 +34,7 @@ export class ConfigService {
   subscribe(listener:(progress:ConfigProgress)=>void){this.listeners.add(listener);return()=>{this.listeners.delete(listener);};}
   private report(progress:ConfigProgress){if(progress.completed!==undefined && progress.completed!==progress.total && Date.now()-this.lastProgress<100)return;this.lastProgress=Date.now();for(const listener of this.listeners)listener(progress);}
   invalidateTokenPreviews(id:number) { for(const [key,p] of this.pending)if(p.token.tokenId===id)this.pending.delete(key); }
-  invalidatePreviews(){if(this.busy)throw new Error('配置正在执行，请完成后再停用。');this.pending.clear();}
+  invalidatePreviews(tool?:Tool){if(this.busy)throw new Error('配置正在执行，请完成后再停用。');if(!tool)this.pending.clear();else for(const [id,preview] of this.pending)if(preview.request.tool===tool)this.pending.delete(id);}
   constructor(private store: SettingsStore, private dataDir: string, homeDir?: string, private resolveToken?: (req: ConfigRequest) => Promise<ResolvedToolToken>, private resolveAdapter?:(tool:Tool)=>ToolConfigAdapter) {
     this.homeDir = homeDir || process.env.LUMI_TEST_HOME || os.homedir();
     this.respectEnvironment = !homeDir && !process.env.LUMI_TEST_HOME;
@@ -64,6 +64,7 @@ export class ConfigService {
   }
   async preview(req: ConfigRequest): Promise<ConfigPreview> {
     if(this.busy)throw new Error('正在写入配置，请稍后预览。');
+    this.resolveAdapter?.(req.tool);
     this.report({tool:req.tool,operation:'preview',phase:'validating'});
     const site = structuredClone(this.store.activeSite());
     if (site.url.startsWith('http:') && !site.allowHttp) throw new Error('请先在站点设置中允许使用 HTTP。');
@@ -148,6 +149,7 @@ export class ConfigService {
     if (this.busy) throw new Error('正在写入配置，请稍后重试。');
     const p = this.pending.get(id);
     if (!p || p.preview.expiresAt < Date.now()) throw new Error('预览已过期，请重新预览配置。');
+    this.resolveAdapter?.(p.request.tool);
     const token=this.store.preferences.managedTokens.find(t=>t.siteId===p.siteId && t.id===p.token.tokenId);
     if(token && (token.group!==p.request.group || token.name!==p.token.tokenName))throw new Error('专用令牌的渠道已变更，请重新预览配置。');
     if (this.store.activeSite().id !== p.siteId || this.store.activeSite().url !== p.siteUrl || this.store.credentials(p.siteId).userId !== p.userId || this.store.credentials(p.siteId).sessionId !== p.sessionId || authIdentity(this.store.credentials(p.siteId)) !== p.authIdentity) throw new Error('站点或登录账户已切换，请重新预览。');
@@ -194,6 +196,7 @@ export class ConfigService {
     this.busy = true;
     try {
       const b = await this.readBackup(id);
+      this.resolveAdapter?.(b.tool);
       this.report({tool:b.tool,operation:'restore',phase:'validating'});
       const allowed=await this.paths(b.tool);
       if(b.tool==='codex')allowed.push(path.join(path.dirname(allowed[0]),LEGACY_CODEX_CATALOG));

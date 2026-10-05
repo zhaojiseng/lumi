@@ -121,6 +121,20 @@ test('recent activity columns persist as per-site string arrays without replacin
   assert.ok(!('selection' in persisted));
 });
 
+test('optional net speed columns survive settings reload with independent recent activity selections',async()=>{
+  await mkdir('.test-data',{recursive:true});
+  const root=await mkdtemp(path.resolve('.test-data/net-speed-columns-')),cipher={available:()=>true,encrypt:(s:string)=>s,decrypt:(s:string)=>s};
+  const store=new SettingsStore(root,cipher);await store.load();
+  const siteId=store.activeSite().id;
+  await store.update({logColumns:['model','duration','netSpeed'],selection:{siteId,values:{'overview.activityColumns':['netSpeed','timing'],'overview.metric':'netSpeed'}}});
+  const reloaded=new SettingsStore(root,cipher);await reloaded.load();
+  assert.deepEqual(reloaded.preferences.logColumns,['model','duration','netSpeed']);
+  assert.deepEqual(selectionValue(reloaded.preferences,'overview.activityColumns',DEFAULT_ACTIVITY_COLUMNS,Array.isArray),['netSpeed','timing']);
+  assert.equal(selectionValue(reloaded.preferences,'overview.metric','cost'),'netSpeed');
+  assert.equal(LOG_COLUMN_LABELS.duration,'首字 / 后续');
+  assert.equal(LOG_COLUMN_LABELS.netSpeed,'净速率');
+});
+
 test('request and recent activity render escaped raw reasoning with full titles, unknown placeholders and error details buttons',async()=>{
   await mkdir('.test-data',{recursive:true});
   const root=await mkdtemp(path.resolve('.test-data/log-columns-render-')),outfile=path.join(root,'components.mjs'),require=createRequire(import.meta.url);

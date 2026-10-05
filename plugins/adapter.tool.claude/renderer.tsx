@@ -1,4 +1,4 @@
-import {useEffect,useState} from 'react';
+import {lazy,useEffect,useState} from 'react';
 import {useSavedSelection} from '../../src/selections';
 import type {ToolConfigView} from '../../src/host/tool-config';
 import type {RendererContribution} from '../../src/host/renderer-registry';
@@ -17,4 +17,5 @@ export const claudeConfigView:ToolConfigView={
     </>};
   },
 };
-export const claudeAdapterRenderer:RendererContribution={manifest:claudeAdapterManifest,toolConfigs:[claudeConfigView],settings:{title:'Claude Code 配置适配器',description:'提供 Claude Code 的配置选项和文件规则。'}};
+const Settings=lazy(async()=>{const {ToolPluginSettings}=await import('../../src/host/ToolPluginSettings');return {default:()=> <ToolPluginSettings definition={claudeConfigView}/>};});
+export const claudeAdapterRenderer:RendererContribution={manifest:claudeAdapterManifest,toolConfigs:[claudeConfigView],settings:{title:'Claude Code 工具配置',description:claudeAdapterManifest.settings!.description,sections:[{id:'options',title:'Claude Code 配置选项',component:Settings}]}};

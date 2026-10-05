@@ -1,6 +1,6 @@
 import {DEFAULT_LOG_COLUMNS,LOG_COLUMN_IDS,type UsageLog,type LogColumnId} from './types';
 export const LOG_COLUMN_LABELS: Record<LogColumnId,string> = {
-  time:'时间',model:'模型',reasoning:'思考强度',token:'令牌',input:'输入 Tokens',output:'输出 Tokens',cacheRead:'缓存读取',cacheWrite:'缓存写入',cost:'费用',duration:'耗时',speed:'Token 速度',channel:'渠道',status:'状态',firstToken:'首字延迟',group:'路由分组',requestId:'请求 ID',stream:'流式输出',tool:'工具归属',
+  time:'时间',model:'模型',reasoning:'思考强度',token:'令牌',input:'输入 Tokens',output:'输出 Tokens',cacheRead:'缓存读取',cacheWrite:'缓存写入',cost:'费用',duration:'首字 / 后续',speed:'Token 速度',netSpeed:'净速率',channel:'渠道',status:'状态',firstToken:'首字延迟',group:'路由分组',requestId:'请求 ID',stream:'流式输出',tool:'工具归属',
 };
 function normalizeColumns<T extends string>(value:unknown,ids:readonly T[],defaults:readonly T[]):T[] {
   if(!Array.isArray(value))return [...defaults];
@@ -12,18 +12,18 @@ export function normalizeLogColumns(value:unknown):LogColumnId[] {
 }
 export function visibleLogColumns(value:unknown):LogColumnId[] {
   const columns=normalizeLogColumns(value);
-  return columns.includes('input') ? columns.filter(c=>c!=='cacheRead') : columns;
+  return columns.filter(id=>!(id==='cacheRead' && columns.includes('input')) && !(id==='firstToken' && columns.includes('duration')));
 }
 export function migrateLogColumns(value:unknown):LogColumnId[] {
   const oldDefault=['time','model','token','input','output','cacheRead','cacheWrite','cost','duration','speed','channel','status'];
   const previousDefault=oldDefault.filter(c=>c!=='cacheWrite');
   return Array.isArray(value) && [oldDefault,previousDefault].some(columns=>value.length===columns.length && value.every((c,i)=>c===columns[i])) ? [...DEFAULT_LOG_COLUMNS] : normalizeLogColumns(value);
 }
-export const ACTIVITY_COLUMN_IDS = ['model','time','reasoning','token','input','cacheRead','cacheWrite','output','cost','speed','timing','duration','firstToken','channel','group','requestId','stream','tool','status'] as const satisfies readonly (LogColumnId|'timing')[];
+export const ACTIVITY_COLUMN_IDS = ['model','time','reasoning','token','input','cacheRead','cacheWrite','output','cost','speed','netSpeed','timing','duration','firstToken','channel','group','requestId','stream','tool','status'] as const satisfies readonly (LogColumnId|'timing')[];
 export type ActivityColumnId = typeof ACTIVITY_COLUMN_IDS[number];
 export const DEFAULT_ACTIVITY_COLUMNS: ActivityColumnId[] = ['model','input','cacheRead','output','cost','speed','timing','status'];
 export const ACTIVITY_COLUMN_LABELS: Record<ActivityColumnId,string> = {
-  ...LOG_COLUMN_LABELS,input:'输入',output:'输出',speed:'速率',timing:'首字 / 后续',status:'状态码',
+  ...LOG_COLUMN_LABELS,input:'输入',output:'输出',speed:'速率',duration:'总耗时',timing:'首字 / 后续',status:'状态码',
 };
 export function normalizeActivityColumns(value:unknown):ActivityColumnId[] {
   return normalizeColumns(value,ACTIVITY_COLUMN_IDS,DEFAULT_ACTIVITY_COLUMNS);
@@ -62,7 +62,10 @@ export function logMetrics(log:UsageLog) {
   const cacheWrite=splitWrite>0 ? splitWrite : genericWrite ?? (short!==null || long!==null ? splitWrite : null);
   const duration=count(log.use_time),output=count(log.completion_tokens);
   const speed=[2,5].includes(log.type) && duration!==null && duration>0 && output!==null && output>0 ? output/duration : null;
-  return {cacheRead,cacheWrite,speed,firstTokenMs:count(other.frt)};
+  const firstTokenMs=count(other.frt),timing=streamTiming(log,duration,firstTokenMs);
+  const net=speed!==null && timing.subsequentMs!==null && timing.subsequentMs>0 ? output!/(timing.subsequentMs/1000) : null;
+  const netSpeed=net!==null && Number.isFinite(net) ? net : null;
+  return {cacheRead,cacheWrite,speed,netSpeed,firstTokenMs};
 }
 export function upstreamChannel(log:UsageLog) {
   const id=typeof log.channel==='number' && Number.isInteger(log.channel) && log.channel>0 ? '#'+log.channel : '';
@@ -70,9 +73,13 @@ export function upstreamChannel(log:UsageLog) {
   return [name,id].filter(Boolean).join(' ') || null;
 }
 export function requestTiming(log:UsageLog) {
-  const first=logMetrics(log).firstTokenMs,duration=count(log.use_time);
-  const valid=log.is_stream && first!==null && duration!==null && duration>0 && first<=duration*1000;
-  return {firstMs:valid ? first : null,subsequentMs:valid ? duration*1000-first : null};
+  const first=count(logMetadata(log).frt),duration=count(log.use_time);
+  return streamTiming(log,duration,first);
+}
+function streamTiming(log:UsageLog,duration:number|null,first:number|null) {
+  const durationMs=duration===null ? null : duration*1000;
+  const valid=log.is_stream===true && first!==null && durationMs!==null && Number.isFinite(durationMs) && durationMs>0 && first<=durationMs;
+  return {firstMs:valid ? first : null,subsequentMs:valid ? durationMs-first : null};
 }
 export function requestStatus(log:UsageLog) {
   const other=logMetadata(log),error=record(other.error),stream=record(other.stream_status);

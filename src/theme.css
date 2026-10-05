@@ -78,7 +78,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .brand-icon[data-brand=minimax], .brand-icon[data-brand=mistral] { background: var(--orange-soft); border-color: var(--orange-soft); }
 .brand-icon[data-brand=cohere], .brand-icon[data-brand=yi], .brand-icon[data-brand=nvidia], .brand-icon[data-brand=perplexity] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
 :root[data-theme=dark] .brand-icon[data-brand=deepseek] .lobe-icon, :root[data-theme=dark] .brand-icon[data-brand=qwen] .lobe-icon, :root[data-theme=dark] .brand-icon[data-brand=zhipu] .lobe-icon { filter: brightness(1.2); }
-.tool-summary:hover, .model-card:hover { border-color: var(--accent); transform: none; box-shadow: none; }
+.model-card:hover { border-color: var(--accent); transform: none; box-shadow: none; }
 .segmented { background: var(--panel-soft); border-color: var(--border); }
 .segmented button { color: var(--text-secondary); font-size: 11px; }
 .segmented button.active, .page-tabs button.active, .vendor-tabs > button.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
@@ -343,9 +343,9 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .token-editor-modal .token-model-choices { max-height: 135px; overflow-y: auto; }
 
 /* Shared list hierarchy and concise channel controls. */
-.select-wrap select, .setting-control .select-wrap select, .select-wrap select::picker(select), .command-results strong, .backup-list strong, .site-row-info strong, .token-model-choices .model-choice { font-size: var(--list-font-size); font-family: inherit; }
+.select-wrap select, .setting-control .select-wrap select, .command-results strong, .backup-list strong, .site-row-info strong, .token-model-choices .model-choice { font-size: var(--list-font-size); font-family: inherit; }
 .sidebar-site .select-wrap.site-switch select::picker(select) { font-size: 11px; border-radius: 11px; }
-.sidebar-site .select-wrap.site-switch select option { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-site .select-wrap.site-switch select option { font-size: 11px; white-space: normal; }
 .command-results span, .backup-list span, .site-row-info > span { font-size: var(--list-secondary-size); }
 .select-wrap.rich-select select { color: transparent; }
 .select-wrap.rich-select select option { color: var(--text); }

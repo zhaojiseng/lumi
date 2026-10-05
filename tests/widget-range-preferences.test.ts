@@ -92,7 +92,7 @@ test('browser migration and invalid patches consistently fall back to one minute
 
 // Bundle the real settings and Select components; replace only app context and its busy hook.
 const settingsBundle=build({entryPoints:['src/components/WidgetSettings.tsx'],bundle:true,platform:'node',format:'cjs',write:false,
-  external:['react','react/jsx-runtime','lucide-react','../../../src/context'],loader:{'.svg':'text'},logLevel:'silent'});
+  external:['react','react/jsx-runtime','react-dom','lucide-react','../../../src/context'],loader:{'.svg':'text'},logLevel:'silent'});
 async function settings(options:{preferences?:Preferences;desktop?:boolean;save?:(patch:PreferencePatch)=>Promise<Preferences>}={}) {
   let busy=false;
   const patches:PreferencePatch[]=[],errors:string[]=[],context={preferences:options.preferences || structuredClone(DEFAULT_PREFERENCES),
@@ -147,10 +147,13 @@ test('local explanations cover online estimates, account balance, incremental re
   assert.match(html,/最近消费按当前站点的线上模型价格估算/);assert.match(html,/余额来自在线账户/);
   assert.match(html,/每秒增量读取会话追加内容/);assert.match(html,/切换范围复用最近 30 天的分钟聚合/);
   assert.match(html,/站点 API 与本地会话共用此范围/);assert.match(html,/切换后自动保存，下次启动会恢复/);
-  assert.match(html,/>最近一次模型调用<\/option>/);assert.match(html,/最近一次按模型调用统计/);
+  const latestOption=html.match(/<option\b(?=[^>]*\bvalue="latest")[^>]*>([\s\S]*?)<\/option>/);
+  assert.ok(latestOption,'latest range remains available');
+  assert.equal(latestOption[1].replace(/<[^>]*>/g,''),'最近一次模型调用');assert.match(html,/最近一次按模型调用统计/);
   assert.doesNotMatch(html,/只显示\s*Tokens|余额\s*[—-]|<optgroup/);
   assert.match((await settings()).html(),/API 模式按完整分钟同步所选范围的消费/);
   const latest=await settings({preferences:{...structuredClone(DEFAULT_PREFERENCES),widgetPeriod:'latest'}});
+  assert.match(latest.html(),/<option\b(?=[^>]*\bvalue="latest")(?=[^>]*\bselected="")[^>]*>/);
   assert.match(latest.html(),/API 模式展示最近一次模型调用的消费/);
 });
 

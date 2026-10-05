@@ -1,4 +1,4 @@
-import {compilePrice, isExpression, pricingChoices, type PricingChoice} from './pricing';
+import {compilePrice, isExpression, displayPricingChoices, publishedRequestPricing, publishedPriceSections, pricingConditionLabel, defaultPricingChoice, type PricingChoice} from './pricing';
 import {currency} from './utils';
 import type {ModelCatalog, ModelInfo, SiteStatus, UsageField} from './types';
 
@@ -6,7 +6,7 @@ const MAX_TEXT = 120, MAX_EXPRESSION = 6000, MAX_ITEMS = 64, MAX_VARIANTS = 12, 
 const numericKeys = ['quota_type','model_ratio','model_price','completion_ratio','cache_ratio','create_cache_ratio','image_ratio','audio_ratio','audio_completion_ratio'] as const;
 type PriceNode = ReturnType<typeof compilePrice>['node'];
 type Numbers = Record<typeof numericKeys[number], number | null>;
-interface PublicExpression {state: 'none' | 'parsed' | 'unsupported' | 'limited'; source?: string;}
+interface PublicExpression {state: 'none' | 'parsed' | 'unsupported' | 'limited'; source?: string;fingerprint?:string;}
 interface PublicUsage {key: string; type: string | null; unit: string | null; enum: string[];}
 interface PublicVariant {key: string; mode: string | null; expression: PublicExpression; schema: PublicUsage[];}
 export interface PublicModelPricing {
@@ -20,6 +20,21 @@ export interface PublicCatalogPricing {
 export interface CatalogChangeDetail {
   label: string; before?: string; after?: string; note?: string;
   formula?: {before?: string; after?: string};
+}
+export interface CatalogPriceTier {
+  key:string;sourceKey:string;sourceLabel:string;label:string;contextKey?:string;
+  rows:{key:string;label:string;price:string;amount:number;symbol:string;unit:string}[];
+  requestModes:{key:string;label:string;multiplier?:number;unknown?:true}[];
+  timeRules:{key?:string;label:string;multiplier?:number;active:boolean}[];
+  unknown?:string;
+  optionsLimited?:boolean;
+}
+export interface CatalogPriceDisplay {defaultKey:string;tiers:CatalogPriceTier[];billingUnit:string;limited:boolean;}
+export interface CatalogChangePricing {before?:CatalogPriceDisplay;after?:CatalogPriceDisplay;}
+const MAX_TIERS=32,MAX_TIER_ROWS=12,MAX_TIER_OPTIONS=16,MAX_DISPLAY_ITEMS=MAX_DETAILS/2,MAX_DISPLAY_TEXT=240;
+export function catalogTierPrice(row:CatalogPriceTier['rows'][number],multiplier=1):string|undefined {
+  const amount=row.amount*multiplier;
+  return Number.isFinite(amount) && amount>=0 ? multiplier===1 ? row.price : row.symbol+prettyNumber(amount) : undefined;
 }
 function record(value: unknown): value is Record<string, unknown> {return !!value && typeof value === 'object' && !Array.isArray(value);}
 function number(value: unknown): number | null {return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;}
@@ -49,14 +64,20 @@ function sourceOf(node: PriceNode): string {
   if (node.k === 'binary') return '(' + sourceOf(node.left) + ' ' + node.op + ' ' + sourceOf(node.right) + ')';
   return '(' + sourceOf(node.cond) + ' ? ' + sourceOf(node.yes) + ' : ' + sourceOf(node.no) + ')';
 }
+function expressionFingerprint(source:string):string {
+  let a=0x811c9dc5,b=0x9e3779b9;
+  for(let i=0;i<source.length;i++){const c=source.charCodeAt(i);a=Math.imul(a^c,0x01000193);b=Math.imul(b^c,0x85ebca6b);}
+  return (a>>>0).toString(16).padStart(8,'0')+(b>>>0).toString(16).padStart(8,'0');
+}
 function expression(value: unknown): PublicExpression {
   if (typeof value !== 'string' || !value.trim()) return {state: 'none'};
-  if (value.length > 30000) return {state: 'limited'};
+  const unknownRule = (state:'limited'|'unsupported'):PublicExpression=>({state,fingerprint:expressionFingerprint(value.trim())});
+  if (value.length > 30000) return unknownRule('limited');
   try {
     const source = sourceOf(compilePrice(uncomment(value)).node);
     if(source.length <= MAX_EXPRESSION) compilePrice(source);
-    return source.length <= MAX_EXPRESSION ? {state: 'parsed', source} : {state: 'limited'};
-  } catch {return {state: 'unsupported'};}
+    return source.length <= MAX_EXPRESSION ? {state: 'parsed', source} : unknownRule('limited');
+  } catch {return unknownRule('unsupported');}
 }
 function schema(value: unknown): PublicUsage[] {
   return record(value) ? Object.entries(value).filter(([key]) => text(key) !== null).sort(([a],[b]) => a.localeCompare(b)).slice(0, MAX_ITEMS).map(([key, raw]) => {
@@ -87,7 +108,10 @@ export function publicCatalogPricing(catalog: ModelCatalog, status: SiteStatus):
 }
 function readExpression(value: unknown): PublicExpression | null {
   if (!record(value) || !['none','parsed','unsupported','limited'].includes(value.state as string)) return null;
-  if (value.state !== 'parsed') return {state: value.state as PublicExpression['state']};
+  if (value.state !== 'parsed') {
+    if(value.fingerprint!==undefined && (!['unsupported','limited'].includes(value.state as string) || typeof value.fingerprint!=='string' || !/^[a-f0-9]{16}$/.test(value.fingerprint)))return null;
+    return {state: value.state as PublicExpression['state'],...(value.fingerprint ? {fingerprint:value.fingerprint as string} : {})};
+  }
   if (typeof value.source !== 'string' || value.source.length > MAX_EXPRESSION) return null;
   const parsed = expression(value.source);
   return parsed.state === 'parsed' && parsed.source === value.source ? parsed : null;
@@ -169,7 +193,7 @@ function priceText(usd: number, status: SiteStatus): string {
   const c = currency(status);
   return c.symbol + prettyNumber(c.value(usd * (status.quota_per_unit || 500000)));
 }
-function multiplier(value: number | undefined | null): string | undefined {return value == null ? undefined : '×' + prettyNumber(value);}
+function multiplier(value: number | undefined | null): string | undefined {return value == null ? undefined : Number.isFinite(value) ? '×' + prettyNumber(value) : '未知';}
 function ratioDetails(before: [string,number][], after: [string,number][], label: string, oldFallback: [string,number][] = [], newFallback: [string,number][] = []): CatalogChangeDetail[] {
   const old = new Map(before), next = new Map(after), a = new Map(oldFallback), b = new Map(newFallback);
   const value = (own: Map<string,number>, fallback: Map<string,number>, key: string) => {
@@ -179,13 +203,12 @@ function ratioDetails(before: [string,number][], after: [string,number][], label
   return [...new Set([...old.keys(), ...next.keys()])].sort().filter(key => old.get(key) !== next.get(key)).map(key => pair(label + '「' + key + '」倍率', value(old,a,key), value(next,b,key), label === '模型渠道' ? '此模型的专属渠道倍率；未设置时沿用站点倍率，不改动站点渠道规则。' : '站点公布的渠道倍率；模型的专属覆盖倍率仍单独生效。'));
 }
 function choices(data: PublicModelPricing, status: SiteStatus, now: Date): PricingChoice[] {
-  const model = modelOf(data);
-  // A missing safe expression is not evidence that the legacy ratio is the active price.
-  if (data.expression.state !== 'none' && data.expression.state !== 'parsed' && data.mode !== 'ratio') return [];
-  return pricingChoices(model, status, now).filter(choice => {
-    const variant = data.variants.find(v => 'plugin:' + v.key === choice.sourceKey);
-    return !variant || variant.expression.state === 'parsed' || variant.expression.state === 'none';
-  });
+  const model = modelOf(data),sources = [...(data.expression.state!=='none' || data.mode==='ratio' || !data.variants.length ? [{key:'base',name:'',expression:data.expression,mode:data.mode,schema:data.schema}] : []),...data.variants.map(variant=>({key:'plugin:'+variant.key,name:variant.key,expression:variant.expression,mode:variant.mode,schema:variant.schema}))];
+  // Evaluate each source independently: an unreadable base cannot hide a safe plugin,
+  // and an absent plugin expression cannot borrow the base expression or legacy price.
+  return sources.filter(source=>source.key==='base' ? source.expression.state==='none' || source.expression.state==='parsed' || source.mode==='ratio' : source.expression.state==='parsed')
+    .flatMap(source=>displayPricingChoices({...model,billing_expr:source.expression.source,billing_mode:source.mode || undefined,billing_usage_schema:usageSchema(source.schema),billing_plugin_variants:undefined},status,now)
+      .map(choice=>({...choice,key:choice.key.replace(/^base:/,source.key+':'),sourceKey:source.key,sourceName:source.name})));
 }
 function choiceLabel(choice: PricingChoice): string {return [choice.sourceName ? '插件「' + choice.sourceName + '」' : '', choice.label !== '默认' ? choice.label : ''].filter(Boolean).join(' · ');}
 function timeRule(rule: PricingChoice['timeRates'][number]): string {return rule.condition + (rule.multiplier === undefined ? '' : ' ' + multiplier(rule.multiplier));}
@@ -193,12 +216,115 @@ function bounded(details: CatalogChangeDetail[]): CatalogChangeDetail[] {
   const unique = details.filter((d,i) => details.findIndex(v => equal(v,d)) === i);
   return unique.length <= MAX_DETAILS ? unique : [...unique.slice(0,MAX_DETAILS-1), {label:'更多变化',note:'明细达到本地保存上限，已保留规则指纹；其余变化未逐项保存。'}];
 }
+function requestRules(data: PublicModelPricing) {
+  const model = modelOf(data);
+  const sources = [{key:'base',label:'',expression:data.expression,mode:data.mode,schema:data.schema},...data.variants.map(variant=>({key:'plugin:'+variant.key,label:'插件「'+variant.key+'」 · ',expression:variant.expression,mode:variant.mode,schema:variant.schema}))];
+  // A plugin without its own safe expression must never inherit the base request factors.
+  return sources.filter(source=>source.expression.state==='parsed' && source.expression.source)
+    .flatMap(source=>{
+      const combined=new Map<string,ReturnType<typeof publishedRequestPricing>['rules'][number]>();
+      for(const rule of publishedRequestPricing({...model,billing_expr:source.expression.source,billing_mode:source.mode || 'tiered_expr',billing_usage_schema:usageSchema(source.schema),billing_plugin_variants:undefined}).rules){
+        const previous=combined.get(rule.condition),amount=previous ? previous.multiplier*rule.multiplier : rule.multiplier;
+        combined.set(rule.condition,{...rule,multiplier:Number.isFinite(amount) && amount>=0 ? amount : NaN});
+      }
+      return [...combined.values()].map(rule=>({...rule,sourceKey:source.key,prefix:source.label}));
+    });
+}
+function usageDescription(field: PublicUsage): string {return [field.type && '类型 '+field.type,field.unit && '单位 '+field.unit,field.enum.length && '可选 '+field.enum.join('、')].filter(Boolean).join('；') || '用量字段';}
+function billingUnit(data:PublicModelPricing,published:PricingChoice[]):string {
+  const units=[...new Set(published.flatMap(choice=>choice.section?.rows.map(row=>row.unit) || []))];
+  const expressionActive=data.mode!=='ratio' && data.expression.state!=='none' || data.variants.length>0;
+  const unknownSource=(key:string)=>!published.some(choice=>choice.sourceKey===key && choice.section?.rows.length) || published.some(choice=>choice.sourceKey===key && !choice.section?.rows.length);
+  const unknownExpression=data.mode!=='ratio' && data.expression.state!=='none' && unknownSource('base') || data.variants.some(variant=>unknownSource('plugin:'+variant.key));
+  return !unknownExpression && units.length===1 && units[0]==='次' ? '按次调用' : !unknownExpression && units.length===1 && units[0]==='1M Tokens' ? '按 Tokens' : expressionActive ? '按公布规则' : data.numbers.quota_type===1 ? '按次调用' : data.numbers.quota_type===0 ? '按 Tokens' : '未公布';
+}
+/** A bounded presentation snapshot, evaluated only at the event's detection time. */
+export function catalogPriceDisplay(data:PublicModelPricing,catalog:PublicCatalogPricing,detectedAt:number):CatalogPriceDisplay {
+  const status=statusOf(catalog),published=choices(data,status,new Date(detectedAt)),rules=requestRules(data);
+  const model=modelOf(data),sources=[...(data.expression.state!=='none' || data.mode==='ratio' || !data.variants.length ? [{key:'base',label:'默认计价',expression:data.expression,mode:data.mode,schema:data.schema}] : []),...data.variants.map(variant=>({key:'plugin:'+variant.key,label:'插件「'+variant.key+'」',expression:variant.expression,mode:variant.mode,schema:variant.schema}))];
+  const tiers:CatalogPriceTier[]=[];let rowCount=0,optionCount=0,limited=data.limited || catalog.limited;
+  for(const source of sources){
+    const sourceChoices=published.filter(choice=>choice.sourceKey===source.key),initial=defaultPricingChoice(sourceChoices);
+    const safe=source.key==='base' ? source.expression.state==='none' || source.expression.state==='parsed' || source.mode==='ratio' : source.expression.state==='parsed';
+    const original={...model,billing_expr:source.expression.source,billing_mode:source.mode || undefined,billing_usage_schema:usageSchema(source.schema),billing_plugin_variants:undefined};
+    const sections=safe ? publishedPriceSections(publishedRequestPricing(original).model,status,new Date(detectedAt)) : [];
+    const defaultIndex=Math.max(0,sections.findIndex(section=>(section.selectionCondition || '')===(initial?.section?.selectionCondition || '') && section.current!==false));
+    const entries=sections.length ? sections.map((section,index)=>({section,index})) : [{section:undefined,index:0}];
+    const ordered=[entries[defaultIndex],...entries.filter((_,index)=>index!==defaultIndex)];
+    for(const {section} of ordered){
+      if(tiers.length===MAX_TIERS){limited=true;break;}
+      const completeRows=section?.rows || [],c=currency(status),rows=completeRows.slice(0,Math.min(MAX_TIER_ROWS,MAX_DISPLAY_ITEMS-rowCount)).map(row=>({key:row.key,label:row.label.slice(0,MAX_DISPLAY_TEXT),price:priceText(row.usd,status).slice(0,MAX_DISPLAY_TEXT),amount:c.value(row.usd*(status.quota_per_unit || 500000)),symbol:c.symbol,unit:row.unit.slice(0,MAX_DISPLAY_TEXT)})).filter(row=>Number.isFinite(row.amount) && row.amount>=0);
+      if(rows.length!==completeRows.length)limited=true;rowCount+=rows.length;
+      const sourceRules=rules.filter(rule=>rule.sourceKey===source.key),requestModes=sourceRules.slice(0,Math.min(MAX_TIER_OPTIONS,MAX_DISPLAY_ITEMS-optionCount)).map(rule=>({key:expressionFingerprint(rule.condition),label:rule.label.slice(0,MAX_DISPLAY_TEXT),...(Number.isFinite(rule.multiplier) ? {multiplier:rule.multiplier} : {unknown:true as const})}));
+      if(requestModes.length!==sourceRules.length)limited=true;optionCount+=requestModes.length;
+      const completeTimes=section?.timeRates || [],timeRules=completeTimes.slice(0,Math.min(MAX_TIER_OPTIONS,MAX_DISPLAY_ITEMS-optionCount)).map(rule=>({key:expressionFingerprint(rule.identity || rule.condition),label:rule.condition.slice(0,MAX_DISPLAY_TEXT),...(rule.multiplier===undefined ? {} : {multiplier:rule.multiplier}),active:rule.current===true}));
+      if(timeRules.length!==completeTimes.length)limited=true;optionCount+=timeRules.length;
+      const unknown=rows.length!==completeRows.length ? '档位项目未完整保存，缺失单价未知' : rows.length ? undefined : source.expression.state==='limited' ? '规则超过解析上限，单价未知' : source.expression.state==='unsupported' ? '站点规则无法安全解析，单价未知' : source.key!=='base' && source.expression.state==='none' ? '未公布此档位的计价规则，单价未知' : '此档位无法推导固定单价';
+      const context=pricingConditionLabel(section?.selectionCondition || '').replace(/^上下文 /,'') || '默认',timeLabel=completeTimes.map(rule=>rule.condition).join(' · ');
+      tiers.push({key:source.key+':tier:'+expressionFingerprint(JSON.stringify([section?.condition || '',section?.label || ''])),sourceKey:source.key,sourceLabel:source.label,label:[context,timeLabel].filter(Boolean).join(' · ').slice(0,MAX_DISPLAY_TEXT),contextKey:expressionFingerprint(section?.selectionCondition || ''),rows,requestModes,timeRules,...(unknown ? {unknown} : {}),...(requestModes.length!==sourceRules.length || timeRules.length!==completeTimes.length ? {optionsLimited:true} : {})});
+    }
+  }
+  return {defaultKey:tiers[0].key,tiers,billingUnit:billingUnit(data,published),limited};
+}
+function displayText(value:unknown):value is string {return typeof value==='string' && value.length>0 && value.length<=MAX_DISPLAY_TEXT && !/[\u0000-\u001f]/.test(value);}
+function readPriceDisplay(value:unknown):CatalogPriceDisplay|null {
+  if(!record(value) || !displayText(value.defaultKey) || !displayText(value.billingUnit) || typeof value.limited!=='boolean' || !Array.isArray(value.tiers) || !value.tiers.length || value.tiers.length>MAX_TIERS)return null;
+  const tiers:CatalogPriceTier[]=[],keys=new Set<string>();let rowsTotal=0,optionsTotal=0;
+  for(const tier of value.tiers){
+    if(!record(tier) || !['key','sourceKey','sourceLabel','label'].every(key=>displayText(tier[key])) || keys.has(tier.key as string) || tier.contextKey!==undefined && (typeof tier.contextKey!=='string' || !/^[a-f0-9]{16}$/.test(tier.contextKey)) || tier.unknown!==undefined && !displayText(tier.unknown) || tier.optionsLimited!==undefined && typeof tier.optionsLimited!=='boolean' || !Array.isArray(tier.rows) || tier.rows.length>MAX_TIER_ROWS || !Array.isArray(tier.requestModes) || tier.requestModes.length>MAX_TIER_OPTIONS || !Array.isArray(tier.timeRules) || tier.timeRules.length>MAX_TIER_OPTIONS)return null;
+    const rows:CatalogPriceTier['rows']=[],requestModes:CatalogPriceTier['requestModes']=[],timeRules:CatalogPriceTier['timeRules']=[],rowKeys=new Set<string>(),modeKeys=new Set<string>();
+    for(const row of tier.rows){if(!record(row) || !['key','label','price','unit'].every(key=>displayText(row[key])) || number(row.amount)===null || typeof row.symbol!=='string' || row.symbol.length>MAX_TEXT || /[\u0000-\u001f]/.test(row.symbol) || rowKeys.has(row.key as string))return null;rowKeys.add(row.key as string);rows.push({key:row.key as string,label:row.label as string,price:row.price as string,amount:row.amount as number,symbol:row.symbol,unit:row.unit as string});}
+    for(const mode of tier.requestModes){if(!record(mode) || typeof mode.key!=='string' || !/^[a-f0-9]{16}$/.test(mode.key) || !displayText(mode.label) || (mode.unknown===true ? mode.multiplier!==undefined : mode.unknown!==undefined || number(mode.multiplier)===null) || modeKeys.has(mode.key))return null;modeKeys.add(mode.key);requestModes.push({key:mode.key,label:mode.label,...(mode.unknown===true ? {unknown:true} : {multiplier:mode.multiplier as number})});}
+    for(const rule of tier.timeRules){if(!record(rule) || !displayText(rule.label) || typeof rule.active!=='boolean' || rule.key!==undefined && (typeof rule.key!=='string' || !/^[a-f0-9]{16}$/.test(rule.key)) || rule.multiplier!==undefined && number(rule.multiplier)===null)return null;timeRules.push({...(rule.key===undefined ? {} : {key:rule.key as string}),label:rule.label,...(rule.multiplier===undefined ? {} : {multiplier:rule.multiplier as number}),active:rule.active});}
+    rowsTotal+=rows.length;optionsTotal+=requestModes.length+timeRules.length;if(rowsTotal>MAX_DISPLAY_ITEMS || optionsTotal>MAX_DISPLAY_ITEMS)return null;
+    keys.add(tier.key as string);tiers.push({key:tier.key as string,sourceKey:tier.sourceKey as string,sourceLabel:tier.sourceLabel as string,label:tier.label as string,...(tier.contextKey===undefined ? {} : {contextKey:tier.contextKey as string}),rows,requestModes,timeRules,...(tier.unknown ? {unknown:tier.unknown as string} : {}),...(tier.optionsLimited===undefined ? {} : {optionsLimited:tier.optionsLimited})});
+  }
+  return keys.has(value.defaultKey) ? {defaultKey:value.defaultKey,tiers,billingUnit:value.billingUnit,limited:value.limited} : null;
+}
+export function readCatalogChangePricing(value:unknown):CatalogChangePricing|null {
+  if(!record(value))return null;const result:CatalogChangePricing={};
+  for(const key of ['before','after'] as const)if(value[key]!==undefined){const display=readPriceDisplay(value[key]);if(!display)return null;result[key]=display;}
+  return result.before || result.after ? result : null;
+}
+/** Added/removed cards use the public rule at detection time, never a later live price. */
+export function modelListingDetails(data: PublicModelPricing, catalog: PublicCatalogPricing, detectedAt: number, kind: 'added' | 'removed'): CatalogChangeDetail[] {
+  const details: CatalogChangeDetail[] = [], status = statusOf(catalog);
+  const value = (label: string, amount: string | undefined) => pair(label,kind==='removed' ? amount : undefined,kind==='added' ? amount : undefined);
+  const published = choices(data,status,new Date(detectedAt));
+  for (const choice of published) {
+    const prefix = choiceLabel(choice), label = prefix ? prefix+' · ' : '';
+    for (const row of choice.section?.rows || []) details.push(value(label+row.label+'价格',priceText(row.usd,status)+' / '+row.unit));
+    for (const rate of choice.timeRates) details.push(value(label+'时间规则',timeRule(rate)));
+  }
+  for (const rule of requestRules(data)) details.push(value(rule.prefix+'请求条件 · '+rule.label,multiplier(rule.multiplier)));
+  details.push(value('计费单位',billingUnit(data,published)));
+  details.push(value('可用渠道',data.groups.join('、') || '无'));
+  const own = new Map(data.groupRatios), fallback = new Map(catalog.groupRatios);
+  for (const group of data.groups) details.push(value('模型渠道「'+group+'」倍率',multiplier(own.get(group) ?? fallback.get(group)) || '未公布'));
+  const sources = [{key:'base',label:'默认计价',expression:data.expression,schema:data.schema},...data.variants.map(variant=>({key:'plugin:'+variant.key,label:'插件「'+variant.key+'」',expression:variant.expression,schema:variant.schema}))];
+  for (const source of sources) {
+    for (const field of source.schema) details.push(value(source.label+' · 用量「'+field.key+'」',usageDescription(field)));
+    if (!published.some(choice=>choice.sourceKey===source.key && choice.section?.rows.length) || published.some(choice=>choice.sourceKey===source.key && !choice.section)) details.push({label:source.label+'公式',note:'该历史规则无法完整推导固定单价。',formula:{[kind==='removed' ? 'before' : 'after']:formula(source.expression)}});
+  }
+  if (data.limited || catalog.limited) details.push({label:'保存范围',note:'部分公共规则超出本地保存上限，未逐项展开。'});
+  return bounded(details);
+}
 /** Compare both public rules at ONE detection time. Live prices never feed the monitor fingerprint. */
 export function modelPricingDetails(before: PublicModelPricing, after: PublicModelPricing, oldCatalog: PublicCatalogPricing, newCatalog: PublicCatalogPricing, detectedAt: number): CatalogChangeDetail[] {
   const details: CatalogChangeDetail[] = [], oldStatus = statusOf(oldCatalog), newStatus = statusOf(newCatalog), now = new Date(detectedAt);
   const oldChoices = choices(before,oldStatus,now), newChoices = choices(after,newStatus,now), used = new Set<number>();
   let ruleExplained = false;
   const explainedSources = new Set<string>(), formulaSources = new Set<string>();
+  const oldRules = requestRules(before), newRules = requestRules(after);
+  for (const key of new Set([...oldRules,...newRules].map(rule=>rule.sourceKey+'|'+rule.condition))) {
+    const old = oldRules.find(rule=>rule.sourceKey+'|'+rule.condition===key), next = newRules.find(rule=>rule.sourceKey+'|'+rule.condition===key);
+    if (old?.multiplier!==next?.multiplier) {
+      const rule = next || old!;
+      details.push(pair(rule.prefix+'请求条件 · '+rule.label,multiplier(old?.multiplier),multiplier(next?.multiplier)));
+      explainedSources.add(rule.sourceKey);
+      ruleExplained = true;
+    }
+  }
   for (const next of newChoices) {
     const condition = next.section?.selectionCondition ?? '';
     let index = oldChoices.findIndex((old,i) => !used.has(i) && old.sourceKey === next.sourceKey && (old.section?.selectionCondition ?? '') === condition && old.section?.label === next.section?.label);
@@ -231,7 +357,7 @@ export function modelPricingDetails(before: PublicModelPricing, after: PublicMod
   const oldSources = new Map([['base',before.expression],...before.variants.map(v => ['plugin:'+v.key,v.expression] as const)]), nextSources = new Map([['base',after.expression],...after.variants.map(v => ['plugin:'+v.key,v.expression] as const)]);
   for (const key of new Set([...oldSources.keys(),...nextSources.keys()])) {
     const a = oldSources.get(key), b = nextSources.get(key);
-    if (equal(a,b) && (a?.state === 'none' || a?.state === 'parsed' || explainedSources.has(key))) continue;
+    if (equal(a,b) && (a?.state === 'none' || a?.state === 'parsed' || a?.fingerprint || explainedSources.has(key))) continue;
     if (!explainedSources.has(key) || formulaSources.has(key) || !a?.source || !b?.source) {
       details.push({label:(key === 'base' ? '默认计价' : '插件「'+key.slice(7)+'」')+'公式',note:'公布的公式或条件发生变化；无法线性拆分的规则不推测单价。',formula:{...(a ? {before:formula(a)} : {}),...(b ? {after:formula(b)} : {})}});
     }
@@ -241,7 +367,7 @@ export function modelPricingDetails(before: PublicModelPricing, after: PublicMod
     const a = new Map(oldSchemas.get(key)?.map(f => [f.key,f]) || []), b = new Map(newSchemas.get(key)?.map(f => [f.key,f]) || []);
     for (const name of new Set([...a.keys(),...b.keys()])) {
       const from = a.get(name), to = b.get(name);
-      const description = (f: PublicUsage | undefined) => f ? [f.type && '类型 '+f.type,f.unit && '单位 '+f.unit,f.enum.length && '可选 '+f.enum.join('、')].filter(Boolean).join('；') || '用量字段' : undefined;
+      const description = (f: PublicUsage | undefined) => f ? usageDescription(f) : undefined;
       if (!equal(from,to)) details.push(pair(key+' · 用量「'+name+'」',description(from),description(to)));
     }
   }

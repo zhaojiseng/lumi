@@ -1,5 +1,6 @@
-import {useCallback,useEffect,useRef,useState} from 'react';
-import {InterfaceOverlay} from '../host/overlay';
+import {useCallback,useLayoutEffect,useRef,useState} from 'react';
+import {PopupLayer} from './Popup';
+import {PopupPresence} from './PopupPresence';
 import {Check,ChevronDown,Search,SlidersHorizontal,Loader2} from 'lucide-react';
 import {useApp} from '../context';
 import {useSavedSelection} from '../selections';
@@ -9,23 +10,24 @@ import {DateRangePicker} from './DateRangePicker';
 import {Button} from './ui';
 
 export function MultiSelect({label,options,value,onApply}:{label:string;options:{value:string;label:string}[];value:string[];onApply(value:string[]):void}) {
-  const trigger=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null),search=useRef<HTMLInputElement>(null);
-  const [open,setOpen]=useState(false),[mounted,setMounted]=useState(false),[draft,setDraft]=useState(value),[query,setQuery]=useState('');
+  const trigger=useRef<HTMLButtonElement>(null),search=useRef<HTMLInputElement>(null);
+  // A portal may attach after the first layout pass; its node starts anchor measurement.
+  const [panel,setPanel]=useState<HTMLDivElement|null>(null);
+  const [open,setOpen]=useState(false),[draft,setDraft]=useState(value),[query,setQuery]=useState('');
   const [position,setPosition]=useState({top:0,left:0});
-  const close=useCallback(()=>{setOpen(false);trigger.current?.focus();},[]);
-  useEffect(()=>{if(open){setMounted(true);return;}const timer=setTimeout(()=>setMounted(false),130);return()=>clearTimeout(timer);},[open]);
-  useEffect(()=>{
-    if(!open)return;
-    const outside=(e:PointerEvent)=>{if(!panel.current?.contains(e.target as Node) && !trigger.current?.contains(e.target as Node))close();};
-    const keyboard=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();close();}};
-    const timer=setTimeout(()=>search.current?.focus(),20);
-    document.addEventListener('pointerdown',outside);document.addEventListener('keydown',keyboard);window.addEventListener('resize',close);
-    return()=>{clearTimeout(timer);document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',keyboard);window.removeEventListener('resize',close);};
-  },[open,close]);
-  function show(){if(open){close();return;}const rect=trigger.current!.getBoundingClientRect();setPosition({top:Math.min(rect.bottom+7,window.innerHeight-420),left:Math.min(rect.left,window.innerWidth-330)});setDraft(value);setQuery('');setMounted(true);setOpen(true);}
   const available=[...options,...value.filter(v=>!options.some(o=>o.value===v)).map(v=>({value:v,label:v+'（历史选择）'}))];
   const shown=available.filter(o=>o.label.toLowerCase().includes(query.toLowerCase()));
-  return <><button ref={trigger} type="button" className={'multi-trigger '+(value.length ? 'has-selection' : '')} aria-label={'筛选'+label} aria-haspopup="dialog" aria-expanded={open} onClick={show}><span>{value.length ? label+' · '+value.length : '全部'+label}</span><ChevronDown size={14}/></button>{mounted && <InterfaceOverlay><div ref={panel} role="dialog" aria-label={label+'多选筛选'} aria-modal="false" aria-hidden={!open} inert={!open} className={'multi-popover '+(open ? 'open' : 'closing')} style={position}><div className="multi-heading"><strong>筛选{label}</strong><span>可多选</span></div><div className="search-input"><Search size={15}/><input ref={search} aria-label={'搜索'+label} placeholder={'搜索'+label} value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="multi-options">{shown.length ? shown.map(option=><label key={option.value}><input type="checkbox" checked={draft.includes(option.value)} onChange={e=>setDraft(current=>e.target.checked ? [...current,option.value].slice(0,500) : current.filter(v=>v!==option.value))}/><span className="multi-check"><Check size={12}/></span><span title={option.label}>{option.label}</span></label>) : <p>没有匹配的{label}</p>}</div><div className="multi-actions"><button type="button" onClick={()=>setDraft([])}>全部{label}</button><span>{draft.length ? '已选 '+draft.length+' 项' : '不限'}</span><Button variant="primary" onClick={()=>{onApply(draft);close();}}>应用</Button></div></div></InterfaceOverlay>}</>;
+  const close=useCallback(()=>setOpen(false),[]);
+  useLayoutEffect(()=>{
+    if(!open || !panel || !trigger.current)return;
+    const rect=trigger.current.getBoundingClientRect(),height=panel.offsetHeight,width=panel.offsetWidth;
+    const below=rect.bottom+7,above=rect.top-height-7;
+    const top=Math.max(8,Math.min(below+height<=window.innerHeight-8 ? below : above,window.innerHeight-height-8));
+    const left=Math.max(8,Math.min(rect.left,window.innerWidth-width-8));
+    setPosition(current=>current.top===top && current.left===left ? current : {top,left});
+  },[open,panel,query,options,value]);
+  function show(){if(open){close();return;}setDraft(value);setQuery('');setOpen(true);}
+  return <><button ref={trigger} type="button" className={'multi-trigger '+(value.length ? 'has-selection' : '')} aria-label={'筛选'+label} aria-haspopup="dialog" aria-expanded={open} onClick={show}><span>{value.length ? label+' · '+value.length : '全部'+label}</span><ChevronDown size={14}/></button><PopupPresence exitMs={200}>{open && <PopupLayer kind="popover" label={label+'多选筛选'} className="multi-popover" panelRef={setPanel} initialFocus={search} returnFocus={trigger.current} anchorRef={trigger} onClose={close} style={position}><div className="multi-heading"><strong>筛选{label}</strong><span>可多选</span></div><div className="search-input"><Search size={15}/><input ref={search} aria-label={'搜索'+label} placeholder={'搜索'+label} value={query} onChange={e=>setQuery(e.target.value)}/></div><div className="multi-options">{shown.length ? shown.map(option=><label key={option.value}><input type="checkbox" checked={draft.includes(option.value)} onChange={e=>setDraft(current=>e.target.checked ? [...current,option.value].slice(0,500) : current.filter(v=>v!==option.value))}/><span className="multi-check"><Check size={12}/></span><span title={option.label}>{option.label}</span></label>) : <p>没有匹配的{label}</p>}</div><div className="multi-actions"><button type="button" onClick={()=>setDraft([])}>全部{label}</button><span>{draft.length ? '已选 '+draft.length+' 项' : '不限'}</span><Button variant="primary" onClick={()=>{onApply(draft);close();}}>应用</Button></div></PopupLayer>}</PopupPresence></>;
 }
 
 export function StatisticsFilter() {

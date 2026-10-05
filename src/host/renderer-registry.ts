@@ -26,6 +26,8 @@ export interface RendererPage {id:Page;component:LazyExoticComponent<ComponentTy
 export interface SidebarContribution {page:RendererPage & {id:PluginPageId};navigation:NavigationItem;view?:string}
 export interface SettingsTabContribution {id:string;label:string;order:number;view?:string;component:LazyExoticComponent<ComponentType>}
 export interface ConnectionContribution {id:string;label:string;order:number;view?:string;component:LazyExoticComponent<ComponentType>}
+/** Settings owned by one plugin; components use its existing typed services and preferences. */
+export interface PluginSettingsSectionContribution {id:string;title:string;description?:string;view?:string;component:ComponentType|LazyExoticComponent<ComponentType>}
 export interface RendererContribution {
   manifest:PluginManifest;
   page?:RendererPage;
@@ -38,7 +40,7 @@ export interface RendererContribution {
   toolConfigs?:readonly ToolConfigView[];
   connections?:readonly ConnectionContribution[];
   settingsTabs?:readonly SettingsTabContribution[];
-  settings:{title:string;description:string;component?:ComponentType};
+  settings:{title:string;description:string;component?:ComponentType;sections?:readonly PluginSettingsSectionContribution[]};
 }
 /** Built-ins are static imports: the renderer never executes externally supplied plugin code. */
 export const rendererRegistry:readonly RendererContribution[]=[workbenchRenderer,usageRenderer,modelsRenderer,toolConfigRenderer,tokensRenderer,newApiRenderer,codexProviderRenderer,localSessionsRenderer,codexAdapterRenderer,claudeAdapterRenderer,widgetRenderer,trayRenderer];
@@ -54,6 +56,12 @@ export function validateRendererRegistry(registry:readonly RendererContribution[
   const settingsIds=new Set<string>(),connectionIds=new Set<string>();
   for(const item of registry){
     if(!!item.page!==!!item.navigation)throw new Error('页面与导航必须一起注册：'+item.manifest.id);
+    const sectionIds=new Set<string>();
+    for(const section of item.settings.sections || []){
+      if(!/^[a-z][a-z0-9.-]{0,63}$/.test(section.id) || !section.title.trim() || sectionIds.has(section.id))throw new Error('无效或重复的插件自身设置项：'+item.manifest.id+':'+section.id);
+      sectionIds.add(section.id);
+      if(section.view && !item.manifest.settings?.views.some(view=>view.id===section.view))throw new Error('插件自身设置开关必须在插件设置中声明：'+section.view);
+    }
     for(const [entries,seen] of [[item.settingsTabs || [],settingsIds],[item.connections || [],connectionIds]] as const)for(const entry of entries){
       if(!entry.id.startsWith(`plugin:${item.manifest.id}:`) || !entry.label.trim() || !Number.isFinite(entry.order))throw new Error('无效插件设置/连接贡献：'+entry.id);
       if(seen.has(entry.id))throw new Error('重复插件设置/连接贡献：'+entry.id);seen.add(entry.id);

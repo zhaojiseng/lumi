@@ -24,7 +24,7 @@ const SettingsPage = lazy(() => import('./pages/Settings'));
 const legacyNav:readonly NavigationItem[] = [
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手',section:'settings' },
 ];
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.5.5', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '0.5.6', configs: [], secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -56,6 +56,7 @@ export default function App() {
   const dataScope=JSON.stringify([accountKey,newApiStatus?.generation,newApiStatus?.state]);
   const dashboard=newApiEnabled && dashboardSnapshot?.accountKey===dataScope ? dashboardSnapshot.value : null;
   const configureScope=useRef(accountKey);configureScope.current=accountKey;
+  const configurePlugins=useRef(plugins.statuses);configurePlugins.current=plugins.statuses;
   const [loginOpen,setLoginOpen]=useState(false);
   useEffect(()=>{if(!newApiEnabled)setLoginOpen(false);},[newApiEnabled]);
   const [catalogNotice,setCatalogNotice]=useState({key:'',count:0});
@@ -116,10 +117,15 @@ export default function App() {
   const setDays = (n: number) => setOverviewQuery(n);
   useEffect(() => { contentRef.current?.scrollTo({ top: 0 }); }, [page]);
   const configureModel = useCallback((model: string, tool: 'codex' | 'claude',group?: string) => {
+    const adapterId='adapter.tool.'+tool,adapter=configurePlugins.current.find(status=>status.manifest.id===adapterId);
+    if(adapter?.state!=='active'){
+      setPage('settings');toast('请先在设置的“工具配置”分组中启用 '+(tool==='codex' ? 'Codex' : 'Claude Code')+'。','info');return;
+    }
     const siteId=preferences.activeSiteId,scope=accountKey;
     void (async()=>{
       await updatePreferences({selection:{siteId,values:{[tool+'.model']:model,...(group ? {[tool+'.group']:group} : {})}}});
-      if(configureScope.current===scope)setPage('tools');
+      const current=configurePlugins.current.find(status=>status.manifest.id===adapterId);
+      if(configureScope.current===scope && current?.state==='active' && current.generation===adapter.generation)setPage('tools');
     })().catch(e=>toast(e.message,'error'));
   }, [preferences.activeSiteId,accountKey,plugins.statuses,plugins.settings.setEnabled,updatePreferences,toast]);
   const site = preferences.sites.find(s => s.id === preferences.activeSiteId) || preferences.sites[0];

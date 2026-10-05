@@ -18,7 +18,10 @@ export function registerExternalRenderers(packages:readonly ExtensionDescriptor[
       else if(view.slot==='usage')renderer.usage=[...renderer.usage || [],content];
       else if(view.slot==='models' || view.slot==='tokens')renderer[view.slot]=[...renderer[view.slot] || [],content];
       else if(view.slot==='connection')renderer.connections=[...renderer.connections || [],content];
-      else if(view.slot==='settingsTab')renderer.settingsTabs=[...renderer.settingsTabs || [],content];
+      else if(view.slot==='settingsTab'){
+        renderer.settingsTabs=[...renderer.settingsTabs || [],content];
+        renderer.settings.sections=[...renderer.settings.sections || [],{id:view.id,title:view.title,view:view.switch,component}];
+      }
       else if(view.slot==='sidebar')renderer.sidebar=[...renderer.sidebar || [],{view:view.switch,page:{id:id as PluginPageId,scope:view.scope,component},navigation:{id:id as PluginPageId,label:view.title,hint:manifest.description,icon:Puzzle,section:view.section || 'workspace'}}];
     }
     return renderer;

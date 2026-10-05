@@ -28,7 +28,7 @@ await writeFile(path.join(root,'index.html'),'<html><head><meta charset="UTF-8">
     const {app,BrowserWindow}=require('electron'),path=require('node:path'),fs=require('node:fs');
     for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}
     app.whenReady().then(async()=>{
-      const win=new BrowserWindow({show:false,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+      const win=new BrowserWindow({show:false,webPreferences:{offscreen:true,nodeIntegration:false,contextIsolation:true,sandbox:true,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
       let checks=0;
       for(const width of [1280,1100]){win.setContentSize(width,850);for(const page of ['工作台','用量分析','模型广场','工具配置','API 令牌','设置']){
         await win.webContents.executeJavaScript('('+async function(label){
@@ -57,9 +57,9 @@ await writeFile(path.join(root,'index.html'),'<html><head><meta charset="UTF-8">
       await win.webContents.executeJavaScript('('+async function(){
         const until=async(fn)=>{const end=performance.now()+4000;while(!fn()){if(performance.now()>end)throw new Error('Grouped plugin UI');await new Promise(r=>setTimeout(r,10));}};
         const nav=label=>Array.from(document.querySelectorAll('.nav-item')).find(e=>e.textContent.trim().startsWith(label));
-        nav('设置').click();await until(()=>document.querySelectorAll('.plugin-settings [role=switch]').length===9);
+        nav('设置').click();await until(()=>document.querySelectorAll('.plugin-settings-overview [role=switch]').length===6);
         const root=document.querySelector('.settings-page'),groups=Array.from(document.querySelectorAll('.plugin-settings-group'));
-        if(groups.map(e=>e.dataset.plugin).join(',')!=='provider.newapi,provider.codex,surface.widget,surface.tray')throw new Error('Wrong product grouping');
+        if(groups.map(e=>e.dataset.plugin).join(',')!=='provider.newapi,provider.codex,surface.widget,surface.tray,adapter.tool.codex,adapter.tool.claude')throw new Error('Wrong product grouping');
         for(const group of groups){const box=group.getBoundingClientRect();for(const control of group.querySelectorAll('[role=switch]')){const c=control.getBoundingClientRect();if(c.left<box.left || c.right>box.right+1 || c.width<40)throw new Error('Switch overflow');}}
         const tab=label=>Array.from(document.querySelectorAll('.settings-subnav button')).find(b=>b.textContent===label);
         if(!tab('托盘') || !tab('浮窗') || !document.querySelector('[aria-label=连接]') || document.body.textContent.includes('站点连接'))throw new Error('Plugin settings registration missing');
@@ -70,8 +70,12 @@ await writeFile(path.join(root,'index.html'),'<html><head><meta charset="UTF-8">
         document.querySelector('[aria-label="启用NewAPI"]').click();await until(()=>!nav('模型广场') && !nav('API 令牌'));
         if(document.querySelector('.site-list'))throw new Error('NewAPI connection remains after disable');
         if(document.querySelector('.settings-page')!==root || !nav('工作台') || !nav('用量分析') || !nav('工具配置'))throw new Error('Provider toggle destroyed system or Settings');
-        const child=document.querySelector('[aria-label="显示NewAPI 模型广场"]');if(child.getAttribute('aria-checked')!=='true' || child.getAttribute('aria-disabled')!=='true')throw new Error('Disabled parent lost child choice');
-        document.querySelector('[aria-label="显示Codex 工作台"]').click();await until(()=>!nav('工作台'));
+        document.querySelector('[data-plugin="provider.newapi"] .plugin-settings-button').click();await until(()=>document.querySelector('.plugin-details-modal:not([aria-hidden])'));
+        const child=document.querySelector('[data-plugin-details="provider.newapi"] [aria-label="显示NewAPI 模型广场"]');if(child.getAttribute('aria-checked')!=='true' || child.getAttribute('aria-disabled')!=='true')throw new Error('Disabled parent lost child choice');
+        document.querySelector('.plugin-details-modal:not([aria-hidden]) [aria-label="关闭弹窗"]').click();await until(()=>!document.querySelector('.plugin-details-modal:not([aria-hidden])'));
+        document.querySelector('[data-plugin="provider.codex"] .plugin-settings-button').click();await until(()=>document.querySelector('.plugin-details-modal:not([aria-hidden])'));
+        document.querySelector('[data-plugin-details="provider.codex"] [aria-label="显示Codex 工作台"]').click();await until(()=>!nav('工作台'));
+        document.querySelector('.plugin-details-modal:not([aria-hidden]) [aria-label="关闭弹窗"]').click();await until(()=>!document.querySelector('.plugin-details-modal:not([aria-hidden])'));
         document.querySelector('[aria-label="启用NewAPI"]').click();await until(()=>nav('模型广场'));
         if(document.querySelector('.settings-page')!==root || fixture.errors.length)throw new Error('Restart lost Settings');
       }.toString()+')()');

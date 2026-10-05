@@ -195,7 +195,7 @@ test('destroying before a layout report leaves no delayed readiness timer behind
 });
 
 test('renderer uses the totals caption independently of the chart caption and retains a full label title',async()=>{
-  const result=await build({entryPoints:['src/tray.tsx'],bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom/client'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent'});
+  const result=await build({entryPoints:['src/tray.tsx'],bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom','react-dom/client'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent'});
   for(const totalsCaption of [undefined,'今日','最近24小时','最近7天']){
     const state:TrayPanelState={usage:{...nativeMenuBarState({phase:'ready'},{days:1,tool:'all'}),totalsCaption,chartCaption:'最近30天 · 按天'},theme:'light'};
     const module={exports:{}},require=createRequire(import.meta.url);let tree:React.ReactNode;

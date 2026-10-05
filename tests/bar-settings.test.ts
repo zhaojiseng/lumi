@@ -33,7 +33,7 @@ test('bar preferences allow all, none and independent intervals without mutating
 });
 
 test('bar settings renders all six accessible checkboxes and independently selectable refresh intervals',async()=>{
-  const result=await build({stdin:{contents:"export {default as BarSettings} from './src/components/BarSettings'; export {AppContext} from './src/context';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime'],loader:{'.svg':'text'},logLevel:'silent'});
+  const result=await build({stdin:{contents:"export {default as BarSettings} from './src/components/BarSettings'; export {AppContext} from './src/context';",resolveDir:process.cwd(),loader:'tsx'},bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom'],loader:{'.svg':'text'},logLevel:'silent'});
   const module={exports:{} as Record<string,any>};
   runInNewContext(result.outputFiles[0].text,{module,exports:module.exports,require:createRequire(import.meta.url)});
   const {BarSettings,AppContext}=module.exports;

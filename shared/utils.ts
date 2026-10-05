@@ -1,4 +1,4 @@
-import {logMetrics,upstreamChannel,requestReasoningEffort} from './logs';
+import {logMetrics,upstreamChannel,requestReasoningEffort,requestTiming} from './logs';
 import {resolveRange} from './range';
 import type { SiteStatus, UsageLog, QuotaPoint, ToolBinding, Tool, ManagedToken, RangeQuery,Preferences,ApiToken } from './types';
 export function currency(status: SiteStatus) {
@@ -64,7 +64,7 @@ export function usageSeries(points: QuotaPoint[], days: number, status: SiteStat
   const rows=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,end_timestamp:end,
     label:duration/bucketCount<86400 ? short(start)+' '+time(start) : short(start),
     tooltipLabel:localDate(start)+' '+time(start)+' – '+localDate(end)+' '+time(end),
-    cost:0,tokens:0,requests:0,codex:0,claude:0,cacheInputTokens:0,cacheReadTokens:0,cacheHitRate:null as number|null}));
+    cost:0,tokens:0,requests:0,codex:0,claude:0,cacheInputTokens:0,cacheReadTokens:0,cacheHitRate:null as number|null,outputTokens:0,durationSeconds:0,speedSamples:0,speed:null as number|null,netOutputTokens:0,subsequentDurationSeconds:0,netSpeedSamples:0,netSpeed:null as number|null}));
   const c=currency(status);
   for(const point of points) {
     if(!Number.isFinite(point.created_at) || point.created_at<resolved.start_timestamp || point.created_at>resolved.end_timestamp)continue;
@@ -73,12 +73,14 @@ export function usageSeries(points: QuotaPoint[], days: number, status: SiteStat
     while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(buckets[mid].start<=point.created_at)lo=mid;else hi=mid-1;}
     const row=rows[lo];if(!row)continue;row.cost+=c.value(point.quota);row.tokens+=point.token_used || 0;row.requests+=point.count || 0;
     if(typeof point.cacheInputTokens==='number' && Number.isFinite(point.cacheInputTokens) && point.cacheInputTokens>0 && typeof point.cacheReadTokens==='number' && Number.isFinite(point.cacheReadTokens) && point.cacheReadTokens>=0 && point.cacheReadTokens<=point.cacheInputTokens){row.cacheInputTokens+=point.cacheInputTokens;row.cacheReadTokens+=point.cacheReadTokens;}
+    if(typeof point.outputTokens==='number' && Number.isFinite(point.outputTokens) && point.outputTokens>0 && typeof point.durationSeconds==='number' && Number.isFinite(point.durationSeconds) && point.durationSeconds>0){row.outputTokens+=point.outputTokens;row.durationSeconds+=point.durationSeconds;row.speedSamples+=Number.isSafeInteger(point.speedSamples) && point.speedSamples!>0 ? point.speedSamples! : 0;}
+    if(typeof point.netOutputTokens==='number' && Number.isFinite(point.netOutputTokens) && point.netOutputTokens>0 && typeof point.subsequentDurationSeconds==='number' && Number.isFinite(point.subsequentDurationSeconds) && point.subsequentDurationSeconds>0){row.netOutputTokens+=point.netOutputTokens;row.subsequentDurationSeconds+=point.subsequentDurationSeconds;row.netSpeedSamples+=Number.isSafeInteger(point.netSpeedSamples) && point.netSpeedSamples!>0 ? point.netSpeedSamples! : 0;}
   }
-  for(const row of rows)row.cacheHitRate=row.cacheInputTokens>0 ? row.cacheReadTokens/row.cacheInputTokens : null;
+  for(const row of rows){row.cacheHitRate=row.cacheInputTokens>0 ? row.cacheReadTokens/row.cacheInputTokens : null;row.speed=row.durationSeconds>0 ? row.outputTokens/row.durationSeconds : null;row.netSpeed=row.subsequentDurationSeconds>0 ? row.netOutputTokens/row.subsequentDurationSeconds : null;}
   return rows;
 }
 export function csvEscape(value: unknown) { const s = String(value ?? ''); const safe = /^[=+@\-]/.test(s) ? `'${s}` : s; return `"${safe.replace(/"/g, '""')}"`; }
 export function logsToCsv(logs: UsageLog[], status: SiteStatus) {
-  const rows = [['时间', '模型', '令牌', '输入 Tokens', '输出 Tokens', `费用 (${currency(status).symbol || '额度'})`, '耗时(s)', '状态', '分组', '请求 ID', '缓存读取 Tokens', '缓存写入 Tokens', 'Token 速度 (t/s)', '首字延迟 (ms)', '上游渠道', '思考强度'], ...logs.map(l => [new Date(l.created_at * 1000).toISOString(), l.model_name, l.token_name, l.prompt_tokens, l.completion_tokens, currency(status).value(l.quota), l.use_time, l.type === 2 ? '成功' : l.type === 5 ? '错误' : String(l.type), l.group, l.request_id || '', logMetrics(l).cacheRead ?? '', logMetrics(l).cacheWrite ?? '', logMetrics(l).speed ?? '', logMetrics(l).firstTokenMs ?? '', upstreamChannel(l) || '', requestReasoningEffort(l) || ''])];
+  const rows = [['时间', '模型', '令牌', '输入 Tokens', '输出 Tokens', `费用 (${currency(status).symbol || '额度'})`, '耗时(s)', '状态', '分组', '请求 ID', '缓存读取 Tokens', '缓存写入 Tokens', 'Token 速度 (t/s)', '首字延迟 (ms)', '上游渠道', '思考强度', '后续耗时 (ms)', '净速率 (t/s)'], ...logs.map(l => [new Date(l.created_at * 1000).toISOString(), l.model_name, l.token_name, l.prompt_tokens, l.completion_tokens, currency(status).value(l.quota), l.use_time, l.type === 2 ? '成功' : l.type === 5 ? '错误' : String(l.type), l.group, l.request_id || '', logMetrics(l).cacheRead ?? '', logMetrics(l).cacheWrite ?? '', logMetrics(l).speed ?? '', logMetrics(l).firstTokenMs ?? '', upstreamChannel(l) || '', requestReasoningEffort(l) || '', requestTiming(l).subsequentMs ?? '', logMetrics(l).netSpeed ?? ''])];
   return '\uFEFF' + rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
 }

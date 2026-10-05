@@ -1,3 +1,4 @@
+import {lazy} from 'react';
 import {RefreshCw} from 'lucide-react';
 import {Select} from '../../src/components/Select';
 import {useSavedSelection} from '../../src/selections';
@@ -14,4 +15,5 @@ export const codexConfigView:ToolConfigView={
   },
   RuntimeExtras:({state,desktop,locked,onDetect}:ToolRuntimeExtrasProps)=><div className="tool-runtime desktop-runtime" title={state?.path}><div><span className={'connection-dot '+(state?.version ? '' : 'inactive')}/><span className="runtime-name">ChatGPT 桌面</span><RuntimeVersions state={state} desktop={desktop}/></div><button type="button" className="icon-button" title="重新检测 ChatGPT 桌面应用" aria-label="ChatGPT 重新检测" disabled={locked || !desktop} onClick={onDetect}><RefreshCw size={14}/></button></div>,
 };
-export const codexAdapterRenderer:RendererContribution={manifest:codexAdapterManifest,toolConfigs:[codexConfigView],settings:{title:'Codex 配置适配器',description:'提供 Codex 的配置选项和文件规则。'}};
+const Settings=lazy(async()=>{const {ToolPluginSettings}=await import('../../src/host/ToolPluginSettings');return {default:()=> <ToolPluginSettings definition={codexConfigView}/>};});
+export const codexAdapterRenderer:RendererContribution={manifest:codexAdapterManifest,toolConfigs:[codexConfigView],settings:{title:'Codex 工具配置',description:codexAdapterManifest.settings!.description,sections:[{id:'options',title:'Codex 配置选项',component:Settings}]}};
