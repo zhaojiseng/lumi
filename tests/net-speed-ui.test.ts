@@ -33,6 +33,8 @@ points.push({...unknown,created_at:start+2402,quota:0,token_used:0,count:0,outpu
 points.push({...unknown,created_at:start+2403,quota:0,token_used:0,count:0,outputTokens:undefined,durationSeconds:9999,speedSamples:1,netOutputTokens:undefined});
 const dashboard={status,catalog,user:{id:1},logs:{items:logs.slice(0,5),total:5,page:1,pageSize:15},series:points,range:{startDate:'2024-01-01',endDate:'2024-01-01',startTime:'12:00',endTime:'12:59'},days:1,detailed:true,fetchedAt:now.getTime(),warnings:[],tokens:[],stat:null};
 window.fixture={errors:[],patches:[]};addEventListener('error',event=>fixture.errors.push(event.message));addEventListener('unhandledrejection',event=>fixture.errors.push(String(event.reason)));
+fixture.frame=()=>new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{cancelAnimationFrame(frame);reject(new Error('Animation frame did not arrive within 6000ms'));},6000),frame=requestAnimationFrame(()=>{clearTimeout(timeout);resolve();});});
+fixture.fontsReady=async()=>{let timeout;try{await Promise.race([document.fonts.ready,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Fonts did not settle within 6000ms: '+document.fonts.status)),6000);})]);}finally{clearTimeout(timeout);}};
 function App(){const [page,setPage]=useState('requests'),[preferences,setPreferences]=useState({...structuredClone(DEFAULT_PREFERENCES),activeSiteId:'fixture-site',logColumns:['model','duration','speed'],dataRefreshAnimation:'none'});fixture.show=setPage;fixture.preferences=preferences;
 const context={preferences,dashboard,updatePreferences:async patch=>{fixture.patches.push(patch);setPreferences(current=>applyPreferencePatch(current,patch));},toast:message=>fixture.errors.push(message)};
 return <main className="desktop-shell" data-theme="light" style={{display:'block',padding:24}}><AppContext.Provider value={context}>{page==='requests' ? <section className="panel"><LogColumnsControl/><RequestLogTable logs={dashboard.logs} busy={false} page={1} onPage={()=>{}} onDetail={()=>setPage('detail')} status={status} catalog={catalog}/><RecentActivity logs={logs.slice(0,4)} columns={['model','timing','netSpeed']} status={status} catalog={catalog}/></section> : page==='detail' ? <RequestDetail log={detail} status={status} onClose={()=>setPage('requests')}/> : <section className="panel"><UsageTrend dashboard={dashboard} preferenceKey="overview.trend"/></section>}</AppContext.Provider></main>;}
@@ -46,21 +48,33 @@ createRoot(document.getElementById('root')).render(<App/>);
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');
 for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}
 app.commandLine.appendSwitch('force-prefers-reduced-motion');
-app.whenReady().then(async()=>{
+const started=Date.now();let stage='startup',win;
+const diagnostic=()=>({stage,elapsedMs:Date.now()-started,...win && !win.isDestroyed() ? {visible:win.isVisible(),contentSize:win.getContentSize(),loading:win.webContents.isLoading(),rendererDestroyed:win.webContents.isDestroyed()} : {windowDestroyed:!!win}});
+const bounded=async(name,operation,ms=8000)=>{stage=name;console.log('NET_SPEED_PHASE '+JSON.stringify({name,state:'start',elapsedMs:Date.now()-started}));let timeout;try{const result=await Promise.race([Promise.resolve().then(operation),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Electron operation timed out after '+ms+'ms: '+JSON.stringify(diagnostic()))),ms);})]);console.log('NET_SPEED_PHASE '+JSON.stringify({name,state:'done',elapsedMs:Date.now()-started}));return result;}finally{clearTimeout(timeout);}};
+// A stalled native operation must report its last stage before the outer test aborts.
+const watchdog=setTimeout(()=>{console.error('NET_SPEED_WATCHDOG '+JSON.stringify(diagnostic()));app.exit(1);},45000);
+bounded('app-ready',()=>app.whenReady()).then(async()=>{
 // Use the production compositor: software offscreen surfaces can disappear during macOS resize.
-const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
-const waitForPaint=async(size=win.getContentSize())=>win.webContents.executeJavaScript('('+async function(width,height){
-  const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve)),end=performance.now()+6000;await document.fonts.ready;
+stage='create-window';console.log('NET_SPEED_PHASE '+JSON.stringify({name:stage,state:'start',elapsedMs:Date.now()-started}));
+win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+console.log('NET_SPEED_PHASE '+JSON.stringify({name:stage,state:'done',elapsedMs:Date.now()-started}));
+win.webContents.on('render-process-gone',(_event,details)=>{console.error('NET_SPEED_RENDERER_GONE '+JSON.stringify({diagnostic:diagnostic(),details}));app.exit(1);});
+await bounded('load-file',()=>win.loadFile(path.join(__dirname,'index.html')));
+const evaluate=async(name,expression,ms=8000)=>bounded(name,async()=>{const result=await win.webContents.executeJavaScript('(async()=>{try{return {ok:true,value:await ('+expression+')}}catch(error){return {ok:false,error:error.stack||String(error)}}})()');if(!result.ok)throw new Error(name+': '+result.error);return result.value;},ms);
+const waitForPaint=async(size=win.getContentSize())=>evaluate('viewport-paint:'+size.join('x'),'('+async function(width,height){
+  const frame=fixture.frame,end=performance.now()+6000;await fixture.fontsReady();
   while(innerWidth!==width || innerHeight!==height){if(performance.now()>end)throw new Error('Viewport did not settle: '+innerWidth+'x'+innerHeight+' expected '+width+'x'+height);await frame();}
   await frame();await frame();return {width:innerWidth,height:innerHeight,scale:devicePixelRatio};
 }.toString()+')('+size.join(',')+')');
-const resize=async(width,height)=>{win.setContentSize(width,height);await waitForPaint([width,height]);};
+const resize=async(width,height)=>bounded('resize:'+width+'x'+height,async()=>{win.setContentSize(width,height);await waitForPaint([width,height]);});
 // Reapply content size after native construction to normalize fractional display scaling.
 await resize(1100,720);
-const run=async(stage,value)=>win.webContents.executeJavaScript('('+async function(stage,value){
+const run=async(stage,value)=>evaluate('renderer:'+stage,'('+async function(stage,value){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
-  const settle=async()=>{await new Promise(resolve=>requestAnimationFrame(resolve));document.getAnimations().forEach(animation=>animation.finish());await new Promise(resolve=>requestAnimationFrame(resolve));};
-  const select=async(label,value)=>{const control=document.querySelector('select[aria-label="'+label+'"]');check(control,'Missing control '+label);control.value=value;control.dispatchEvent(new Event('change',{bubbles:true}));await until(()=>document.querySelector('select[aria-label="'+label+'"]').value===value);await settle();};
+  // This fixture disables motion. Wait for committed React choices and layout,
+  // rather than repeatedly paying hidden-window RAF throttling after every choice.
+  const settle=async()=>{await new Promise(resolve=>setTimeout(resolve,0));document.getAnimations().forEach(animation=>animation.finish());const shell=document.querySelector('.desktop-shell');check(shell.getBoundingClientRect().width>0 && getComputedStyle(shell).display!=='none','Fixture layout unavailable');};
+  const select=async(label,value)=>{const control=document.querySelector('select[aria-label="'+label+'"]'),key={'趋势指标':'overview.metric','曲线分组':'overview.trend.group','曲线模型':'overview.trend.model','曲线令牌':'overview.trend.token'}[label];check(control && key,'Missing control '+label);control.value=value;control.dispatchEvent(new Event('change',{bubbles:true}));await until(()=>fixture.preferences.viewSelections['fixture-site']?.[key]===value && document.querySelector('select[aria-label="'+label+'"]')?.value===value);await settle();};
   await until(()=>fixture.show);
   if(stage==='columns'){
     await until(()=>document.querySelector('.request-log-table'));
@@ -117,12 +131,12 @@ const run=async(stage,value)=>win.webContents.executeJavaScript('('+async functi
     await select('曲线分组','model');await select('曲线模型','gamma');await until(()=>document.querySelector('.trend-summary strong')?.textContent==='—');await settle();
   }
   check(fixture.errors.length===0,'renderer errors '+fixture.errors);return {stage,viewport:innerWidth+'x'+innerHeight};
-}.toString()+')('+JSON.stringify(stage)+','+JSON.stringify(value)+')');
+}.toString()+')('+JSON.stringify(stage)+','+JSON.stringify(value)+')',10000);
 const shot=async name=>{
   let image,viewport;
   for(let attempt=1;attempt<=3;attempt++){
     viewport=await waitForPaint();
-    try{image=await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});break;}
+    try{image=await bounded('capture:'+name+':'+attempt,()=>win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true}));break;}
     catch(error){if(error?.message!=='UnknownVizError' || attempt===3)throw error;console.warn('Retrying transient capture '+name+' ('+attempt+'/3): '+error.message);}
   }
   // Normal-window captures contain device pixels, including Retina/fractional Windows scale.
@@ -136,14 +150,17 @@ for(const size of [[1100,720],[1000,680]]){await resize(...size);console.log('NE
 await resize(1100,720);const position=await run('trend');win.webContents.sendInputEvent({type:'mouseMove',...position});console.log('NET_SPEED_UI '+JSON.stringify(await run('tooltip')));await shot('trend');
 console.log('NET_SPEED_UI '+JSON.stringify(await run('grouping')));console.log('NET_SPEED_UI '+JSON.stringify(await run('unknown')));await shot('unknown');
 const speedPosition=await run('speed');console.log('NET_SPEED_UI '+JSON.stringify({stage:'speed',...speedPosition}));win.webContents.sendInputEvent({type:'mouseMove',...speedPosition});console.log('NET_SPEED_UI '+JSON.stringify(await run('tooltip','18.2 t/s')));await shot('speed');
-await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"');console.log('NET_SPEED_UI '+JSON.stringify(await run('detail')));await shot('detail-dark');
-win.destroy();app.exit(0);
-}).catch(error=>{console.error(error.stack || error);app.exit(1)});
+await evaluate('theme:dark','(()=>{document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"})()');console.log('NET_SPEED_UI '+JSON.stringify(await run('detail')));await shot('detail-dark');
+clearTimeout(watchdog);win.destroy();app.exit(0);
+}).catch(error=>{console.error('NET_SPEED_FAILURE '+JSON.stringify(diagnostic())+'\n'+(error.stack || error));app.exit(1)});
 `);
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(electron,[path.join(directory,'main.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});
   let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
-  const code=await new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
-  await writeFile(path.resolve('.test-data/net-speed-ui.log'),stdout+stderr);
+  const reportAbort=()=>t.diagnostic('Electron child aborted; captured phases:\n'+(stdout+stderr || '(no child output)'));
+  t.signal.addEventListener('abort',reportAbort,{once:true});
+  let code:number|null;
+  try{code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});}
+  finally{t.signal.removeEventListener('abort',reportAbort);await writeFile(path.resolve('.test-data/net-speed-ui.log'),stdout+stderr);}
   assert.equal(code,0,stderr+stdout);assert.equal(stdout.split('NET_SPEED_UI ').length-1,9);
 });

@@ -128,6 +128,19 @@ if(!animation.effect.getKeyframes().some(frame=>frame.opacity!==undefined))throw
 animation.pause();await animation.ready;animation.currentTime=time;await new Promise(r=>requestAnimationFrame(r));
 const opacity=Number(getComputedStyle(panel).opacity),timing=animation.effect.getComputedTiming();if(animation.pending || animation.playState!=='paused' || animation.currentTime!==time || opacity<=0 || opacity>=1 || timing.progress<=0 || timing.progress>=1)throw new Error('Multiselect '+direction+' does not interpolate at a stable animation time: '+JSON.stringify({opacity,currentTime:animation.currentTime,pending:animation.pending,playState:animation.playState,timing}));animation.finish();
 };
+const waitMultiClosed=async function(reason){
+// animationend delivery and the presence fallback can outlast a fixed 180ms
+// delay in an offscreen window. Observe the complete exit/focus lifecycle.
+const start=performance.now(),end=start+1500,trigger=document.querySelector('.multi-trigger');
+const state=()=>{const panel=document.querySelector('.multi-popover');return {reason,elapsed:Math.round(performance.now()-start),escapes:fixture.escapes,expanded:trigger.getAttribute('aria-expanded'),active:document.activeElement?.outerHTML.slice(0,180),popup:panel && {phase:panel.dataset.popupPhase,inert:panel.inert,hidden:panel.getAttribute('aria-hidden'),opacity:getComputedStyle(panel).opacity,animations:panel.getAnimations().map(animation=>({name:animation.animationName,currentTime:animation.currentTime,playState:animation.playState,pending:animation.pending}))}};};
+while(performance.now()<end){
+if(fixture.escapes)throw new Error('Multiselect Escape reached its parent: '+JSON.stringify(state()));
+const panel=document.querySelector('.multi-popover');
+if(panel?.dataset.popupPhase==='exiting' && (!panel.inert || panel.getAttribute('aria-hidden')!=='true'))throw new Error('Multiselect exit remains interactive: '+JSON.stringify(state()));
+if(!panel && trigger.getAttribute('aria-expanded')==='false' && document.activeElement===trigger)return;
+await new Promise(r=>requestAnimationFrame(r));
+}throw new Error('Multiselect exit did not unmount the picker and restore trigger focus: '+JSON.stringify(state()));
+};
 for(const size of [[1100,720],[320,240]]){
 win.setContentSize(...size);await win.webContents.executeJavaScript('fixture.show("multi")');await new Promise(resolve=>setTimeout(resolve,50));
 await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await win.webContents.executeJavaScript('('+sampleMultiMotion.toString()+')("open",60)');await new Promise(resolve=>setTimeout(resolve,50));
@@ -144,13 +157,13 @@ popup.querySelector('input[type="checkbox"]').click();popup.querySelector('.mult
 check(fixture.applied.includes('master'),'Multiselect apply lost checked value');return {viewport:[innerWidth,innerHeight],bounds:[rect.x,rect.y,rect.width,rect.height]};
 }.toString()+')()');console.log('MULTI_UI '+JSON.stringify(result));
 await win.webContents.executeJavaScript('('+sampleMultiMotion.toString()+')("close",50)');
-await new Promise(resolve=>setTimeout(resolve,180));await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await new Promise(resolve=>setTimeout(resolve,50));
+await win.webContents.executeJavaScript('('+waitMultiClosed.toString()+')("apply")');await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await new Promise(resolve=>setTimeout(resolve,50));
 await win.webContents.executeJavaScript('('+async function(){
 const input=document.querySelector('.multi-popover .search-input input'),setValue=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
 for(const query of ['MASTER','astra']){setValue.call(input,query);input.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,50));const popup=document.querySelector('.multi-popover'),rect=popup.getBoundingClientRect();if(popup.querySelectorAll('.multi-options label').length!==1)throw new Error('Multiselect search failed');if(rect.bottom>innerHeight-7 || rect.top<7)throw new Error('Multiselect failed to reposition after equally sized search results changed row heights: '+query+' '+JSON.stringify(rect));if(Math.abs(input.parentElement.getBoundingClientRect().height-34)>1 || input.getBoundingClientRect().right>rect.right)throw new Error('Searching changed field height or caused horizontal overflow');}
 }.toString()+')()');
-win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});await new Promise(resolve=>setTimeout(resolve,180));
-await win.webContents.executeJavaScript('if(document.querySelector(".multi-popover") || fixture.escapes)throw new Error("Multiselect Escape did not close only the picker");if(document.activeElement!==document.querySelector(".multi-trigger"))throw new Error("Multiselect dismissal lost trigger focus");');
+win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
+await win.webContents.executeJavaScript('('+waitMultiClosed.toString()+')("Escape")');
 }
 await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
 await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))).then(()=>{const panel=document.querySelector(".multi-popover");if(!panel || panel.getAnimations().length || getComputedStyle(panel).opacity!=="1")throw new Error("Reduced motion animates multiselect opening");document.querySelector(".multi-trigger").click();})');
