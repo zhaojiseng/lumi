@@ -39,7 +39,7 @@ for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path
 app.whenReady().then(async()=>{
 // Windows/Linux support native pointer capture on offscreen surfaces. AppKit needs
 // a focused native window for capture, so the isolated macOS fixture uses one.
-const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform!=='darwin'}});await win.loadFile(path.join(__dirname,'index.html'));if(process.platform==='darwin'){win.show();win.focus();}
+const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform!=='darwin'}});await win.loadFile(path.join(__dirname,'index.html'));
 win.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message);});
 const run=async kind=>win.webContents.executeJavaScript('('+async function(kind){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
@@ -71,8 +71,9 @@ const run=async kind=>win.webContents.executeJavaScript('('+async function(kind)
   }
   check(fixture.errors.length===0,'renderer errors '+fixture.errors);return {kind,height:modal?.clientHeight,viewport:innerHeight};
 }.toString()+')('+JSON.stringify(kind)+')');
-for(const kind of ['request','pricing','market']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish())');fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'.png'),(await win.webContents.capturePage()).toPNG());}
+for(const kind of ['request','pricing','market']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish())');fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());}
 const dragSwitch=async(label,price)=>{
+  if(process.platform==='darwin'){win.show();win.focus();}
   await new Promise(resolve=>setTimeout(resolve,300));
   const stops=await win.webContents.executeJavaScript('('+function(label){
     const group=document.querySelector('[aria-label="'+label+'"]'),active=group.querySelector('[aria-pressed="true"]'),target=[...group.querySelectorAll('button')].find(button=>button!==active),point=button=>{const rect=button.getBoundingClientRect();return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};};
@@ -101,13 +102,14 @@ await win.webContents.executeJavaScript('('+async function(){
   if(context.getBoundingClientRect().top<mode.getBoundingClientRect().bottom)throw new Error('Context selector must wrap to another row when space is insufficient');
   for(const group of [mode,context])for(const button of group.querySelectorAll('button')){const span=button.querySelector('span');if(span.scrollWidth>span.clientWidth+1 || getComputedStyle(span).textOverflow==='ellipsis')throw new Error('Selector labels were truncated');}
 }.toString()+')()');
-fs.writeFileSync(path.resolve('.test-data/billing-market-narrow.png'),(await win.webContents.capturePage()).toPNG());await win.webContents.executeJavaScript('document.querySelector(".model-card").style.width=""');
+fs.writeFileSync(path.resolve('.test-data/billing-market-narrow.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());await win.webContents.executeJavaScript('document.querySelector(".model-card").style.width=""');
+if(process.platform==='darwin')win.hide();
 for(const size of [[1280,800],[1000,680]]){win.setContentSize(...size);for(const kind of ['request','pricing'])console.log('BILLING_UI '+JSON.stringify(await run(kind)));}
 win.setContentSize(1100,720);await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"');
-for(const kind of ['request','pricing']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'-dark.png'),(await win.webContents.capturePage()).toPNG());}
+for(const kind of ['request','pricing']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());}
 await win.webContents.executeJavaScript('fixture.usePriority()');console.log('BILLING_UI '+JSON.stringify(await run('market')));await dragSwitch('fixture-model 请求条件','$9');await dragSwitch('fixture-model 上下文档位','$1.2');
 await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish());new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
-fs.writeFileSync(path.resolve('.test-data/billing-market-dark.png'),(await win.webContents.capturePage()).toPNG());
+fs.writeFileSync(path.resolve('.test-data/billing-market-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
 win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1)});
 `);

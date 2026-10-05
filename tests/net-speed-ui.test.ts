@@ -48,6 +48,7 @@ createRoot(document.getElementById('root')).render(<App/>);
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');
 for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}
 app.commandLine.appendSwitch('force-prefers-reduced-motion');
+if(process.platform==='linux')app.disableHardwareAcceleration();
 const started=Date.now();let stage='startup',win;
 const diagnostic=()=>({stage,elapsedMs:Date.now()-started,...win && !win.isDestroyed() ? {visible:win.isVisible(),contentSize:win.getContentSize(),loading:win.webContents.isLoading(),rendererDestroyed:win.webContents.isDestroyed()} : {windowDestroyed:!!win}});
 const bounded=async(name,operation,ms=8000)=>{stage=name;console.log('NET_SPEED_PHASE '+JSON.stringify({name,state:'start',elapsedMs:Date.now()-started}));let timeout;try{const result=await Promise.race([Promise.resolve().then(operation),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Electron operation timed out after '+ms+'ms: '+JSON.stringify(diagnostic()))),ms);})]);console.log('NET_SPEED_PHASE '+JSON.stringify({name,state:'done',elapsedMs:Date.now()-started}));return result;}finally{clearTimeout(timeout);}};
