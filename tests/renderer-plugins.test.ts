@@ -199,12 +199,20 @@ test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialo
   await writeFile(path.join(root,'audit.cjs'),String.raw`
     const {app,BrowserWindow}=require('electron'),path=require('node:path'),fs=require('node:fs');
     for(const name of ['userData','sessionData','logs','crashDumps']){const folder=path.join(__dirname,name);fs.mkdirSync(folder,{recursive:true});app.setPath(name,folder);}
+    let phase='startup';const fail=error=>{console.error('PLUGIN_UI_FAILURE '+phase+' '+(error.stack || error));app.exit(1);};
+    process.on('uncaughtException',fail);process.on('unhandledRejection',fail);
+    const watchdog=setTimeout(()=>{console.error('PLUGIN_UI_TIMEOUT '+phase);app.exit(1);},30000);
     app.disableHardwareAcceleration();app.whenReady().then(async()=>{
-      const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});
+      phase='window';console.log('PLUGIN_UI_PHASE '+phase);
+      const win=new BrowserWindow({show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+      win.webContents.on('console-message',event=>{if(event.message.startsWith('PLUGIN_UI_PHASE ')){phase=event.message.slice(16);console.log(event.message);}});
+      phase='load';console.log('PLUGIN_UI_PHASE '+phase);
       await win.loadFile(path.join(__dirname,'fixture.html'));
+      win.webContents.debugger.attach('1.3');await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
+      phase='audit';console.log('PLUGIN_UI_PHASE '+phase);
       const result=await win.webContents.executeJavaScript('('+async function audit(){
         const check=(value,label)=>{if(!value)throw new Error(label);};
-        const until=async(predicate,label)=>{const end=performance.now()+4000;while(!predicate()){if(performance.now()>end)throw new Error(label);await new Promise(resolve=>setTimeout(resolve,5));}};
+        const until=async(predicate,label)=>{console.log('PLUGIN_UI_PHASE '+label);const end=performance.now()+4000;while(!predicate()){if(performance.now()>end)throw new Error(label);await new Promise(resolve=>setTimeout(resolve,5));}};
         const settle=()=>new Promise(resolve=>setTimeout(resolve,35)),models=()=>document.getElementById('models');
         const resolve=(index,time)=>{const r=fixture.reads[index];r.resolve({siteId:r.input.siteId,siteUrl:r.input.siteUrl,loggedIn:true,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},status:{system_name:'Fixture',quota_per_unit:500000},warnings:[],fetchedAt:time});};
         await until(()=>document.getElementById('navigation').textContent==='overview,usage,models,tools,tokens','Plugin list loads');
@@ -246,7 +254,7 @@ test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialo
         check(!document.querySelector('[aria-label=连接]') && !document.querySelector('input[name=prefix]'),'Disabled providers withdraw connection options');check(Array.from(document.querySelectorAll('.settings-subnav button')).map(b=>b.textContent).join(',')==='常规设置,实时日志','Disabled surfaces withdraw settings tabs');fixture.account('fresh-account');await until(()=>fixture.settingsMounts===settingsMounts+1,'Account switch still resets Settings');await until(()=>document.querySelector('[aria-label=余额提醒阈值]'),'General settings remounts');check(document.querySelector('[aria-label=余额提醒阈值]').value!=='123.4' && !document.querySelector('[role=dialog]'),'Account isolation clears drafts/dialog');
         check(fixture.errors.length===0,'Renderer errors '+fixture.errors.join(','));return {reads:fixture.reads.length,writes:fixture.writes.length,settingsResets:fixture.settingsMounts-settingsMounts};
         function fixtureManifest(){return {id:'feature.models',version:'1.0.0',hostApiVersion:1,configurable:true,requires:[{sourceId:'provider.newapi',capability:'catalog.read'}],optional:[],provides:[]};}
-      }.toString()+')()');console.log('RENDERER_PLUGINS_RESULT '+JSON.stringify(result));win.destroy();app.exit(0);
+      }.toString()+')()');console.log('RENDERER_PLUGINS_RESULT '+JSON.stringify(result));clearTimeout(watchdog);win.destroy();app.exit(0);
     }).catch(error=>{console.error(error.stack || error);app.exit(1);});
   `);
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
