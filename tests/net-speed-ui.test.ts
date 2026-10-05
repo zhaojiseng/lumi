@@ -44,10 +44,19 @@ createRoot(document.getElementById('root')).render(<App/>);
   await writeFile(path.join(directory,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>');
   await writeFile(path.join(directory,'main.cjs'),String.raw`
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');
-for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}app.disableHardwareAcceleration();
+for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}
 app.commandLine.appendSwitch('force-prefers-reduced-motion');
 app.whenReady().then(async()=>{
-const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:true}});await win.loadFile(path.join(__dirname,'index.html'));
+// Use the production compositor: software offscreen surfaces can disappear during macOS resize.
+const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+const waitForPaint=async(size=win.getContentSize())=>win.webContents.executeJavaScript('('+async function(width,height){
+  const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve)),end=performance.now()+6000;await document.fonts.ready;
+  while(innerWidth!==width || innerHeight!==height){if(performance.now()>end)throw new Error('Viewport did not settle: '+innerWidth+'x'+innerHeight+' expected '+width+'x'+height);await frame();}
+  await frame();await frame();return {width:innerWidth,height:innerHeight,scale:devicePixelRatio};
+}.toString()+')('+size.join(',')+')');
+const resize=async(width,height)=>{win.setContentSize(width,height);await waitForPaint([width,height]);};
+// Reapply content size after native construction to normalize fractional display scaling.
+await resize(1100,720);
 const run=async(stage,value)=>win.webContents.executeJavaScript('('+async function(stage,value){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
   const settle=async()=>{await new Promise(resolve=>requestAnimationFrame(resolve));document.getAnimations().forEach(animation=>animation.finish());await new Promise(resolve=>requestAnimationFrame(resolve));};
@@ -109,10 +118,22 @@ const run=async(stage,value)=>win.webContents.executeJavaScript('('+async functi
   }
   check(fixture.errors.length===0,'renderer errors '+fixture.errors);return {stage,viewport:innerWidth+'x'+innerHeight};
 }.toString()+')('+JSON.stringify(stage)+','+JSON.stringify(value)+')');
-const shot=async name=>fs.writeFileSync(path.resolve('.test-data/net-speed-'+name+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+const shot=async name=>{
+  let image,viewport;
+  for(let attempt=1;attempt<=3;attempt++){
+    viewport=await waitForPaint();
+    try{image=await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});break;}
+    catch(error){if(error?.message!=='UnknownVizError' || attempt===3)throw error;console.warn('Retrying transient capture '+name+' ('+attempt+'/3): '+error.message);}
+  }
+  // Normal-window captures contain device pixels, including Retina/fractional Windows scale.
+  const expected=[Math.round(viewport.width*viewport.scale),Math.round(viewport.height*viewport.scale)],actual=image.getSize();
+  if(image.isEmpty() || actual.width!==expected[0] || actual.height!==expected[1])throw new Error('Invalid capture '+name+': '+JSON.stringify(actual)+' expected '+expected.join('x'));
+  if(win.isVisible())throw new Error('Capture showed the hidden fixture');
+  fs.writeFileSync(path.resolve('.test-data/net-speed-'+name+'.png'),image.toPNG());
+};
 console.log('NET_SPEED_UI '+JSON.stringify(await run('columns')));await shot('requests');
-for(const size of [[1100,720],[1000,680]]){win.setContentSize(...size);console.log('NET_SPEED_UI '+JSON.stringify(await run('detail')));}await shot('detail');
-win.setContentSize(1100,720);const position=await run('trend');win.webContents.sendInputEvent({type:'mouseMove',...position});console.log('NET_SPEED_UI '+JSON.stringify(await run('tooltip')));await shot('trend');
+for(const size of [[1100,720],[1000,680]]){await resize(...size);console.log('NET_SPEED_UI '+JSON.stringify(await run('detail')));}await shot('detail');
+await resize(1100,720);const position=await run('trend');win.webContents.sendInputEvent({type:'mouseMove',...position});console.log('NET_SPEED_UI '+JSON.stringify(await run('tooltip')));await shot('trend');
 console.log('NET_SPEED_UI '+JSON.stringify(await run('grouping')));console.log('NET_SPEED_UI '+JSON.stringify(await run('unknown')));await shot('unknown');
 const speedPosition=await run('speed');console.log('NET_SPEED_UI '+JSON.stringify({stage:'speed',...speedPosition}));win.webContents.sendInputEvent({type:'mouseMove',...speedPosition});console.log('NET_SPEED_UI '+JSON.stringify(await run('tooltip','18.2 t/s')));await shot('speed');
 await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"');console.log('NET_SPEED_UI '+JSON.stringify(await run('detail')));await shot('detail-dark');

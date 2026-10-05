@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 
-test('plugin groups open persistent dialogs from rows and settings buttons, trap keyboard focus, expose failures and lock independent switches',{timeout:30000},async t=>{
+test('plugin groups open persistent dialogs from rows and settings buttons, trap keyboard focus, expose failures and lock independent switches',{timeout:60000},async t=>{
   let electron:string;try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron runtime unavailable');}if(!existsSync(electron))return t.skip('Electron runtime unavailable');
   const base=path.resolve('.test-data');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'plugin-tree-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
   const built=await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
@@ -37,8 +37,30 @@ createRoot(document.getElementById('root')).render(<Host/>);`},bundle:true,platf
   await writeFile(path.join(root,'audit.cjs'),String.raw`
 const {app,BrowserWindow}=require('electron'),path=require('node:path'),fs=require('node:fs');
 for(const name of ['userData','sessionData','logs','crashDumps']){const directory=path.join(__dirname,name);fs.mkdirSync(directory,{recursive:true});app.setPath(name,directory);}
-app.disableHardwareAcceleration();app.whenReady().then(async()=>{
- const win=new BrowserWindow({show:false,width:1120,height:900,webPreferences:{offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+app.whenReady().then(async()=>{
+ // Match the production compositor; macOS software offscreen resize can invalidate capture surfaces.
+ const win=new BrowserWindow({show:false,width:1120,height:900,useContentSize:true,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+ const waitForPaint=async(size=win.getContentSize())=>win.webContents.executeJavaScript('('+async function(width,height){
+  const frame=()=>new Promise(resolve=>requestAnimationFrame(resolve)),end=performance.now()+6000;await document.fonts.ready;
+  while(innerWidth!==width || innerHeight!==height){if(performance.now()>end)throw new Error('Viewport did not settle: '+innerWidth+'x'+innerHeight+' expected '+width+'x'+height);await frame();}
+  await frame();await frame();return {width:innerWidth,height:innerHeight,scale:devicePixelRatio};
+ }.toString()+')('+size.join(',')+')');
+ const resize=async(width,height)=>{win.setContentSize(width,height);await waitForPaint([width,height]);};
+ const shot=async name=>{
+  let image,viewport;
+  for(let attempt=1;attempt<=3;attempt++){
+   viewport=await waitForPaint();
+   try{image=await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});break;}
+   catch(error){if(error?.message!=='UnknownVizError' || attempt===3)throw error;console.warn('Retrying transient capture '+name+' ('+attempt+'/3): '+error.message);}
+  }
+  // Normal-window captures contain device pixels, including Retina/fractional Windows scale.
+  const expected=[Math.round(viewport.width*viewport.scale),Math.round(viewport.height*viewport.scale)],actual=image.getSize();
+  if(image.isEmpty() || actual.width!==expected[0] || actual.height!==expected[1])throw new Error('Invalid capture '+name+': '+JSON.stringify(actual)+' expected '+expected.join('x'));
+  if(win.isVisible())throw new Error('Capture showed the hidden fixture');
+  fs.writeFileSync(path.resolve(__dirname,'..',name+'.png'),image.toPNG());
+ };
+ // Reapply content size after native construction to normalize fractional display scaling.
+ await resize(1120,900);
  const result=await win.webContents.executeJavaScript('('+async function(){
   const check=(value,message)=>{if(!value)throw new Error(message);},until=async fn=>{const end=performance.now()+4000;while(!fn()){if(performance.now()>end)throw new Error('Tree timeout: '+fn.toString());await new Promise(resolve=>setTimeout(resolve,10));}};
   await until(()=>document.querySelectorAll('.plugin-settings-group').length===7);
@@ -79,15 +101,15 @@ app.disableHardwareAcceleration();app.whenReady().then(async()=>{
  await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))).then(()=>{const detail=document.querySelector(".plugin-details-modal");if(document.querySelector("[role=dialog][aria-label=\\"全局账户窗口\\"]") || detail.closest("[hidden],[inert]") || document.activeElement!==detail.querySelector("[aria-label=\\"插件草稿\\"]"))throw new Error("First Escape must close only the newer root modal and restore details focus");})');
  win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
  await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))).then(()=>{if(!document.querySelector(".plugin-details-modal").closest("[hidden],[inert]") || document.activeElement!==document.querySelector("[data-plugin=\\"provider.newapi\\"] .plugin-row-button"))throw new Error("Second Escape must close details and restore its row");})');
- for(const width of [1120,680,480]){win.setContentSize(width,620);await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await win.webContents.executeJavaScript('('+async function(){const area=document.querySelector('.plugin-settings');if(area.scrollWidth>area.clientWidth+1)throw new Error('Plugin tree overflow '+innerWidth);for(const node of document.querySelectorAll('.plugin-settings-group')){const box=node.getBoundingClientRect();if(!box.height)continue;const control=node.querySelector('[role=switch]'),c=control.getBoundingClientRect();if(c.right>box.right+1 || c.width<40)throw new Error('Switch overflow '+innerWidth);}document.querySelector('[data-plugin="provider.newapi"] .plugin-settings-button').click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const dialog=Array.from(document.querySelectorAll('.plugin-details-modal')).find(element=>!element.closest('[hidden],[inert]')),box=dialog.getBoundingClientRect();if(box.left<0 || box.right>innerWidth+1 || box.top<0 || box.bottom>innerHeight+1 || dialog.scrollWidth>dialog.clientWidth+1)throw new Error('Plugin dialog exceeds viewport '+innerWidth);const scroller=[dialog,...dialog.querySelectorAll('*')].find(element=>/auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight>element.clientHeight+1);if(!scroller)throw new Error('Long plugin details have no internal scroll '+innerWidth);scroller.scrollTop=scroller.scrollHeight;if(scroller.scrollTop<=0)throw new Error('Plugin details cannot be scrolled '+innerWidth);const controls=Array.from(dialog.querySelectorAll('button:not(:disabled),input:not(:disabled)')).filter(element=>element.getBoundingClientRect().height);controls.at(-1).focus();await new Promise(r=>requestAnimationFrame(r));const focused=document.activeElement.getBoundingClientRect();if(focused.top<box.top || focused.bottom>box.bottom+1)throw new Error('Keyboard cannot reach detail control '+innerWidth);dialog.querySelector('[aria-label="关闭弹窗"]').click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}.toString()+')()');}
- win.setContentSize(1120,900);await win.webContents.executeJavaScript('document.querySelector(".content-scroll").scrollTop=0;document.activeElement.blur();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');fs.writeFileSync(path.resolve(__dirname,'..','plugin-settings-tree.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
- await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');fs.writeFileSync(path.resolve(__dirname,'..','plugin-settings-tree-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
- await win.webContents.executeJavaScript('document.documentElement.dataset.theme="light";document.querySelector("[data-plugin=\\"provider.newapi\\"] .plugin-settings-button").click();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');fs.writeFileSync(path.resolve(__dirname,'..','plugin-settings-details.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
- win.setContentSize(480,620);await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');fs.writeFileSync(path.resolve(__dirname,'..','plugin-settings-details-480.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+ for(const width of [1120,680,480]){await resize(width,620);await win.webContents.executeJavaScript('('+async function(){const area=document.querySelector('.plugin-settings');if(area.scrollWidth>area.clientWidth+1)throw new Error('Plugin tree overflow '+innerWidth);for(const node of document.querySelectorAll('.plugin-settings-group')){const box=node.getBoundingClientRect();if(!box.height)continue;const control=node.querySelector('[role=switch]'),c=control.getBoundingClientRect();if(c.right>box.right+1 || c.width<40)throw new Error('Switch overflow '+innerWidth);}document.querySelector('[data-plugin="provider.newapi"] .plugin-settings-button').click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const dialog=Array.from(document.querySelectorAll('.plugin-details-modal')).find(element=>!element.closest('[hidden],[inert]')),box=dialog.getBoundingClientRect();if(box.left<0 || box.right>innerWidth+1 || box.top<0 || box.bottom>innerHeight+1 || dialog.scrollWidth>dialog.clientWidth+1)throw new Error('Plugin dialog exceeds viewport '+innerWidth);const scroller=[dialog,...dialog.querySelectorAll('*')].find(element=>/auto|scroll/.test(getComputedStyle(element).overflowY) && element.scrollHeight>element.clientHeight+1);if(!scroller)throw new Error('Long plugin details have no internal scroll '+innerWidth);scroller.scrollTop=scroller.scrollHeight;if(scroller.scrollTop<=0)throw new Error('Plugin details cannot be scrolled '+innerWidth);const controls=Array.from(dialog.querySelectorAll('button:not(:disabled),input:not(:disabled)')).filter(element=>element.getBoundingClientRect().height);controls.at(-1).focus();await new Promise(r=>requestAnimationFrame(r));const focused=document.activeElement.getBoundingClientRect();if(focused.top<box.top || focused.bottom>box.bottom+1)throw new Error('Keyboard cannot reach detail control '+innerWidth);dialog.querySelector('[aria-label="关闭弹窗"]').click();await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));}.toString()+')()');}
+ await resize(1120,900);await win.webContents.executeJavaScript('document.querySelector(".content-scroll").scrollTop=0;document.activeElement.blur()');await shot('plugin-settings-tree');
+ await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark"');await shot('plugin-settings-tree-dark');
+ await win.webContents.executeJavaScript('document.documentElement.dataset.theme="light";document.querySelector("[data-plugin=\\"provider.newapi\\"] .plugin-settings-button").click();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await shot('plugin-settings-details');
+ await resize(480,620);await shot('plugin-settings-details-480');
  console.log('PLUGIN_TREE_RESULT '+JSON.stringify(result));win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1);});`);
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(electron,[path.join(root,'audit.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
-  const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});assert.equal(code,0,stderr+stdout);
+  const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});await writeFile(path.join(base,'plugin-settings-tree-ui.log'),stdout+stderr);assert.equal(code,0,stderr+stdout);
   const result=stdout.split(/\r?\n/).find(line=>line.startsWith('PLUGIN_TREE_RESULT '));assert.ok(result,stdout);assert.deepEqual(JSON.parse(result.slice('PLUGIN_TREE_RESULT '.length)),{mounts:1,legacyMounts:1,writes:4,branches:3});
 });

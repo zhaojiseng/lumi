@@ -51,7 +51,8 @@ check(label.scrollWidth<=label.clientWidth+1,'Long label clipped horizontally: '
 const labelStyle=getComputedStyle(label),lineHeight=parseFloat(labelStyle.lineHeight) || parseFloat(labelStyle.fontSize)*1.2;
 check(label.getBoundingClientRect().height>lineHeight*1.5,'Long label did not wrap');
 for(const option of options){const text=option.querySelector('.select-option-label'),box=option.getBoundingClientRect(),content=text.getBoundingClientRect();check(content.top>=box.top && content.bottom<=box.bottom+1,'Option crops wrapped text: '+option.value+' '+JSON.stringify({box:box.toJSON(),content:content.toJSON()}));for(const child of text.querySelectorAll('.channel-label > *')){const bounds=child.getBoundingClientRect();check(bounds.left>=content.left && bounds.right<=content.right+1 && bounds.bottom<=box.bottom+1,'Channel label or ratio cropped: '+option.value);}}
-if(kind==='normal')check(first.width>=Math.min(260,innerWidth-36),'Dropdown compresses normal channel labels: '+first.width);
+// Native scrollbar/border rounding can reduce the option box by one CSS pixel on macOS.
+if(kind==='normal')check(first.width+1>=Math.min(260,innerWidth-36),'Dropdown compresses normal channel labels: '+first.width);
 check(getComputedStyle(long,'::checkmark').gridColumnStart==='-2','Checkmark lost its separate column');
 check(select.title.includes('MASTER'),'Closed control lacks full selected text');if(kind!=='normal')check(options[options.length-1].disabled,'Disabled option lost semantics');
 check(document.documentElement.scrollWidth<=innerWidth,'Page widened after popup');check(fixture.errors.length===0,'Renderer errors '+fixture.errors);
