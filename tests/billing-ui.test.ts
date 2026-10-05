@@ -44,7 +44,10 @@ win.webContents.on('console-message',event=>{if(event.level==='error')console.er
 const run=async kind=>win.webContents.executeJavaScript('('+async function(kind){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
   await until(()=>fixture.show);fixture.show(kind);await until(()=>kind==='market' ? document.querySelector('.model-card') : document.querySelector(kind==='request' ? '.request-detail-modal' : '.pricing-modal'));
-  await new Promise(resolve=>setTimeout(resolve,250));document.getAnimations().forEach(animation=>animation.finish());await new Promise(resolve=>requestAnimationFrame(resolve));
+  await new Promise(resolve=>setTimeout(resolve,250));document.getAnimations().forEach(animation=>animation.finish());
+  // This layout assertion does not need a hidden native window's throttled RAF.
+  // capturePage below wakes the compositor for the independently captured pixels.
+  document.querySelector('.desktop-shell').getBoundingClientRect();
   const modal=document.querySelector('[role="dialog"]');
   if(modal){
     check(modal.scrollHeight<=modal.clientHeight+1,kind+' needs vertical scrolling: '+modal.scrollHeight+'/'+modal.clientHeight);
@@ -108,7 +111,7 @@ for(const size of [[1280,800],[1000,680]]){win.setContentSize(...size);for(const
 win.setContentSize(1100,720);await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"');
 for(const kind of ['request','pricing']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());}
 await win.webContents.executeJavaScript('fixture.usePriority()');console.log('BILLING_UI '+JSON.stringify(await run('market')));await dragSwitch('fixture-model 请求条件','$9');await dragSwitch('fixture-model 上下文档位','$1.2');
-await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish());new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
+await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish());document.querySelector(".desktop-shell").getBoundingClientRect()');
 fs.writeFileSync(path.resolve('.test-data/billing-market-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
 win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1)});
@@ -116,6 +119,9 @@ win.destroy();app.exit(0);
   const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(electron,[path.join(directory,'main.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});
   let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
+  const reportAbort=()=>t.diagnostic('Billing fixture aborted; captured output:\n'+stdout+stderr);
+  t.signal.addEventListener('abort',reportAbort,{once:true});
   const code=await new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
+  t.signal.removeEventListener('abort',reportAbort);
   assert.equal(code,0,stderr+stdout);assert.equal(stdout.split('BILLING_UI ').length-1,10);
 });
