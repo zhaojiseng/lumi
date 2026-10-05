@@ -56,7 +56,9 @@ const watchdog=setTimeout(()=>{console.error('NET_SPEED_WATCHDOG '+JSON.stringif
 bounded('app-ready',()=>app.whenReady()).then(async()=>{
 // Use the production compositor: software offscreen surfaces can disappear during macOS resize.
 stage='create-window';console.log('NET_SPEED_PHASE '+JSON.stringify({name:stage,state:'start',elapsedMs:Date.now()-started}));
-win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+// Xvfb can leave a hidden native X11 window without a paint surface. Offscreen
+// rendering supplies frames on Linux; macOS keeps its production resize compositor.
+win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform==='linux'}});
 console.log('NET_SPEED_PHASE '+JSON.stringify({name:stage,state:'done',elapsedMs:Date.now()-started}));
 win.webContents.on('render-process-gone',(_event,details)=>{console.error('NET_SPEED_RENDERER_GONE '+JSON.stringify({diagnostic:diagnostic(),details}));app.exit(1);});
 await bounded('load-file',()=>win.loadFile(path.join(__dirname,'index.html')));

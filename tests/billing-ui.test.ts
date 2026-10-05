@@ -35,10 +35,11 @@ createRoot(document.getElementById('root')).render(<App/>);
   await writeFile(path.join(directory,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>');
   await writeFile(path.join(directory,'main.cjs'),String.raw`
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');
-for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}app.disableHardwareAcceleration();
+for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}if(process.platform!=='darwin')app.disableHardwareAcceleration();
 app.whenReady().then(async()=>{
-// Offscreen rendering lets native pointer capture work without an OS-visible test window on Windows.
-const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:true}});await win.loadFile(path.join(__dirname,'index.html'));
+// Windows/Linux support native pointer capture on offscreen surfaces. AppKit needs
+// a focused native window for capture, so the isolated macOS fixture uses one.
+const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform!=='darwin'}});await win.loadFile(path.join(__dirname,'index.html'));if(process.platform==='darwin'){win.show();win.focus();}
 win.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message);});
 const run=async kind=>win.webContents.executeJavaScript('('+async function(kind){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
