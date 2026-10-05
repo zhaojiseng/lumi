@@ -4,6 +4,7 @@ import {builtinManifests} from '../../plugins/manifests';
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
 import {applyPreferencePatch, normalizeSelections,normalizeSourceSelections} from '../../shared/selections';
 import {normalizeInterfaceSelections,validInterfaceSelection} from '../../shared/interface-appearance';
+import {normalizeInterfacePriorities,normalizeBackground,validBackgroundImage,BACKGROUND_FITS} from '../../shared/interface-styles';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
 import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
@@ -44,6 +45,9 @@ export class SettingsStore {
     this.preferences.pluginViews=normalizePluginViews(this.preferences.pluginViews,this.preferences.pluginEnabled);
     this.preferences.pluginEnabled=normalizePluginEnabled(this.preferences.pluginEnabled);
     this.preferences.interfaceSelections=normalizeInterfaceSelections(this.preferences.interfaceSelections);
+    this.preferences.interfacePriorities=normalizeInterfacePriorities(this.preferences.interfacePriorities);
+    this.preferences.defaultInterfaceEnabled=this.preferences.defaultInterfaceEnabled!==false;
+    this.preferences.background=normalizeBackground(this.preferences.background);
     this.preferences.widgetEnabled=this.preferences.pluginEnabled['surface.widget'] ?? !!this.preferences.widgetEnabled;
     // Migrate old settings: obsolete preview and reasoning preferences never survive.
     delete (this.preferences as any).demoMode;
@@ -124,14 +128,18 @@ export class SettingsStore {
     await this.persist(); return structuredClone(this.preferences);
   }
   async update(patch: PreferencePatch) {
+    if(patch.interfacePriority && Object.keys(normalizeInterfacePriorities({[patch.interfacePriority.id]:patch.interfacePriority.priority})).length!==1)throw new Error('界面优先级无效。');
+    if(patch.background && (!validBackgroundImage(patch.background.image) || !BACKGROUND_FITS.includes(patch.background.fit) || typeof patch.background.name!=='string' || patch.background.name.length>120))throw new Error('背景图片设置无效。');
     if(patch.interfaceSelection && !validInterfaceSelection(patch.interfaceSelection))throw new Error('外观选择设置无效。');
     if (patch.activeSiteId && !this.preferences.sites.some(s => s.id === patch.activeSiteId)) throw new Error('站点不存在。');
     if (patch.selection && !this.preferences.sites.some(s => s.id === patch.selection!.siteId)) throw new Error('站点已移除，请重新选择。');
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     if(patch.sourceSelection && (!['source.local-sessions','feature.usage'].includes(patch.sourceSelection.sourceId) || Object.keys(normalizeSelections({[patch.sourceSelection.sourceId]:patch.sourceSelection.values})[patch.sourceSelection.sourceId] || {}).length!==Object.keys(patch.sourceSelection.values).length))throw new Error('来源选择设置无效。');
     const previousAppearance=this.preferences.interfaceSelections;
+    const previousStyles={interfacePriorities:this.preferences.interfacePriorities,background:this.preferences.background,defaultInterfaceEnabled:this.preferences.defaultInterfaceEnabled};
     this.preferences = applyPreferencePatch(this.preferences, patch);
     const updatedAppearance=this.preferences.interfaceSelections;
+    const updatedStyles={interfacePriorities:this.preferences.interfacePriorities,background:this.preferences.background,defaultInterfaceEnabled:this.preferences.defaultInterfaceEnabled};
     this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
     this.preferences.menuBarTotalsRange=normalizeMenuBarRange(this.preferences.menuBarTotalsRange);
@@ -142,7 +150,7 @@ export class SettingsStore {
     this.preferences.widgetPeriod=normalizeWidgetPeriod(this.preferences.widgetPeriod);
     this.preferences.widgetInputMode=this.preferences.widgetInputMode==='uncached' ? 'uncached' : 'total';
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns);
-    try{await this.persist();}catch(error){if(patch.interfaceSelection && this.preferences.interfaceSelections===updatedAppearance)this.preferences.interfaceSelections=previousAppearance;throw error;}
+    try{await this.persist();}catch(error){if(patch.interfaceSelection && this.preferences.interfaceSelections===updatedAppearance)this.preferences.interfaceSelections=previousAppearance;for(const key of ['interfacePriorities','background','defaultInterfaceEnabled'] as const){if(this.preferences[key]===updatedStyles[key])Object.assign(this.preferences,{[key]:previousStyles[key]});}throw error;}
     return structuredClone(this.preferences);
   }
   async setPluginEnabled(id:string,enabled:boolean) {

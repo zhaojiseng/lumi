@@ -11,6 +11,7 @@ import {InterfaceErrorContext} from './interface-settings';
 import {syncSurfaceTheme} from './surface-theme';
 import {interfaceAppearanceKey,resolveInterfaceAppearance} from '../../shared/interface-appearance';
 import {PopupScope} from '../components/PopupPresence';
+import {installGlassRefraction} from './glass-refraction';
 
 export interface InterfaceShellProps {
   appearancePending?:boolean;
@@ -69,6 +70,10 @@ export function InterfaceHost(props:InterfaceShellProps){
     const observer=new MutationObserver(sync);observer.observe(shell,{attributes:true,attributeFilter:['data-theme','data-interface']});
     return()=>observer.disconnect();
   },[style?.css,groups,active,appearanceKey,props.preferences.theme,props.appearancePending]);
+  useLayoutEffect(()=>{
+    const shell=document.querySelector<HTMLElement>('.desktop-shell');
+    if(shell && active!==DEFAULT_INTERFACE_ID)return installGlassRefraction(shell);
+  },[active,style?.css]);
   const dialogScope=JSON.stringify([props.visiblePage,props.preferences.sites.find(site=>site.id===props.preferences.activeSiteId),statuses?.map(status=>[status.manifest.id,status.state,status.generation,status.views])]);
   const site=props.preferences.sites.find(value=>value.id===props.preferences.activeSiteId);
   const activeScope=JSON.stringify([props.visiblePage,props.preferences.activeSiteId,site?.url,site?.userId,site?.username,!!site?.accessTokenConfigured,!!site?.sessionAuth]);

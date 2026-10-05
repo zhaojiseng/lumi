@@ -517,6 +517,16 @@ extension.author.layout/
 
 宿主包装为 `@scope (.desktop-shell[data-interface="<插件ID>"])`。`:scope` 指向外壳，不能用 `:root`、html 或 body 改全局文档。功能 iframe 的内容有独立样式，主窗口 CSS 不会进入其中。
 
+### 受控液态玻璃折射（当前开发构建）
+
+此接口为本工作区新增能力，尚未包含在公开的 Lumi 0.5.11 中。界面插件可在 `:scope` 上声明无单位数值 `--lumi-glass-distortion`，单位为逻辑像素；宿主将值限制到 0–12，0 或无效值关闭效果。结合 `appearanceGroups` 和 `data-appearance-*` 可让用户选择强度。
+
+宿主仅为 `.sidebar`、`.segmented-thumb`、`.vendor-tabs > button.active`、`.favorite-filter.active`、`.modal`、`.toast`、`[data-popup-kind="popover"]`、`.multi-popover`、`.recharts-default-tooltip`、`.donut-tooltip` 及打开的 `.select-wrap select` 生成局部圆角位移图，向元素提供 `--lumi-glass-filter`。插件通过 `backdrop-filter: blur(2px) var(--lumi-glass-filter, blur(0px))` 消费滤镜；原生下拉在 `::picker(select)` 使用相同变量。中心保持平直，边缘按局部法线偏移；不要将滤镜应用到正文 `filter` 上。
+
+位移图由宿主本地生成，尺寸上限 384px，同一元素的几何资源复用，最多管理 96 个可见表面。尺寸、主题与选项变化后按事件更新；关闭效果、切换界面或卸载时释放引用。系统减少透明度或强制颜色时关闭折射。独立 iframe 预览保留静态材质；旧宿主使用 CSS fallback。插件依旧不能声明任意 `url(...)` 或脚本，宿主的内部滤镜引用不改变 CSS 校验边界。
+
+选中滑块 `.segmented-thumb` 使用带内部放大的透镜向量，其余表面保持平直中心。需要折射选中文字时，界面包让滑块绘制在按钮上方并保持 `pointer-events: none`；滑块的背景滤镜因此能采样下方文字，不使用文字的 `filter` 或缩放变换。不要再叠加文字模糊。底色不透明或系统减少透明度／强制颜色时，应恢复按钮在滑块上方，避免遮住文字。宿主先按窗口及祖先滚动裁切范围筛选表面，再应用 96 个资源上限；捕获滚动事件并重新分配滤镜。
+
 Lumi 0.5.6 将主窗口弹出界面统一挂载到该外壳内。对话框保留 `.modal-overlay` / `.modal`，筛选浮层保留 `.multi-popover`；公共层提供 `data-popup-kind="dialog"` / `"popover"` 与 `data-popup-phase="open"` / `"exiting"`。界面包可沿用这些类和属性设置背景、边框与阴影，显示层级、关闭交互和退出生命周期由宿主管理。需要虚化弹窗背后的页面时，将 `backdrop-filter` 放在遮罩的伪元素上，保持伪元素不接收点击，避免给弹窗内容使用 `filter`；全屏遮罩本身不要设置会改变固定定位包含块的滤镜。
 
 Lumi 0.5.7 提供 `--modal-enter-duration`（默认 `180ms`）、`--modal-exit-duration`（默认 `160ms`）、`--modal-enter-easing`（默认 `cubic-bezier(.2,.8,.2,1)`）与 `--modal-exit-easing`（默认 `ease-in`），供弹窗和遮罩共用。背景滤镜关键帧 `modal-backdrop-filter-in` / `modal-backdrop-filter-out` 在 `blur(0)` 与 `var(--modal-backdrop-filter, blur(0))` 之间插值。界面包可在遮罩伪元素上引用它们，保证背景虚化和弹窗开合同时完成；无需定义自有 `@keyframes`。下面的例子要求宿主 0.5.8 或更新版本，以支持仅伪元素上的退出动画。遮罩容器必须保持 `opacity: 1`，透明度与滤镜动画一起放在伪元素上；父容器透明度低于 1 会形成 backdrop root，导致伪元素无法采样后方页面，实际画面直到动画结束才突变。

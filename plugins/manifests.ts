@@ -12,5 +12,6 @@ import {trayManifest} from './surface.tray/manifest';
 import {codexProviderManifest} from './provider.codex/manifest';
 import {tokensManifest} from './feature.tokens/manifest';
 import {defaultInterfaceManifest} from './interface.default/manifest';
+import {backgroundInterfaceManifest} from './interface.background/manifest';
 /** Shared static metadata only; main implementations must never enter this module. */
-export const builtinManifests=[newApiManifest,codexProviderManifest,widgetManifest,trayManifest,localSessionsManifest,codexAdapterManifest,claudeAdapterManifest,defaultThemeManifest,defaultInterfaceManifest,workbenchManifest,usageManifest,modelsManifest,toolConfigManifest,tokensManifest] as const;
+export const builtinManifests=[newApiManifest,codexProviderManifest,widgetManifest,trayManifest,localSessionsManifest,codexAdapterManifest,claudeAdapterManifest,defaultThemeManifest,defaultInterfaceManifest,backgroundInterfaceManifest,workbenchManifest,usageManifest,modelsManifest,toolConfigManifest,tokensManifest] as const;

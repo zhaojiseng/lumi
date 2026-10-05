@@ -11,13 +11,14 @@ test('real interface host applies external layout, preserves settings drafts and
   let electron:string;try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron unavailable');}if(!existsSync(electron))return t.skip('Electron unavailable');
   await mkdir('.test-data',{recursive:true});const directory=await mkdtemp(path.resolve('.test-data/interface-ui-'));t.after(()=>rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
   const pkg=await readExtensionPackage('extensions/packages/extension.lumi.compact'),descriptor={manifest:pkg.manifest,digest:pkg.digest},css=pkg.files.get('interface.css')!.toString()+`
-:scope{--text:light-dark(rgb(50,30,70),rgb(240,230,250));--panel:light-dark(rgb(250,245,255),rgb(35,25,50));color:var(--text)}
+:scope{--lumi-glass-distortion:3;--text:light-dark(rgb(50,30,70),rgb(240,230,250));--panel:light-dark(rgb(250,245,255),rgb(35,25,50));color:var(--text)}
 :scope[data-theme="light"]{--theme-marker:light}:scope[data-theme="dark"]{--theme-marker:dark}
+.sidebar{backdrop-filter:var(--lumi-glass-filter,blur(0px))}
 .nav-item.active{color:white!important}
 `;
   const script=await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {DEFAULT_PREFERENCES} from './shared/types';import {builtinManifests} from './plugins/manifests';import {extensionPluginManifest} from './shared/contracts/extensions';
 const prefs=structuredClone(DEFAULT_PREFERENCES),pkg=${JSON.stringify(descriptor)},css=${JSON.stringify(css+'\n#outside{color:red!important}')} ;let enabled=false;const stub=()=>()=>{};
-const statuses=()=>[...builtinManifests.map(manifest=>({manifest,state:['provider.newapi','provider.codex','surface.widget'].includes(manifest.id) ? 'disabled' : 'active'})),{manifest:extensionPluginManifest(pkg.manifest),origin:'external',state:enabled ? 'active' : 'disabled'}];
+const statuses=()=>[...builtinManifests.map(manifest=>({manifest,state:['provider.newapi','provider.codex','surface.widget','interface.background'].includes(manifest.id) ? 'disabled' : 'active'})),{manifest:extensionPluginManifest(pkg.manifest),origin:'external',state:enabled ? 'active' : 'disabled'}];
 const inventory=()=>({directory:'fixture',plugins:[pkg],diagnostics:[],interfaceStyle:enabled ? {id:pkg.manifest.id,css:fixture.cssOverride ?? css,preview:fixture.previewOverride,appearanceGroups:pkg.manifest.interface.appearanceGroups} : undefined});
 window.fixture={errors:[],fail:false,updateListeners:new Set(),palettes:[]};fixture.showUpdate=state=>fixture.updateListeners.forEach(fn=>fn(state));window.addEventListener('error',event=>fixture.errors.push(event.message));window.addEventListener('unhandledrejection',event=>fixture.errors.push(String(event.reason)));
 fixture.media={matches:true,listeners:new Set()};fixture.setSystemDark=value=>{fixture.media.matches=value;fixture.media.listeners.forEach(fn=>fn());};const matchMedia=window.matchMedia.bind(window);window.matchMedia=query=>query==='(prefers-color-scheme: dark)' ? {get matches(){return fixture.media.matches;},addEventListener:(_type,fn)=>fixture.media.listeners.add(fn),removeEventListener:(_type,fn)=>fixture.media.listeners.delete(fn)} : matchMedia(query);
@@ -31,12 +32,21 @@ const {scopedInterfaceSheet}=await import('./src/host/interface');fixture.scoped
 const {app,BrowserWindow}=require('electron'),path=require('node:path'),fs=require('node:fs');for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}app.disableHardwareAcceleration();app.whenReady().then(async()=>{
 const win=new BrowserWindow({width:1280,height:900,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
 const result=await win.webContents.executeJavaScript('('+async function(){
-const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface UI timeout: '+fn.toString());await new Promise(r=>setTimeout(r,10));}};
-await until(()=>document.querySelector('.settings-page') && document.querySelector('[role=radio][aria-checked=true]'));
+const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+5000;while(!fn()){if(performance.now()>end)throw new Error('Interface UI timeout: '+fn.toString()+'; errors='+JSON.stringify(fixture.errors)+'; body='+document.body.innerText.slice(0,500));await new Promise(r=>setTimeout(r,10));}};
+await until(()=>document.querySelector('.settings-page') && document.querySelector('[data-interface-style="interface.default"] [role=switch]'));
 const root=document.querySelector('.settings-page'),threshold=document.querySelector('[aria-label=余额提醒阈值]'),scroll=document.querySelector('.content-scroll'),shell=document.querySelector('.desktop-shell');
 Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(threshold,'123.4');threshold.dispatchEvent(new Event('input',{bubbles:true}));threshold.focus();scroll.scrollTop=80;const originalWidth=document.querySelector('.sidebar').getBoundingClientRect().width;
-Array.from(document.querySelectorAll('[role=radio]')).find(e=>e.textContent==='紧凑界面').click();await until(()=>shell.dataset.interface==='extension.lumi.compact');
+document.querySelector('[data-interface-style="extension.lumi.compact"] [role=switch]').click();await until(()=>shell.dataset.interface==='extension.lumi.compact');
 check(document.querySelector('.sidebar').getBoundingClientRect().width<originalWidth,'Interface layout did not change');
+await until(()=>document.querySelector('.sidebar').style.getPropertyValue('--lumi-glass-filter').includes('url('));check(shell.querySelector('[data-lumi-glass-defs] filter'),'Host refraction missing');
+// Offscreen layout boxes must not exhaust the 96 surface slots. Scrolling a
+// clipped list must release old surfaces and attach newly visible ones.
+const viewport=document.createElement('div');viewport.style.cssText='position:fixed;left:400px;top:200px;width:200px;height:80px;overflow:auto';
+for(let i=0;i<120;i++){const item=document.createElement('span');item.className='segmented-thumb';item.style.cssText='display:block;width:100px;height:30px';viewport.append(item);}shell.append(viewport);
+const tail=document.createElement('span');tail.className='segmented-thumb';tail.style.cssText='position:fixed;left:620px;top:200px;width:100px;height:30px';shell.append(tail);
+await until(()=>tail.style.getPropertyValue('--lumi-glass-filter').includes('url('));
+const first=viewport.firstElementChild,last=viewport.lastElementChild;await until(()=>first.style.getPropertyValue('--lumi-glass-filter').includes('url('));check(!last.style.getPropertyValue('--lumi-glass-filter'),'Clipped surface allocated a filter');
+viewport.scrollTop=viewport.scrollHeight;await until(()=>last.style.getPropertyValue('--lumi-glass-filter').includes('url('));await until(()=>!first.style.getPropertyValue('--lumi-glass-filter'));viewport.remove();tail.remove();
 check(getComputedStyle(document.querySelector('.sidebar')).borderTopLeftRadius==='12px','Default geometry overrode interface rounding');
 check(getComputedStyle(document.querySelector('.nav-item.active')).color==='rgb(255, 255, 255)','Active navigation lost its foreground');
 const brand=document.querySelector('.titlebar-brand'),brandBox=brand.getBoundingClientRect(),crumb=document.querySelector('.breadcrumb').getBoundingClientRect();
@@ -75,17 +85,18 @@ check(document.querySelector('.settings-page')===root && threshold.value==='123.
 await until(()=>document.activeElement===threshold);check(scroll.scrollTop===80,'Switch reset settings scroll');
 check(getComputedStyle(document.getElementById('outside')).color==='rgb(0, 0, 0)','Interface CSS escaped shell');
 check(!document.querySelector('.interface-recovery'),'Floating recovery control remains');
-const recovery=Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='默认界面');
-fixture.fail=true;recovery.click();await until(()=>document.querySelector('.interface-settings [role=alert]')?.textContent.includes('fixture write failed'));check(shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===root,'Write failure lost selected interface');fixture.fail=false;recovery.click();await until(()=>shell.dataset.interface==='interface.default');
+const recovery=document.querySelector('[data-interface-style="extension.lumi.compact"] [role=switch]');
+fixture.fail=true;recovery.click();await until(()=>document.querySelector('.plugin-settings [role=alert]')?.textContent.includes('fixture write failed'));check(shell.dataset.interface==='extension.lumi.compact' && document.querySelector('.settings-page')===root,'Write failure lost selected interface');fixture.fail=false;recovery.click();await until(()=>shell.dataset.interface==='interface.default');
 check(document.querySelector('.sidebar').getBoundingClientRect().width===originalWidth && threshold.value==='123.4' && document.querySelector('.settings-page')===root,'Recovery reset content');
 check(!document.querySelector('[aria-label="强调色"]') && !shell.hasAttribute('data-appearance-accent'),'Disabled theme retained appearance groups');
+check(!shell.querySelector('[data-lumi-glass-defs]') && !document.querySelector('.sidebar').style.getPropertyValue('--lumi-glass-filter'),'Disabled theme retained refraction resources');
 for(const css of ['@import "https://fixture.invalid/x.css";:scope{color:red}','@\\69mport "https://fixture.invalid/x.css";:scope{color:red}','.sidebar{background:u\\72l(https://fixture.invalid/x)}',':scope{--image:u\\72l(https://fixture.invalid/x)}','.sidebar{-webkit-app-region:drag}','.sidebar{app-region:drag}','@font-face{font-family:x;src:url(file:///private)}',':scope{z-index:999999999}']){let rejected=false;try{fixture.scopedInterfaceSheet({id:'extension.lumi.compact',css});}catch{rejected=true;}check(rejected,'Unsafe style accepted '+css);}
 fixture.scopedInterfaceSheet({id:'extension.lumi.compact',css:':scope::before{content:"@import example"} /* @import */'});
-fixture.cssOverride='@font-face{font-family:x;src:url(file:///private)}';Array.from(document.querySelectorAll('[role=radio]')).find(e=>e.textContent==='紧凑界面').click();await until(()=>document.querySelector('.interface-settings [role=alert]'));
-check(shell.dataset.interface==='interface.default' && document.querySelector('.settings-page')===root && threshold.value==='123.4' && document.querySelector('.sidebar').getBoundingClientRect().width===originalWidth,'Invalid stylesheet did not fall back safely');recovery.click();await until(()=>!document.querySelector('.interface-settings [role=alert]'));
+fixture.cssOverride='@font-face{font-family:x;src:url(file:///private)}';document.querySelector('[data-interface-style="extension.lumi.compact"] [role=switch]').click();await until(()=>document.querySelector('.plugin-settings [role=alert]'));
+check(shell.dataset.interface==='interface.default' && document.querySelector('.settings-page')===root && threshold.value==='123.4' && document.querySelector('.sidebar').getBoundingClientRect().width===originalWidth,'Invalid stylesheet did not fall back safely');recovery.click();await until(()=>!document.querySelector('.plugin-settings [role=alert]'));
 for(const html of ['<script>alert(1)</script>','<img src="https://fixture.invalid/preview.png">','<div onclick="alert(1)">x</div>','<iframe></iframe>','<style>body{color:red}</style>','<div style="background:url(https://fixture.invalid)">x</div>']){let rejected=false;try{fixture.sanitizeInterfacePreview(html);}catch{rejected=true;}check(rejected,'Unsafe preview accepted '+html);}
 fixture.cssOverride=undefined;fixture.previewOverride='<header class="titlebar"><div class="breadcrumb">Lumi</div></header><aside class="sidebar surface"><div class="nav-item active">工作台</div></aside><main class="main-area"><div class="content-container"><section class="surface panel custom-preview"><h2>主题预览</h2><div class="preview-bars"><i></i><i></i><i></i></div></section></div></main>';
-Array.from(document.querySelectorAll('.interface-settings [role=radio]')).find(e=>e.textContent==='紧凑界面').click();await until(()=>shell.dataset.interface==='extension.lumi.compact');
+document.querySelector('[data-interface-style="extension.lumi.compact"] [role=switch]').click();await until(()=>shell.dataset.interface==='extension.lumi.compact');
 document.querySelector('[aria-label="强调色"] [role=radio]:last-child').click();await until(()=>shell.dataset.appearanceAccent==='rose' && [...document.querySelectorAll('.theme-preview iframe')].every(frame=>frame.srcdoc.includes('data-appearance-accent="rose"') && frame.srcdoc.includes('custom-preview')));
 check(fixture.errors.length===0,'Renderer errors '+fixture.errors);return {preserved:true,scoped:true,recovered:true};
 }.toString()+')()');
@@ -105,7 +116,7 @@ await win.webContents.executeJavaScript('fixture.restorePreview()');
 if(process.env.LUMI_UI_REVIEW==='1'){
 const out=path.resolve('.cache/ui-review');fs.mkdirSync(out,{recursive:true});
 for(const [width,height] of [[1280,900],[1080,800]]){win.setSize(width,height);await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');fs.writeFileSync(path.join(out,'appearance-'+width+'.png'),(await win.webContents.capturePage()).toPNG());}
-await win.webContents.executeJavaScript('Array.from(document.querySelectorAll(".interface-settings [role=radio]")).find(button=>button.textContent==="默认界面").click()');
+await win.webContents.executeJavaScript('Array.from(document.querySelectorAll("[data-interface-style]")).find(node=>node.dataset.interfaceStyle==="extension.lumi.compact").querySelector("[role=switch]").click()');
 await until(()=>win.webContents.executeJavaScript('document.querySelector(".desktop-shell").dataset.interface==="interface.default"'));
 for(const mode of ['light','dark']){
 await win.webContents.executeJavaScript('Array.from(document.querySelectorAll(".theme-options button")).find(button=>button.textContent==='+JSON.stringify(mode==='dark' ? '深色' : '浅色')+').click()');

@@ -5,6 +5,7 @@ import type {ExtensionInventory,ExtensionRequest} from './contracts/extensions';
 import type {ExtensionMarketCatalog,ExtensionMarketInstall} from './contracts/extension-market';
 import type {DataRefreshAnimation} from './motion';
 import type {InterfaceSelection} from './contracts/interface';
+import type {UserBackground} from './interface-styles';
 import type {WidgetPeriod} from './widget-period';
 export type Tool = 'codex' | 'claude';
 export type PluginPageId = `plugin:${string}`;
@@ -30,6 +31,9 @@ export interface Preferences {
   pluginEnabled:Record<string,boolean>;
   pluginViews:Record<string,Partial<Record<PluginViewId,boolean>>>;
   interfaceSelections:Record<string,Record<string,string>>;
+  interfacePriorities:Record<string,number>;
+  defaultInterfaceEnabled:boolean;
+  background:UserBackground;
   widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null; widgetDataSource:WidgetDataSource; widgetPeriod:WidgetPeriod; widgetInputMode:WidgetInputMode; dataRefreshAnimation:DataRefreshAnimation;
   sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
   refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
@@ -41,7 +45,7 @@ export interface Preferences {
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { interfaceSelection?:InterfaceSelection;selection?: SelectionPatch;sourceSelection?:{sourceId:'source.local-sessions'|'feature.usage';values:Record<string,SelectionValue>} };
+export type PreferencePatch = Partial<Pick<Preferences, 'background' | 'defaultInterfaceEnabled' | 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { interfacePriority?:{id:string;priority:number};interfaceSelection?:InterfaceSelection;selection?: SelectionPatch;sourceSelection?:{sourceId:'source.local-sessions'|'feature.usage';values:Record<string,SelectionValue>} };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -275,6 +279,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   pluginEnabled:{},
   pluginViews:{},
   interfaceSelections:{},
+  interfacePriorities:{},defaultInterfaceEnabled:true,background:{image:'',name:'',fit:'cover'},
   widgetEnabled:false,widgetPosition:null,widgetDataSource:'api',widgetPeriod:60,widgetInputMode:'total',dataRefreshAnimation:'slide-up',
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
   activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',

@@ -57,8 +57,8 @@ await writeFile(path.join(root,'index.html'),'<html><head><meta charset="UTF-8">
       await win.webContents.executeJavaScript('('+async function(){
         const until=async(fn)=>{const end=performance.now()+4000;while(!fn()){if(performance.now()>end)throw new Error('Grouped plugin UI');await new Promise(r=>setTimeout(r,10));}};
         const nav=label=>Array.from(document.querySelectorAll('.nav-item')).find(e=>e.textContent.trim().startsWith(label));
-        nav('设置').click();await until(()=>document.querySelectorAll('.plugin-settings-overview [role=switch]').length===6);
-        const root=document.querySelector('.settings-page'),groups=Array.from(document.querySelectorAll('.plugin-settings-group'));
+        nav('设置').click();await until(()=>document.querySelectorAll('.plugin-settings-overview [data-plugin] [role=switch]').length===6);
+        const root=document.querySelector('.settings-page'),groups=Array.from(document.querySelectorAll('.plugin-settings-group[data-plugin]'));
         if(groups.map(e=>e.dataset.plugin).join(',')!=='provider.newapi,provider.codex,surface.widget,surface.tray,adapter.tool.codex,adapter.tool.claude')throw new Error('Wrong product grouping');
         for(const group of groups){const box=group.getBoundingClientRect();for(const control of group.querySelectorAll('[role=switch]')){const c=control.getBoundingClientRect();if(c.left<box.left || c.right>box.right+1 || c.width<40)throw new Error('Switch overflow');}}
         const tab=label=>Array.from(document.querySelectorAll('.settings-subnav button')).find(b=>b.textContent===label);

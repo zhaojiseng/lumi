@@ -52,7 +52,7 @@ export interface PluginSettingsDeclaration {
   title:string;
   description:string;
   order:number;
-  group?:'tools';
+  group?:'tools'|'interface';
   views:readonly {id:PluginViewId;title:string;description?:string;defaultEnabled?:boolean}[];
 }
 

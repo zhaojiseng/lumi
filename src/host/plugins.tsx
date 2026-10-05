@@ -12,9 +12,10 @@ import type {ExtensionInventory} from '../../shared/contracts/extensions';
 import type {ExtensionMarketInstall} from '../../shared/contracts/extension-market';
 import {ChevronDown,ChevronRight,Settings2,Store,TerminalSquare,Blocks} from 'lucide-react';
 import {ExtensionMarketplace} from './extension-market';
+import {InterfaceStyleSettings} from './interface-style-settings';
 
-export interface PluginSettingsItem {id:string;title:string;description:string;group?:'tools';status:PluginStatus;views:readonly {id:PluginViewId;title:string;description?:string}[]}
-export interface PluginSettingsValue {items:PluginSettingsItem[];statuses?:readonly PluginStatus[];extensions?:ExtensionInventory;reloadExtensions?():Promise<void>;installExtension?(input:ExtensionMarketInstall):Promise<void>;removeExtension?(id:string):Promise<void>;loading:boolean;busyId:string|null;error:string;setEnabled(id:string,enabled:boolean):Promise<void>;setView(id:string,view:PluginViewId,enabled:boolean):Promise<void>}
+export interface PluginSettingsItem {id:string;title:string;description:string;group?:'tools'|'interface';status:PluginStatus;views:readonly {id:PluginViewId;title:string;description?:string}[]}
+export interface PluginSettingsValue {items:PluginSettingsItem[];statuses?:readonly PluginStatus[];extensions?:ExtensionInventory;reloadExtensions?():Promise<void>;refreshInterface?():Promise<void>;installExtension?(input:ExtensionMarketInstall):Promise<void>;removeExtension?(id:string):Promise<void>;loading:boolean;busyId:string|null;error:string;setEnabled(id:string,enabled:boolean):Promise<void>;setView(id:string,view:PluginViewId,enabled:boolean):Promise<void>}
 const PluginSettingsContext=createContext<PluginSettingsValue|null>(null);
 export function usePluginSettings(){const value=useContext(PluginSettingsContext);if(!value)throw new Error('插件设置宿主未提供。');return value;}
 export function usePluginStatus(id:string){return useContext(PluginSettingsContext)?.items.find(item=>item.id===id)?.status;}
@@ -25,7 +26,7 @@ export function usePluginHost(){
   useEffect(()=>{void resource.load();return bridge.onWidgetVisibility?.(()=>{void resource.load();});},[resource]);
   const settings=useMemo<PluginSettingsValue>(()=>({
     statuses:state.statuses,
-    extensions:state.extensions,reloadExtensions:resource.reloadExtensions,installExtension:resource.installExtension,removeExtension:resource.removeExtension,
+    extensions:state.extensions,refreshInterface:resource.load,reloadExtensions:resource.reloadExtensions,installExtension:resource.installExtension,removeExtension:resource.removeExtension,
     items:settingsGroups(state.statuses.map(status=>status.manifest)).flatMap(group=>{const status=state.statuses.find(s=>s.manifest.id===group.id);return status ? [{...group,status}] : [];}),
     loading:state.loading,busyId:state.busyId,error:state.error,setEnabled:resource.setEnabled,setView:resource.setView,
   }),[state,resource]);
@@ -93,7 +94,7 @@ export function PluginSettingsSection(){
   const scope=JSON.stringify([app?.page,app?.preferences.activeSiteId,site?.url,site?.userId,site?.username,!!site?.accessTokenConfigured,!!site?.sessionAuth]);
   const [marketOpen,setMarketOpen]=useState(false),[selection,setSelection]=useState<{id:string;scope:string}|null>(null);
   const returnFocus=useRef<HTMLButtonElement|null>(null);
-  const builtin=items.filter(item=>item.status.origin!=='external'),external=items.filter(item=>item.status.origin==='external' && !extensions?.plugins.some(plugin=>plugin.manifest.id===item.id && plugin.manifest.kind==='interface'));
+  const builtin=items.filter(item=>item.status.origin!=='external' && item.group!=='interface'),external=items.filter(item=>item.status.origin==='external' && !extensions?.plugins.some(plugin=>plugin.manifest.id===item.id && plugin.manifest.kind==='interface'));
   const visibleItems=[...builtin,...external],selected=selection?.scope===scope ? visibleItems.find(item=>item.id===selection.id) : undefined;
   function open(id:string,trigger:HTMLButtonElement){returnFocus.current=trigger;setSelection({id,scope});}
   useEffect(()=>{if(selection && !selected)setSelection(null);},[selection,selected]);
@@ -102,6 +103,7 @@ export function PluginSettingsSection(){
     <div className="plugin-settings-overview"><div className="section-heading"><div><h2>插件</h2><p>展开分组管理启用状态，点击插件或设置按钮打开说明与设置。</p></div><button className="button" onClick={()=>setMarketOpen(true)}><Store size={16}/>插件市场</button></div>
       <PluginSettingsBranch title="内置插件" items={builtin.filter(item=>item.group!=='tools')} onOpen={open}/>
       <PluginSettingsBranch title="工具配置" items={builtin.filter(item=>item.group==='tools')} tools onOpen={open}/>
+      <InterfaceStyleSettings/>
       <PluginSettingsBranch title="额外插件" items={external} onOpen={open}/>
       {extensions && <div className="extension-manager"><div className="setting-control"><div><strong>额外插件目录</strong><p>将独立插件文件夹放入此目录，然后重新扫描。新插件及内容变更后的插件需手动启用。</p></div><div><button className="button" disabled={!extensions.directory || !!busyId} onClick={()=>void bridge.openExtensionsDirectory().catch(()=>{})}>打开目录</button><button className="button" disabled={!extensions.directory || !!busyId} onClick={()=>void reloadExtensions?.().catch(()=>{})}>重新扫描</button></div></div>{!extensions.plugins.length && <p className="muted">暂无额外插件。</p>}{extensions.diagnostics.map(d=><p key={d.package} role="alert" className="warning-banner">{d.package}：{d.error}</p>)}</div>}
     </div>

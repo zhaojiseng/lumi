@@ -1,5 +1,35 @@
 # Lumi 验证记录
 
+## 0.5.12 · 界面风格树、自定义背景及折射联合验证
+
+日期：2026-10-06，Windows x64，Node.js 24.18.0、npm 11.16.0。此次汇总主程序背景与优先级功能、相邻会话完成的玻璃折射，以及独立梦幻插件 1.1.1；两个仓库分别提交与发布。
+
+- 全量测试 737 项：734 通过、3 项平台检查跳过、0 失败、0 取消。新增真实 Electron 背景回归检查本地 PNG 导入 WebP、默认/背景优先级切换、拉伸/缩放/裁切/原尺寸的实际像素、浅深主题及窗口尺寸变化；偏好回归检查重启、旧数据迁移及保存失败回滚。原有插件草稿、焦点、滚动、弹窗和市场回归迁移至风格树，全部通过。日志：`.test-data/interface-styles-tests.log`。
+- 严格类型检查、内置插件检查、生产构建和依赖审计通过，0 个漏洞；65 个依赖的完整许可随包携带。Windows 隔离桌面启动及受限 IPC、插件和界面启停、外观保存、浮窗与托盘生命周期通过。
+- 最终本地安装包为 `release/local-0512-final/Lumi-0.5.12-x64.exe`，包内构建文件、更新元数据、blockmap、许可和本地数据排除检查通过。EXE SHA-256：`677635bf6d8c05f08e70a6a3fb727f85bca4ede61f32d0f12b38bf527fe7a7d5`。日志：`.test-data/release-0512-package.log`、`release-0512-desktop.log`、`release-0512-verify.log`。本地文件哈希不代表 CI 生成的公开附件哈希。
+- 梦幻插件官方包检查、完整软件界面回归及软件/硬件折射专项回归通过。完整检查覆盖浅深主题、减少动态效果、真实开启/关闭虚化像素、退出生命周期、嵌套焦点、窄视口、真实滑块/趋势浮窗及原生下拉。原始平滑模型滑轨的选中文字像素参与采样，点击及拖动可用。日志在插件仓库 `.cache/dreamy-styles-full.log`、`dreamy-styles-refraction.log`、`dreamy-styles-gpu.log`。
+- 本机没有执行 macOS 原生构建；三平台检查、macOS ARM64 打包及公开附件以本次标签工作流实际结果为准。
+
+## 未发布工作区 · 液态玻璃可配置折射
+
+模型选择透镜修订：玻璃滑块改为绘制在按钮文字上方，宿主为其使用内部放大向量，文字不再被单独模糊；不透明／减少透明度／强制颜色下恢复文字在滑块上方。像素检查使用原始平滑滑轨，取消人工条纹，浅／深色明显折射与关闭的 RGB 平均差约 16.62 / 25.02；真实鼠标点击与拖动通过。资源分配先排除视口及滚动祖先裁切外的控件，滚动时重新分配；真实宿主测试覆盖 120 个列表条目，确认屏外控件不会耗尽 96 个名额。
+
+本轮检测到工作区同时存在自定义背景相关开发，为避免混入未完成改动，从公开 `8c1a904` 创建隔离 worktree `.cache/glass-lens-host`，仅复制本任务的宿主折射、界面挂载及测试文件。隔离副本全量测试 734 项：731 通过、3 项平台跳过、0 失败；完整主题界面回归通过，硬件折射、原始文字采样、原生点击／拖动及不透明回退检查通过。日志为 `.test-data/glass-lens-isolated-tests.log`、插件仓库 `.cache/dreamy-lens-isolated-ui.log` 与 `.cache/dreamy-lens-isolated-gpu.log`。未改动并行的背景功能文件。
+
+仅包含本任务的最终安装包位于 `release/local-glass-0511-r3-isolated/Lumi-0.5.11-x64.exe`，隔离副本 `dist`、`verify:release` 与 `test:desktop` 通过，许可完整且不含本地用户数据。SHA-256：`6e487fc7bafc2fe818a5e33eaac11c1f8ac763b5a241d2b9929689ed9c12e01c`。构建、包校验和启动日志为 `.test-data/glass-lens-isolated-package.log`、`glass-lens-isolated-verify.log` 与 `glass-lens-isolated-desktop.log`。此为未发布的本地增强构建，需要同时更新外部浮梦插件。
+
+后续画面反馈修订：宿主折射表面扩展到公共 `.modal`、`.toast` 与 popover；浮梦降低轻柔档位为浮层／遮罩 2px、侧栏 3px，选中滑块独立模糊 0 / 0.5 / 2 / 4px。类型检查及 3 项位移图／宿主界面定向测试通过；完整软件界面回归与硬件逐帧像素回归通过，模型真实滑块纹理背景的折射 RGB 像素差约 56.32。完整界面检查仍覆盖正文无 filter、嵌套居中、焦点和退出生命周期。Chromium 暂停动画先提交中间帧再定位端点，以消除暂停前缓存绘制帧，保留像素阈值。日志在插件仓库 `.cache/dreamy-all-glass-*.log`。
+
+修订安装包输出至 `release/local-glass-0511-r2`，重新执行 `dist`、`verify:release` 和 `test:desktop` 全部通过。安装包 SHA-256：`c005bac123add0ba139bd809b2b34a84be9f0c3c1162ffca12a616115adbeaeb`。仍为本地增强构建，未发布；日志为 `.test-data/glass-refraction-r2-package.log`、`glass-refraction-r2-verify.log` 和 `glass-refraction-r2-desktop.log`。
+
+同日按用户要求完成本地 Windows x64 安装包：`npm.cmd run dist` 输出至 `release/local-glass-0511`，`verify:release` 与重新构建后的 `test:desktop` 通过。此包包含未发布折射改动，沿用本地 0.5.11 版本号，不覆盖公开附件；插件仍独立安装。安装包 SHA-256：`a408734de93e29c5a1a17e9ef9052a071cdbd9a6ef97ab127d46f2c19f3259e4`。日志为 `.test-data/glass-refraction-package.log`、`glass-refraction-package-verify.log` 和 `glass-refraction-package-desktop.log`。
+
+日期：2026-10-06，Windows x64。用户授权扩展宿主，为浮梦主题提供本地圆角背景折射；此记录不表示公开的 0.5.11 已包含新接口。
+
+`npm.cmd test`：733 项，730 通过、3 项平台检查跳过、0 失败。覆盖位移图的中心稳定、边缘方向、圆角与纹理上限，以及真实 Electron 中界面启用／停用的滤镜创建和释放。`npm.cmd run build` 通过类型检查、渲染器及 Electron 构建，保留 65 个依赖的完整许可；`npm.cmd run test:desktop` 的隔离桌面启动及界面外观持久化检查通过。日志为 `.test-data/glass-refraction-tests.log`、`glass-refraction-build.log` 和 `glass-refraction-desktop.log`。
+
+相邻插件仓库的官方包校验通过，固定校验宿主更新为公开 v0.5.11。真实背景条纹截图检查在硬件和软件合成下验证轻微／标准／明显三档折射：硬件边缘平均 RGB 差约 9.82 / 28.49 / 67.73，软件离屏约 10.37 / 27.13 / 66.13，稳定中心均为 0；关闭后滤镜引用和定义移除。透明度及 0 / 6 / 12 / 18px 浮层模糊独立验证通过。完整插件界面回归通过浅／深色、减少动态效果、开关逐帧虚化、嵌套弹窗、焦点恢复、窄视口、选中滑块、趋势鼠标浮窗与原生下拉；软件使用离屏绘制，帧等待有界，位置与像素断言保持严格，日志为 `.cache/dreamy-configurable-ui.log`。日志与截图在插件仓库忽略目录 `.cache/dreamy-ui/` 及 `.cache/dreamy-refraction-*.log`。未执行 macOS 原生验证、跨平台 CI 或性能基准，未创建发布版本。
+
 ## 0.5.11 · 最终发布验证
 
 日期：2026-10-06（Asia/Shanghai），本机 Windows x64，Node.js 24.18.0、npm 11.16.0。最终应用包含渲染刷新优化、分段滑块与 Fast / Priority 显示合并；跨平台测试问题在创建最终标签前修正。

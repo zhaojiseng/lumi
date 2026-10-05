@@ -56,19 +56,22 @@ test('external manifest registers all interface slots and withdraws without alte
   await f.host.setView(id,'workbench',false);assert.equal(workbenchContributions(f.host.statuses()).length,0);assert.equal(settingsTabContributions(f.host.statuses()).length,1);
   await f.host.setEnabled(id,false);assert.equal(connectionContributions(f.host.statuses()).length,0);assert.equal(rendererNavigation([],f.host.statuses()).length,0);
 });
-test('interface packages select exclusively, persist atomically and fall back when updated or missing',async t=>{
+test('interface packages retain independent switches, select priorities and persist atomically and fall back when updated or missing',async t=>{
   const f=await fixture(t),compact='extension.lumi.compact',other='extension.lumi.other';
+  const priorities:Record<string,number>={[other]:200};
+  const options={...f.options,interfacePreferences:()=>({candidates:[],priorities})};
+  const host=new ExtensionHost(options);await host.start();t.after(()=>host.dispose());
   await cp('extensions/packages/'+compact,path.join(f.options.directory,compact),{recursive:true});
   await cp('extensions/packages/'+compact,path.join(f.options.directory,other),{recursive:true});
   const raw=JSON.parse(await readFile(path.join(f.options.directory,other,'plugin.json'),'utf8'));raw.id=other;await writeFile(path.join(f.options.directory,other,'plugin.json'),JSON.stringify(raw));
-  await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
-  await f.host.setEnabled(compact,true);assert.equal(f.host.inventory().interfaceStyle?.id,compact);assert.match(f.host.inventory().interfaceStyle!.css,/sidebar/);
-  await f.host.setEnabled(other,true);assert.equal(f.host.statuses().find(p=>p.manifest.id===compact)?.state,'disabled');assert.equal(f.host.inventory().interfaceStyle?.id,other);
-  const restarted=new ExtensionHost(f.options);await restarted.start();t.after(()=>restarted.dispose());assert.equal(restarted.inventory().interfaceStyle?.id,other);
-  await f.host.setEnabled(other,false);assert.equal(f.host.inventory().interfaceStyle,undefined);
-  await f.host.setEnabled(compact,true);await writeFile(path.join(f.options.directory,compact,'interface.css'),':scope{--sidebar-width:190px}');await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
-  await f.host.setEnabled(compact,true);await rm(path.join(f.options.directory,compact),{recursive:true});await f.host.reload();assert.equal(f.host.inventory().interfaceStyle,undefined);
-  await f.host.setEnabled(other,true);await rm(f.root,{recursive:true});await writeFile(f.root,'blocked settings directory');await assert.rejects(f.host.setEnabled(other,false));assert.equal(f.host.inventory().interfaceStyle?.id,other);
+  await host.reload();assert.equal(host.inventory().interfaceStyle,undefined);
+  await host.setEnabled(compact,true);assert.equal(host.inventory().interfaceStyle?.id,compact);assert.match(host.inventory().interfaceStyle!.css,/sidebar/);
+  await host.setEnabled(other,true);assert.equal(host.statuses().find(p=>p.manifest.id===compact)?.state,'active');assert.equal(host.inventory().interfaceStyle?.id,other);
+  const restarted=new ExtensionHost(options);await restarted.start();t.after(()=>restarted.dispose());assert.equal(restarted.inventory().interfaceStyle?.id,other);
+  await host.setEnabled(other,false);assert.equal(host.inventory().interfaceStyle?.id,compact);
+  await host.setEnabled(compact,true);await writeFile(path.join(f.options.directory,compact,'interface.css'),':scope{--sidebar-width:190px}');await host.reload();assert.equal(host.inventory().interfaceStyle,undefined);
+  await host.setEnabled(compact,true);await rm(path.join(f.options.directory,compact),{recursive:true});await host.reload();assert.equal(host.inventory().interfaceStyle,undefined);
+  await host.setEnabled(other,true);await rm(f.root,{recursive:true});await writeFile(f.root,'blocked settings directory');await assert.rejects(host.setEnabled(other,false));assert.equal(host.inventory().interfaceStyle?.id,other);
 });
 test('interface packages require bounded CSS and cannot declare data or script contributions',async t=>{
   const f=await fixture(t),raw=JSON.parse(await readFile('extensions/packages/extension.lumi.compact/plugin.json','utf8'));

@@ -28,11 +28,12 @@ export function normalizeSourceSelections(value:unknown,legacy:Preferences['view
   return Object.fromEntries(Object.entries(normalized).filter(([id])=>id==='source.local-sessions' || id==='feature.usage'));
 }
 export function applyPreferencePatch(preferences: Preferences, patch: PreferencePatch): Preferences {
-  const {selection,sourceSelection,interfaceSelection, ...fields} = patch;
+  const {selection,sourceSelection,interfaceSelection,interfacePriority, ...fields} = patch;
   const next = {...preferences, ...fields};
   if (selection) next.viewSelections = {...preferences.viewSelections, [selection.siteId]: {...preferences.viewSelections[selection.siteId], ...selection.values}};
   if(sourceSelection)next.sourceSelections={...preferences.sourceSelections,[sourceSelection.sourceId]:{...preferences.sourceSelections?.[sourceSelection.sourceId],...sourceSelection.values}};
   if(interfaceSelection)next.interfaceSelections={...preferences.interfaceSelections,[interfaceSelection.interfaceId]:{...preferences.interfaceSelections?.[interfaceSelection.interfaceId],...interfaceSelection.values}};
+  if(interfacePriority)next.interfacePriorities={...preferences.interfacePriorities,[interfacePriority.id]:interfacePriority.priority};
   return next;
 }
 export function selectionValue<T extends SelectionValue>(preferences: Preferences, key: string, fallback: T, validate?: (value: T) => boolean): T {

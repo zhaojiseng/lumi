@@ -8,10 +8,12 @@ import {readExtensionPackage,scanExtensionPackages,EXTENSION_MIME,type Extension
 import {extensionNetworkRead} from './network';
 import path from 'node:path';
 import type {InterfaceSelection} from '../../shared/contracts/interface';
+import {preferredInterface,type StyleCandidate} from '../../shared/interface-styles';
 interface ActivePackage {pkg:ExtensionPackage;enabled:boolean;generation:number;controller:AbortController;pending:number;}
 export interface ExtensionHostOptions {
   directory:string;roots?:string[];settingsDirectory:string;cipher:Cipher;sdk:Buffer;
   context():ExtensionContext;scope():string;
+  interfacePreferences?():{candidates:StyleCandidate[];priorities:Record<string,number>};
   read(method:'workbench.read'|'usage.read'|'codex.usage.read',input:unknown):Promise<unknown>;
 }
 const keySchema=z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/).refine(key=>!['constructor','prototype'].includes(key));
@@ -21,7 +23,7 @@ export class ExtensionHost {
   constructor(private options:ExtensionHostOptions){this.store=new ExtensionStore(options.settingsDirectory,options.cipher);}
   async start(){await mkdir(this.options.directory,{recursive:true});await this.store.load();await this.reload();}
   private serial<T>(job:()=>Promise<T>):Promise<T>{if(this.closing)return Promise.reject(new Error('扩展宿主正在退出。'));const result=this.queue.catch(()=>{}).then(()=>{if(this.closing)throw new Error('扩展宿主正在退出。');return job();});this.queue=result;return result;}
-  inventory():ExtensionInventory{const selected=[...this.packages.values()].find(p=>p.enabled && p.pkg.manifest.kind==='interface'),definition=selected?.pkg.manifest.interface;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest,removable:this.removable(pkg)})),diagnostics:this.diagnostics,interfaceStyle:selected && definition ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(definition.stylesheet)!.toString('utf8'),preview:definition.preview ? selected.pkg.files.get(definition.preview)!.toString('utf8') : undefined,appearanceGroups:definition.appearanceGroups} : undefined};}
+  inventory():ExtensionInventory{const settings=this.options.interfacePreferences?.(),styles=[...this.packages.values()].filter(p=>p.pkg.manifest.kind==='interface'),winner=preferredInterface([...settings?.candidates || [],...styles.map(p=>({id:p.pkg.manifest.id,enabled:p.enabled,priority:100}))],settings?.priorities),selected=styles.find(p=>p.pkg.manifest.id===winner),definition=selected?.pkg.manifest.interface;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest,removable:this.removable(pkg)})),diagnostics:this.diagnostics,interfaceStyle:selected && definition ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(definition.stylesheet)!.toString('utf8'),preview:definition.preview ? selected.pkg.files.get(definition.preview)!.toString('utf8') : undefined,appearanceGroups:definition.appearanceGroups} : undefined};}
   private removable(pkg:ExtensionPackage){return path.relative(path.resolve(this.options.directory),path.dirname(pkg.directory))==='';}
   private roots(){return [this.options.directory,...this.options.roots || []];}
   private replacePackage(id:string,pkg?:ExtensionPackage){
@@ -77,17 +79,10 @@ export class ExtensionHost {
     for(const item of this.packages.values())item.controller.abort();
     this.packages.clear();this.diagnostics=scanned.diagnostics;
     for(const pkg of scanned.packages){const saved=this.store.get(pkg.manifest.id);this.packages.set(pkg.manifest.id,{pkg,enabled:saved.enabled && saved.digest===pkg.digest,generation:++this.epoch,controller:new AbortController(),pending:0});}
-    let selected=false;for(const item of this.packages.values())if(item.enabled && item.pkg.manifest.kind==='interface'){if(selected)item.enabled=false;selected=true;}
     return this.inventory();
   });}
   setEnabled(id:string,enabled:boolean){return this.serial(async()=>{
     const item=this.packages.get(id);if(!item)throw new Error('额外插件不存在，请重新扫描。');
-    if(item.pkg.manifest.kind==='interface'){
-      const changed=[item,...enabled ? [...this.packages.values()].filter(other=>other!==item && other.enabled && other.pkg.manifest.kind==='interface') : []],previous=changed.map(p=>p.enabled);
-      changed.forEach(p=>{p.controller.abort();p.controller=new AbortController();p.generation=++this.epoch;p.enabled=p===item && enabled;});
-      try{await this.store.changeEnabled(changed.map(p=>({id:p.pkg.manifest.id,enabled:p.enabled,digest:p.pkg.digest})));}catch(error){changed.forEach((p,index)=>{p.enabled=previous[index];p.generation=++this.epoch;});throw error;}
-      return;
-    }
     const previous=item.enabled;item.controller.abort();item.controller=new AbortController();item.generation=++this.epoch;item.enabled=enabled;
     try{await this.store.change(id,{enabled,digest:item.pkg.digest});}catch(error){item.enabled=previous;item.generation=++this.epoch;throw error;}
   });}

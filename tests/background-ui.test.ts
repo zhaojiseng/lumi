@@ -1,0 +1,51 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {mkdir,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import {existsSync} from 'node:fs';
+import path from 'node:path';
+import {spawn} from 'node:child_process';
+
+test('background tree uploads a local image, changes priorities and paints all fits at resized viewports',{timeout:30000},async t=>{
+  const electron:string=createRequire(import.meta.url)('electron');if(!existsSync(electron))return t.skip('Electron unavailable');
+  await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/background-ui-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
+  const built=await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
+import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
+import {AppContext} from './src/context';import {PluginSettingsProvider} from './src/host/plugins';
+import {InterfaceStyleSettings} from './src/host/interface-style-settings';import {UserBackgroundLayer} from './src/host/background';
+import {DEFAULT_PREFERENCES} from './shared/types';import {backgroundInterfaceManifest} from './plugins/interface.background/manifest';import {applyPreferencePatch} from './shared/selections';
+window.fixture={errors:[],writes:[],fail:false};addEventListener('error',event=>fixture.errors.push(event.message));
+function Fixture(){const [preferences,setPreferences]=useState(structuredClone(DEFAULT_PREFERENCES)),[enabled,setEnabled]=useState(false);
+fixture.preferences=preferences;const updatePreferences=async patch=>{if(fixture.fail)throw new Error('fixture write failed');fixture.writes.push(patch);setPreferences(previous=>applyPreferencePatch(previous,patch));};
+return <AppContext.Provider value={{preferences,updatePreferences,toast:message=>fixture.errors.push(message)}}><PluginSettingsProvider value={{items:[],statuses:[{manifest:backgroundInterfaceManifest,state:enabled ? 'active' : 'disabled'}],extensions:{plugins:[],diagnostics:[],directory:'fixture'},loading:false,busyId:null,error:'',setEnabled:async(_id,value)=>setEnabled(value),setView:async()=>{},refreshInterface:async()=>{}}}><div className="desktop-shell"><UserBackgroundLayer/></div><InterfaceStyleSettings/></PluginSettingsProvider></AppContext.Provider>;}
+createRoot(document.getElementById('root')).render(<Fixture/>);`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
+  await writeFile(path.join(root,'app.js'),built.outputFiles[0].contents);
+  await writeFile(path.join(root,'style.css'),await readFile('src/host/background.css','utf8')+'\nbody{margin:0}.desktop-shell{position:relative;width:400px;height:300px;background:rgb(20,20,20)}');
+  await writeFile(path.join(root,'index.html'),'<html><head><meta charset="UTF-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>');
+  await writeFile(path.join(root,'main.cjs'),String.raw`
+const {app,BrowserWindow}=require('electron'),fs=require('node:fs'),path=require('node:path');
+for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path.join(__dirname,name);fs.mkdirSync(dir,{recursive:true});app.setPath(name,dir);}app.disableHardwareAcceleration();
+app.whenReady().then(async()=>{const win=new BrowserWindow({width:900,height:850,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+const run=fn=>win.webContents.executeJavaScript('('+fn.toString()+')()'),check=(ok,label)=>{if(!ok)throw new Error(label);};
+await run(async()=>{const until=async fn=>{const end=performance.now()+3000;while(!fn()){if(performance.now()>end)throw new Error('Background UI timeout '+fn+'; '+JSON.stringify(fixture.writes)+'; errors='+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
+await until(()=>document.querySelector('[data-interface-style="interface.background"]'));const row=document.querySelector('[data-interface-style="interface.background"]');row.querySelector('.plugin-row-button').click();
+const canvas=document.createElement('canvas');canvas.width=200;canvas.height=100;const context=canvas.getContext('2d');context.fillStyle='rgb(230,30,40)';context.fillRect(0,0,100,100);context.fillStyle='rgb(30,210,60)';context.fillRect(100,0,100,100);
+const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png')),file=new File([blob],'fixture.png',{type:'image/png'}),transfer=new DataTransfer();transfer.items.add(file);const input=row.querySelector('input[type=file]');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));
+await until(()=>fixture.preferences.background.image.startsWith('data:image/webp;base64,'));row.querySelector('[role=switch]').click();await until(()=>document.querySelector('.user-background-layer img')?.complete);fixture.until=until;
+fixture.fit=async value=>{const select=row.querySelector('select');select.value=value;select.dispatchEvent(new Event('change',{bubbles:true}));await until(()=>fixture.preferences.background.fit===value);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));};
+fixture.priority=async(id,value)=>{const input=document.querySelector('[data-interface-style="'+id+'"] input[type=number]');await until(()=>!input.disabled);input.focus();Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,String(value));input.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,20));input.focus();input.blur();input.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));await until(()=>fixture.preferences.interfacePriorities[id]===value);};
+await fixture.priority('interface.default',500);await until(()=>!document.querySelector('.user-background-layer'));await fixture.priority('interface.background',600);await until(()=>document.querySelector('.user-background-layer img')?.complete);window.scrollTo(0,0);
+});
+const pixel=async(x,y)=>{const img=await win.webContents.capturePage({x,y,width:1,height:1});const b=img.toBitmap();return [b[2],b[1],b[0]];},red=p=>p[0]>180 && p[1]<70,green=p=>p[1]>160 && p[0]<70,empty=p=>p.every(c=>Math.abs(c-20)<3);
+for(const mode of ['light','dark']){await win.webContents.executeJavaScript('document.documentElement.dataset.theme='+JSON.stringify(mode));
+await run(()=>fixture.fit('stretch'));check(red(await pixel(30,30)) && green(await pixel(370,270)),'Stretch did not fill');
+await run(()=>fixture.fit('contain'));check(empty(await pixel(30,30)) && red(await pixel(30,100)) && green(await pixel(370,200)),'Contain did not preserve whole image');
+await run(()=>fixture.fit('cover'));check(red(await pixel(30,30)) && green(await pixel(370,270)),'Cover did not crop to fill');
+await run(()=>fixture.fit('natural'));check(empty(await pixel(30,150)) && red(await pixel(120,150)) && green(await pixel(280,150)),'Natural dimensions changed');}
+await run(async()=>{document.querySelector('.desktop-shell').style.width='300px';document.querySelector('.desktop-shell').style.height='400px';await fixture.fit('contain');});
+check(empty(await pixel(20,20)) && red(await pixel(20,160)) && green(await pixel(280,240)),'Resized background geometry failed');
+await run(async()=>{document.querySelector('[data-interface-style="interface.background"] [role=switch]').click();await fixture.until(()=>!document.querySelector('.user-background-layer'));if(fixture.errors.length)throw new Error(fixture.errors.join(','));});
+console.log('BACKGROUND_UI_OK');win.destroy();app.exit(0);}).catch(error=>{console.error(error.stack || error);app.exit(1);});`);
+  const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;const child=spawn(electron,[path.join(root,'main.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});let output='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>output+=chunk);const code=await new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});assert.equal(code,0,output);assert.match(output,/BACKGROUND_UI_OK/);
+});
