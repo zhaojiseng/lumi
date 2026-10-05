@@ -73,14 +73,29 @@ win.setContentSize(320,380);await run('normal','select-channel-glass-small');
 win.setContentSize(1100,720);await win.webContents.executeJavaScript('fixture.theme(false)');
 win.webContents.debugger.attach('1.3');await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});
 await win.webContents.executeJavaScript('new Promise(r=>setTimeout(r,150)).then(()=>{const select=document.querySelector("select"),style=getComputedStyle(select,"::picker(select)");if(!style.transitionProperty.includes("overlay") || !style.transitionProperty.includes("display"))throw new Error("Native picker cannot retain its top layer during exit");select.style.setProperty("--popup-enter-duration","600ms");select.style.setProperty("--popup-exit-duration","600ms");})');
+const sampleNativeMotion=async function(direction){
+// Chromium does not expose the internal picker opacity transition through
+// select.getAnimations(). A document RAF can precede its first compositor frame
+// on macOS, so wait for actual interpolation rather than a fixed frame count.
+const select=document.querySelector('select'),opening=direction==='opening',start=performance.now(),end=start+2500,samples=[];let previous,middleFrames=0,started=false;
+const fail=message=>{const style=getComputedStyle(select,'::picker(select)');throw new Error(message+' '+JSON.stringify({direction,elapsed:performance.now()-start,samples,transition:style.transitionProperty,duration:style.transitionDuration,open:select.matches(':open'),height:select.options[0].getBoundingClientRect().height}));};
+while(performance.now()<end){
+await new Promise(r=>requestAnimationFrame(r));const style=getComputedStyle(select,'::picker(select)'),opacity=Number(style.opacity),open=select.matches(':open'),rect=select.options[0].getBoundingClientRect();samples.push({elapsed:Math.round(performance.now()-start),opacity,open,height:rect.height});if(samples.length>8)samples.shift();
+if(open!==opening){if(started)fail('Native picker changed state during animation');continue;}started=true;
+if(opacity>0 && opacity<1){
+if(rect.height<=0 || (opening ? style.pointerEvents!=='auto' : style.pointerEvents!=='none'))fail('Animating native picker has wrong geometry or interactivity');
+if(previous!==undefined){if(opening ? opacity<previous : opacity>previous)fail('Native picker opacity reversed direction');if(opacity!==previous)middleFrames++;}else middleFrames++;
+previous=opacity;
+if(!opening && middleFrames>=2){const point={x:Math.round(rect.left+30),y:Math.round(rect.top+rect.height/2)};if(document.elementFromPoint(point.x,point.y)?.id!=='motion-click-target')fail('Closing native picker intercepts hit testing');return point;}
+}else if(opacity===(opening ? 1 : 0)){
+if(middleFrames<2)fail('Native picker '+direction+' does not interpolate across frames');return;
+}
+}fail('Native picker '+direction+' never reaches a stable animation timeline');
+};
 await win.webContents.executeJavaScript('document.querySelector("select").focus();document.querySelector("select").showPicker();',true);
-await win.webContents.executeJavaScript('('+async function(){
-await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const select=document.querySelector('select'),value=Number(getComputedStyle(select,'::picker(select)').opacity);if(value<=0 || value>=1)throw new Error('Native picker opening does not interpolate: '+value);const end=performance.now()+1200;while(getComputedStyle(select,'::picker(select)').opacity!=='1'){if(performance.now()>end)throw new Error('Native picker opening never settles');await new Promise(r=>requestAnimationFrame(r));}
-}.toString()+')()');
+await win.webContents.executeJavaScript('('+sampleNativeMotion.toString()+')("opening")');
 win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});
-const behind=await win.webContents.executeJavaScript('('+async function(){
-await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const select=document.querySelector('select'),style=getComputedStyle(select,'::picker(select)'),value=Number(style.opacity),rect=select.options[0].getBoundingClientRect();if(select.matches(':open') || value<=0 || value>=1 || rect.height<=0 || style.pointerEvents!=='none')throw new Error('Native closing picker was removed early or remains interactive: '+value);const point={x:Math.round(rect.left+30),y:Math.round(rect.top+rect.height/2)};if(document.elementFromPoint(point.x,point.y)?.id!=='motion-click-target')throw new Error('Closing native picker intercepts hit testing');return point;
-}.toString()+')()');
+const behind=await win.webContents.executeJavaScript('('+sampleNativeMotion.toString()+')("closing")');
 win.webContents.sendInputEvent({type:'mouseDown',...behind,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',...behind,button:'left',clickCount:1});
 await win.webContents.executeJavaScript('('+async function(){const select=document.querySelector('select'),end=performance.now()+1200;while(select.options[0].getBoundingClientRect().height>0){if(performance.now()>end)throw new Error('Native picker remains in the top layer after closing');await new Promise(r=>requestAnimationFrame(r));}if(fixture.motionClicks!==1)throw new Error('Closing native picker swallowed the underlying click');}.toString()+')()');
 await win.webContents.executeJavaScript('document.querySelector("select").focus();document.querySelector("select").showPicker();',true);
@@ -105,9 +120,17 @@ await new Promise(resolve=>setTimeout(resolve,50));
 win.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});
 await new Promise(resolve=>setTimeout(resolve,50));
 await win.webContents.executeJavaScript('if(fixture.value!=="openai" || fixture.changes.length!==1)throw new Error("Native ArrowDown failed to update React value: "+fixture.value+" "+fixture.changes+" "+document.activeElement?.outerHTML);');
+const sampleMultiMotion=async function(direction,time){
+const end=performance.now()+1000,name='picker-'+direction;let panel,animation;
+while(!animation){panel=document.querySelector('.multi-popover');animation=panel?.getAnimations().find(item=>item.animationName===name);if(performance.now()>end)throw new Error('Multiselect does not animate '+direction);if(!animation)await new Promise(r=>requestAnimationFrame(r));}
+if(direction==='close' && (!panel.inert || panel.getAttribute('aria-hidden')!=='true'))throw new Error('Multiselect closing remains interactive');
+if(!animation.effect.getKeyframes().some(frame=>frame.opacity!==undefined))throw new Error('Multiselect animation has no opacity interpolation');
+animation.pause();await animation.ready;animation.currentTime=time;await new Promise(r=>requestAnimationFrame(r));
+const opacity=Number(getComputedStyle(panel).opacity),timing=animation.effect.getComputedTiming();if(animation.pending || animation.playState!=='paused' || animation.currentTime!==time || opacity<=0 || opacity>=1 || timing.progress<=0 || timing.progress>=1)throw new Error('Multiselect '+direction+' does not interpolate at a stable animation time: '+JSON.stringify({opacity,currentTime:animation.currentTime,pending:animation.pending,playState:animation.playState,timing}));animation.finish();
+};
 for(const size of [[1100,720],[320,240]]){
 win.setContentSize(...size);await win.webContents.executeJavaScript('fixture.show("multi")');await new Promise(resolve=>setTimeout(resolve,50));
-await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await win.webContents.executeJavaScript('('+async function(){await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const panel=document.querySelector('.multi-popover'),animation=panel.getAnimations().find(item=>item.animationName==='picker-open');if(!animation)throw new Error('Multiselect does not animate opening');animation.pause();animation.currentTime=60;await new Promise(r=>requestAnimationFrame(r));const opacity=Number(getComputedStyle(panel).opacity);if(opacity<=0 || opacity>=1)throw new Error('Multiselect opening does not interpolate');animation.finish();}.toString()+')()');await new Promise(resolve=>setTimeout(resolve,50));
+await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await win.webContents.executeJavaScript('('+sampleMultiMotion.toString()+')("open",60)');await new Promise(resolve=>setTimeout(resolve,50));
 fs.writeFileSync(path.resolve('.test-data/'+(size[0]===1100 ? 'select-multi' : 'select-multi-short')+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
 const result=await win.webContents.executeJavaScript('('+function(){
 const check=(value,label)=>{if(!value)throw new Error(label);},popup=document.querySelector('.multi-popover'),rect=popup.getBoundingClientRect();
@@ -120,7 +143,7 @@ check(document.activeElement===popup.querySelector('input[type="text"],.search-i
 popup.querySelector('input[type="checkbox"]').click();popup.querySelector('.multi-actions .button').click();
 check(fixture.applied.includes('master'),'Multiselect apply lost checked value');return {viewport:[innerWidth,innerHeight],bounds:[rect.x,rect.y,rect.width,rect.height]};
 }.toString()+')()');console.log('MULTI_UI '+JSON.stringify(result));
-await win.webContents.executeJavaScript('('+async function(){await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const panel=document.querySelector('.multi-popover'),animation=panel?.getAnimations().find(item=>item.animationName==='picker-close');if(!panel || !animation || !panel.inert || panel.getAttribute('aria-hidden')!=='true')throw new Error('Multiselect closing was removed early or remains interactive');animation.pause();animation.currentTime=50;await new Promise(r=>requestAnimationFrame(r));const opacity=Number(getComputedStyle(panel).opacity);if(opacity<=0 || opacity>=1)throw new Error('Multiselect closing does not interpolate');animation.finish();}.toString()+')()');
+await win.webContents.executeJavaScript('('+sampleMultiMotion.toString()+')("close",50)');
 await new Promise(resolve=>setTimeout(resolve,180));await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click()');await new Promise(resolve=>setTimeout(resolve,50));
 await win.webContents.executeJavaScript('('+async function(){
 const input=document.querySelector('.multi-popover .search-input input'),setValue=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
