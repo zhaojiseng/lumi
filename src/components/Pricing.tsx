@@ -7,7 +7,7 @@ import {useApp} from '../context';
 import {useSavedSelection} from '../selections';
 import {modelSelectionKey} from '../../shared/selections';
 import {availableGroups,groupRatio,defaultModelGroup} from '../../shared/catalog';
-import {legacyPrices,priceText,publishedPriceSections,defaultPricingModel,isExpression,displayPricingChoices,publishedRequestPricing,defaultPricingChoice,type PriceRow,type PricingChoice} from '../../shared/pricing';
+import {legacyPrices,priceText,publishedPriceSections,defaultPricingModel,isExpression,displayPricingChoices,publishedRequestPricing,requestPricingOptions,defaultPricingChoice,type PriceRow,type PricingChoice} from '../../shared/pricing';
 import {BillingPriceMatrix,BillingRules} from './Billing';
 import type {CatalogSnapshot} from '../../shared/contracts/catalog';
 import type {ModelHealth,ModelHealthDetails,ModelCatalog,ModelInfo,SiteStatus} from '../../shared/types';
@@ -59,7 +59,7 @@ export function PricingDetailsModal({model,catalog,status,initialGroup,onClose,h
   const priced=choice?.model || model,r=groupRatio(catalog,group,priced),routeHealth=healthDetails?.groups.find(h=>h.group===group);
   const sourceChoices=choices.filter(c=>c.sourceKey===choice?.sourceKey),sources=choices.filter((c,i,all)=>all.findIndex(v=>v.sourceKey===c.sourceKey)===i);
   const variant=model.billing_plugin_variants?.find(v=>'plugin:'+v.plugin_key===choice?.sourceKey),original=variant ? {...model,...variant,billing_mode:variant.billing_mode || 'tiered_expr'} : model;
-  const rules=publishedRequestPricing(original).rules,mode=rules.find(rule=>rule.condition===modeKey);
+  const rules=requestPricingOptions(publishedRequestPricing(original).rules),mode=rules.find(rule=>rule.conditions.includes(modeKey));
   const sections=sourceChoices.flatMap(c=>c.section ? [c.section] : []);
   return <Modal className="pricing-modal" title={model.model_name+' · 定价与健康度'} subtitle="站点公布的单价、计费规则和渠道统计" wide onClose={onClose}>
     <Health health={health} error={healthError}/>

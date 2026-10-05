@@ -37,3 +37,18 @@ test('many grouped curves combine remaining series without dropping totals and a
     }
   }
 });
+
+test('high-cardinality groups share bounded date formatting while preserving options and weighted rates',t=>{
+  let formatted=0;const format=Date.prototype.toLocaleTimeString;
+  t.mock.method(Date.prototype,'toLocaleTimeString',function(this:Date,...args:Parameters<Date['toLocaleTimeString']>){formatted++;return format.apply(this,args);});
+  const points=Array.from({length:10000},(_,i)=>({created_at:at(12),model_name:'model-'+(i%1000),token_id:i%1000+1,token_name:'Same label',quota:100,token_used:30,count:1,outputTokens:i%1000+1,durationSeconds:i%5+1,speedSamples:1}));
+  for(const grouping of ['model','token'] as const)for(const selected of ['',grouping==='model' ? 'model-42' : 'id:43']){
+    const before=formatted,chart=groupedTrend(points,1,status,range,now,grouping,'speed',selected);
+    assert.ok(formatted-before<=120,'formatting cost must be bounded by the time buckets rather than the number of groups');
+    assert.equal(chart.options.length,1000);assert.equal(chart.rows.reduce((sum,row)=>sum+row.requests,0),10000);
+    assert.equal(chart.lines.length,selected ? 1 : 9);
+    if(selected)assert.equal(chart.rows[26].values[chart.lines[0].id],43/3);
+    else assert.equal(chart.rows[26].values.remaining,4925280/29730);
+    assert.ok(chart.rows.slice(0,26).every(row=>Object.values(row.values).every(value=>value===null)));
+  }
+});

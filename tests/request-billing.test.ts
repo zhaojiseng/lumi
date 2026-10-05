@@ -1,10 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {displayPricingChoices,publishedRequestPricing} from '../shared/pricing';
+import {displayPricingChoices,publishedRequestPricing,requestPricingOptions} from '../shared/pricing';
 import {requestBilling} from '../shared/request-billing';
 import type {ModelInfo,UsageLog} from '../shared/types';
 
 const status={system_name:'Fixture',quota_per_unit:500000};
+
+test('display merges equivalent Fast/Priority aliases while retaining persisted conditions and different prices',()=>{
+  const rules=[{condition:'fast',label:'Fast',multiplier:2},{condition:'priority',label:'Fast（Priority）',multiplier:2},{condition:'header',label:'Fast（fast-mode）',multiplier:6}];
+  const options=requestPricingOptions(rules);
+  assert.equal(options.length,2);assert.equal(options[0].label,'Fast');assert.deepEqual(options[0].conditions,['fast','priority']);
+  assert.equal(options.find(option=>option.conditions.includes('priority'))?.multiplier,2);
+  assert.equal(rules.length,3,'published settlement rules stay intact');
+  const different=requestPricingOptions([rules[0],{...rules[1],multiplier:3}]);
+  assert.deepEqual(different.map(option=>option.multiplier),[2,3],'different prices cannot be silently collapsed');
+});
 const base='len <= 272000 ? tier("0_272k",p*2+c*10+cr*.2+cc*2.5) : tier("272k_plus",p*4+c*15+cr*.4+cc*5)';
 const expression='('+base+')|||when(param("service_tier") == "fast") * 2|||when(param("service_tier") == "priority") * 2';
 const model:ModelInfo={model_name:'arbitrary-model',quota_type:0,model_ratio:1,model_price:0,completion_ratio:1,enable_groups:[],supported_endpoint_types:[],billing_mode:'tiered_expr',billing_expr:expression};

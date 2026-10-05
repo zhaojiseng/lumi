@@ -1,6 +1,8 @@
 import {SURFACE_COLOR_KEYS,type SurfacePalette,type SurfaceTheme} from '../../shared/surface-theme';
 import {bridge} from '../bridge';
 
+const sentThemes=new WeakMap<HTMLElement,string>();
+
 /** Resolve semantic tokens through Chromium so light-dark(), color-mix() and plugin colors all agree. */
 export function syncSurfaceTheme(shell:HTMLElement){
   if(!bridge.syncSurfaceTheme)return;
@@ -15,5 +17,8 @@ export function syncSurfaceTheme(shell:HTMLElement){
   }}finally{probe.remove();}
   const mode=shell.dataset.theme==='dark' ? 'dark' : 'light';
   const input:SurfaceTheme={interfaceId:shell.dataset.interface || 'interface.default',mode,...shell.dataset.interfaceAppearance ? {appearanceKey:shell.dataset.interfaceAppearance} : {},palette};
-  void bridge.syncSurfaceTheme(input).catch(()=>{});
+  const key=JSON.stringify(input);
+  if(sentThemes.get(shell)===key)return;
+  sentThemes.set(shell,key);
+  void bridge.syncSurfaceTheme(input).catch(()=>{if(sentThemes.get(shell)===key)sentThemes.delete(shell);});
 }

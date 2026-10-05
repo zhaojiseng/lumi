@@ -11,19 +11,27 @@ import {UsageTrend} from '../../../src/components/UsageTrend';
 import {UsageQuality} from '../../../src/components/UsageQuality';
 import {DataRefreshMotion} from '../../../src/components/DataRefreshMotion';
 import { currency, formatMoney, compact } from '../../../shared/utils';
+import {summarizeUsagePoints} from '../../../shared/statistics';
+import {useMemo} from 'react';
 import {Welcome} from '../../../src/components/Login';
 export default function Overview() {
   const { dashboard: d, preferences, loading,openLogin,setPage } = useApp();
   const [savedActivityColumns,setActivityColumns]=useSavedSelection<string[]>('overview.activityColumns',DEFAULT_ACTIVITY_COLUMNS,Array.isArray);
-  const activityColumns=normalizeActivityColumns(savedActivityColumns);
+  const activityColumns=useMemo(()=>normalizeActivityColumns(savedActivityColumns),[savedActivityColumns]);
+  const summary=useMemo(()=>summarizeUsagePoints(d?.series || []),[d?.series]);
+  const modelData=useMemo(()=>{
+    if(!d)return [];
+    const c=currency(d.status);
+    return summary.models.map(model=>({name:model.name,value:c.value(model.quota)})).filter(model=>model.value>0).sort((a,b)=>b.value-a.value);
+  },[summary,d?.status]);
+  const modelIdentity=useMemo(()=>JSON.stringify(modelData),[modelData]);
+  const recentIdentity=useMemo(()=>JSON.stringify([d?.logs.items,activityColumns]),[d?.logs.items,activityColumns]);
   if (!d?.user) return loading ? <p role="status">正在读取 New API 账户…</p> : <Welcome onLogin={openLogin}/>;
   const label=rangeLabel(d.range,new Date(d.fetchedAt));
   const c = currency(d.status);
-  const totalTokens = d.interval ? d.interval.tokens : d.series.reduce((s, p) => s + (p.token_used || 0), 0);
-  const totalRequests = d.interval ? d.interval.requests : d.series.reduce((s, p) => s + (p.count || 0), 0);
-  const cost = d.interval ? d.interval.quota : d.stat?.quota ?? d.series.reduce((s, p) => s + p.quota, 0);
-  const modelTotals = new Map<string, number>(); for (const p of d.series) modelTotals.set(p.model_name, (modelTotals.get(p.model_name) || 0) + c.value(p.quota));
-  const modelData = [...modelTotals].map(([name, value]) => ({ name, value })).filter(x => x.value > 0).sort((a, b) => b.value - a.value);
+  const totalTokens = d.interval ? d.interval.tokens : summary.tokens;
+  const totalRequests = d.interval ? d.interval.requests : summary.requests;
+  const cost = d.interval ? d.interval.quota : d.stat?.quota ?? summary.quota;
   const refreshScope=JSON.stringify([preferences.activeSiteId,d.user?.id]);
   const motion={animation:preferences.dataRefreshAnimation,resetKey:refreshScope};
   return <div className="provider-usage-section">
@@ -38,9 +46,9 @@ export default function Overview() {
     <UsageQuality dashboard={d}/>
     <div className="overview-charts">
       <section className="surface panel trend-panel"><UsageTrend dashboard={d} preferenceKey="overview.trend"/></section>
-      <section className="surface panel distribution-panel"><SectionHeading title="模型分布" action={<button className="icon-button" onClick={() => setPage('usage')} aria-label="查看详细用量"><ArrowUpRight size={17}/></button>}/><DataRefreshMotion {...motion} className="distribution-content" identity={JSON.stringify(modelData)}>{modelData.length ? <ModelDonut data={modelData} total={formatMoney(d.series.reduce((s, p) => s + p.quota, 0), d.status)} symbol={c.symbol}/> : <Empty title="暂无模型消耗" description="开始使用后即可查看分布。"/>}</DataRefreshMotion><button className="panel-bottom-link" onClick={() => setPage('usage')}>探索用量详情<ArrowRight size={14}/></button></section>
+      <section className="surface panel distribution-panel"><SectionHeading title="模型分布" action={<button className="icon-button" onClick={() => setPage('usage')} aria-label="查看详细用量"><ArrowUpRight size={17}/></button>}/><DataRefreshMotion {...motion} className="distribution-content" identity={modelIdentity}>{modelData.length ? <ModelDonut data={modelData} total={formatMoney(summary.quota, d.status)} symbol={c.symbol}/> : <Empty title="暂无模型消耗" description="开始使用后即可查看分布。"/>}</DataRefreshMotion><button className="panel-bottom-link" onClick={() => setPage('usage')}>探索用量详情<ArrowRight size={14}/></button></section>
     </div>
-    <section className="surface panel recent-panel"><SectionHeading title="最近活动" sub="每一次调用，都有记录" action={<div className="recent-activity-actions"><RecentActivityColumnsControl key={preferences.activeSiteId} columns={activityColumns} onChange={setActivityColumns}/><button className="text-link" onClick={() => setPage('usage')}>查看全部<ArrowUpRight size={14}/></button></div>}/><DataRefreshMotion {...motion} identity={JSON.stringify([d.logs.items,activityColumns])}>{d.logs.items.length ? <RecentActivity logs={d.logs.items} status={d.status} catalog={d.catalog} columns={activityColumns}/> : <Empty title="还没有请求记录" description="连接站点或开始调用模型后，记录会自动更新。"/>}</DataRefreshMotion></section>
+    <section className="surface panel recent-panel"><SectionHeading title="最近活动" sub="每一次调用，都有记录" action={<div className="recent-activity-actions"><RecentActivityColumnsControl key={preferences.activeSiteId} columns={activityColumns} onChange={setActivityColumns}/><button className="text-link" onClick={() => setPage('usage')}>查看全部<ArrowUpRight size={14}/></button></div>}/><DataRefreshMotion {...motion} identity={recentIdentity}>{d.logs.items.length ? <RecentActivity logs={d.logs.items} status={d.status} catalog={d.catalog} columns={activityColumns}/> : <Empty title="还没有请求记录" description="连接站点或开始调用模型后，记录会自动更新。"/>}</DataRefreshMotion></section>
     <div className="page-footer"><span><CircleCheck size={13}/>数据来自当前 New API 站点</span><span>Lumi · 为专注而设计</span></div>
   </div>;
 }

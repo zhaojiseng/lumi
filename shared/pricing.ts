@@ -247,6 +247,17 @@ export function publishedPricingStates(model:ModelInfo,status:SiteStatus,now=new
 }
 export interface PricingChoice { key:string; label:string; sourceKey:string; sourceName:string; model:ModelInfo; section?:PublishedPriceSection; timeRates:TimeRate[]; }
 export interface RequestPriceRule {condition:string;label:string;multiplier:number;matched?:boolean;}
+/** Display equivalent Fast/Priority aliases together without changing the underlying billing rules. */
+export function requestPricingOptions(rules:RequestPriceRule[]){
+  const options:(RequestPriceRule & {conditions:string[]})[]=[];
+  for(const rule of rules){
+    const fast=['Fast','Fast（Priority）'].includes(rule.label),label=fast ? 'Fast' : rule.label;
+    const existing=fast ? options.find(option=>option.label===label && option.multiplier===rule.multiplier) : undefined;
+    if(existing)existing.conditions.push(rule.condition);
+    else options.push({...rule,label,conditions:[rule.condition]});
+  }
+  return options;
+}
 function nodeText(n:Node):string {
   if(n.k==='value')return JSON.stringify(n.value);
   if(n.k==='var')return n.name;

@@ -13,6 +13,7 @@ import {interfaceAppearanceKey,resolveInterfaceAppearance} from '../../shared/in
 import {PopupScope} from '../components/PopupPresence';
 
 export interface InterfaceShellProps {
+  appearancePending?:boolean;
   bootstrap:Bootstrap;preferences:Preferences;dashboard:Dashboard|null;nav:readonly NavigationItem[];visiblePage:Page;catalogPending:number;status:string;loading:boolean;error:string;refreshDisabled:boolean;
   loginOpen:boolean;notice:{text:string;kind:'success'|'error'|'info';id:number}|null;searchOpen:boolean;query:string;announcements:boolean;searchedModels:readonly ModelInfo[];filteredActions:readonly NavigationItem[];
   contentRef:RefObject<HTMLDivElement|null>;children:ReactNode;
@@ -56,16 +57,18 @@ export function InterfaceHost(props:InterfaceShellProps){
     return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>!ours.includes(sheet));};
   },[style?.id,style?.css]);
   const Shell=defaultInterfacePlugin.component,active=style && !failure ? style.id : DEFAULT_INTERFACE_ID;
+  const groups=active===style?.id ? style.appearanceGroups : undefined,saved=props.preferences.interfaceSelections?.[active];
+  const appearance=resolveInterfaceAppearance(groups,saved),appearanceKey=interfaceAppearanceKey(groups,saved);
   useLayoutEffect(()=>{
     const shell=document.querySelector<HTMLElement>('.desktop-shell');if(!shell)return;
-    for(const attribute of [...shell.attributes])if(attribute.name.startsWith('data-appearance-'))shell.removeAttribute(attribute.name);
-    const groups=active===style?.id ? style.appearanceGroups : undefined,saved=props.preferences.interfaceSelections?.[active];
-    for(const [id,value] of Object.entries(resolveInterfaceAppearance(groups,saved)))shell.setAttribute('data-appearance-'+id,value);
-    const key=interfaceAppearanceKey(groups,saved);if(key)shell.dataset.interfaceAppearance=key;else delete shell.dataset.interfaceAppearance;
-    const sync=()=>syncSurfaceTheme(shell);sync();
+    for(const attribute of [...shell.attributes])if(attribute.name.startsWith('data-appearance-') && !(attribute.name.slice('data-appearance-'.length) in appearance))shell.removeAttribute(attribute.name);
+    for(const [id,value] of Object.entries(appearance)){const attribute='data-appearance-'+id;if(shell.getAttribute(attribute)!==value)shell.setAttribute(attribute,value);}
+    if(appearanceKey)shell.dataset.interfaceAppearance=appearanceKey;else delete shell.dataset.interfaceAppearance;
+    // Chromium can show optimistic colors immediately; desktop scope validation needs the persisted choice first.
+    const sync=()=>{if(!props.appearancePending)syncSurfaceTheme(shell);};sync();
     const observer=new MutationObserver(sync);observer.observe(shell,{attributes:true,attributeFilter:['data-theme','data-interface']});
     return()=>observer.disconnect();
-  },[style?.id,style?.css,active,props.preferences]);
+  },[style?.css,groups,active,appearanceKey,props.preferences.theme,props.appearancePending]);
   const dialogScope=JSON.stringify([props.visiblePage,props.preferences.sites.find(site=>site.id===props.preferences.activeSiteId),statuses?.map(status=>[status.manifest.id,status.state,status.generation,status.views])]);
   const site=props.preferences.sites.find(value=>value.id===props.preferences.activeSiteId);
   const activeScope=JSON.stringify([props.visiblePage,props.preferences.activeSiteId,site?.url,site?.userId,site?.username,!!site?.accessTokenConfigured,!!site?.sessionAuth]);

@@ -31,17 +31,21 @@ export function UsageTrend({dashboard:d,preferenceKey,title='用量趋势'}:{das
   },[scope,d.detailed,!!d.user,d.fetchedAt,retry]);
   const detailData=!d.detailed && details?.key===scope ? details.value : null;
   const points=d.detailed ? d.series : detailData?.points || [];
-  const now=new Date(d.fetchedAt),range=isRollingRange(d.query || d.range || d.days) ? '24h' : d.range;
+  const now=useMemo(()=>new Date(d.fetchedAt),[d.fetchedAt]),range=isRollingRange(d.query || d.range || d.days) ? '24h' : d.range;
   const selection=grouping==='model' ? model : token;
   const all=useMemo(()=>groupedTrend(points,d.days,d.status,range,now,grouping,metric),[points,d.days,d.status,range,now.getTime(),grouping,metric]);
   const selected=all.options.some(option=>option.key===selection) ? selection : '';
-  const chart=selected ? groupedTrend(points,d.days,d.status,range,now,grouping,metric,selected) : all;
-  const window=resolveRange(range || d.days,now);
-  const windowPoints=points.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp);
-  const selectedPoints=selected && grouping!=='total' ? windowPoints.filter(p=>pointGroup(p,grouping).key===selected) : windowPoints;
-  const totals=selectedPoints.reduce((a,p)=>({cost:a.cost+currency(d.status).value(p.quota),tokens:a.tokens+p.token_used,requests:a.requests+p.count,input:a.input+(p.cacheInputTokens || 0),read:a.read+(p.cacheReadTokens || 0)}),{cost:0,tokens:0,requests:0,input:0,read:0});
+  const chart=useMemo(()=>selected ? groupedTrend(points,d.days,d.status,range,now,grouping,metric,selected) : all,[all,selected,points,d.days,d.status,range,now,grouping,metric]);
+  const window=useMemo(()=>resolveRange(range || d.days,now),[range,d.days,now]);
+  const selectedPoints=useMemo(()=>points.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp && (!selected || grouping==='total' || pointGroup(p,grouping).key===selected)),[points,window,selected,grouping]);
+  const totals=useMemo(()=>{
+    const c=currency(d.status),totals={cost:0,tokens:0,requests:0,input:0,read:0};
+    for(const p of selectedPoints){totals.cost+=c.value(p.quota);totals.tokens+=p.token_used;totals.requests+=p.count;totals.input+=p.cacheInputTokens || 0;totals.read+=p.cacheReadTokens || 0;}
+    return totals;
+  },[selectedPoints,d.status]);
   const isSpeed=metric==='speed' || metric==='netSpeed';
-  const speedTotals=isSpeed ? usageSeries(selectedPoints,d.days,d.status,range,now).reduce((a,row)=>({output:a.output+(metric==='speed' ? row.outputTokens : row.netOutputTokens),duration:a.duration+(metric==='speed' ? row.durationSeconds : row.subsequentDurationSeconds),samples:a.samples+(metric==='speed' ? row.speedSamples : row.netSpeedSamples)}),{output:0,duration:0,samples:0}) : {output:0,duration:0,samples:0};
+  const speedTotals=useMemo(()=>isSpeed ? usageSeries(selectedPoints,d.days,d.status,range,now).reduce((a,row)=>({output:a.output+(metric==='speed' ? row.outputTokens : row.netOutputTokens),duration:a.duration+(metric==='speed' ? row.durationSeconds : row.subsequentDurationSeconds),samples:a.samples+(metric==='speed' ? row.speedSamples : row.netSpeedSamples)}),{output:0,duration:0,samples:0}) : {output:0,duration:0,samples:0},[isSpeed,metric,selectedPoints,d.days,d.status,range,now]);
+  const chartIdentity=useMemo(()=>JSON.stringify([scope,metric,grouping,selected,chart.lines,chart.rows.map(row=>[row[metric],row.values])]),[scope,metric,grouping,selected,chart]);
   const names={cost:'消费',tokens:'Tokens',requests:'请求',cacheHitRate:'缓存命中率',speed:'速率',netSpeed:'净速率'};
   const ready=d.detailed || !!detailData;
   const value=!ready || metric==='cacheHitRate' && totals.input<=0 || isSpeed && speedTotals.duration<=0 ? '—' : metric==='speed' || metric==='netSpeed' ? (speedTotals.output/speedTotals.duration).toFixed(1)+' t/s' : metric==='cacheHitRate' ? (totals.read/totals.input*100).toFixed(1)+'%' : metric==='cost' ? currency(d.status).symbol+totals.cost.toFixed(2) : compact(totals[metric]);
@@ -56,7 +60,7 @@ export function UsageTrend({dashboard:d,preferenceKey,title='用量趋势'}:{das
         {grouping!=='total' && <Select label={'曲线'+label} value={selected} onChange={grouping==='model' ? setModel : setToken} decorated={false}><option value="">全部{label}</option>{all.options.map(option=><option key={option.key} value={option.key}>{option.name}</option>)}</Select>}
       </div>
     </div>
-    <DataRefreshMotion identity={JSON.stringify([scope,metric,grouping,selected,chart.lines,chart.rows.map(row=>[row[metric],row.values])])} resetKey={accountKey} animation={preferences.dataRefreshAnimation || 'slide-up'} className="trend-data">
+    <DataRefreshMotion identity={chartIdentity} resetKey={accountKey} animation={preferences.dataRefreshAnimation || 'slide-up'} className="trend-data">
       {!ready && error ? <div className="trend-error" role="status"><span>{error}</span><button type="button" onClick={()=>setRetry(v=>v+1)}><RefreshCw size={13}/>重试</button></div> : !ready && loading ? <div className="trend-placeholder"><Loader2 size={22} className="spin"/><span>正在汇总所选时间段的完整消费记录</span></div> : points.length ? <TrendChart data={chart.rows} metric={metric} symbol={currency(d.status).symbol} series={chart.lines}/> : <Empty title="暂无用量曲线" description="所选时间段没有消费记录。"/>}
       {points.length>0 && chart.lines.length>0 && <div className="trend-legend">{chart.lines.map(line=><span key={line.id} title={line.name}><i style={{background:line.color}}/>{line.name}</span>)}</div>}
     </DataRefreshMotion>

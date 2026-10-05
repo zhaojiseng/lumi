@@ -1,21 +1,21 @@
 import {PopupPresence} from '../../../src/components/PopupPresence';
 import {MotionSwap} from '../../../src/components/MotionSwap';
 import {useMemo,useState,useRef,useEffect,useLayoutEffect} from 'react';
-import {Search,Star,ArrowUpRight,SlidersHorizontal,Info,Repeat2,Bell,Check,History} from 'lucide-react';
+import {Search,Star,ArrowUpRight,SlidersHorizontal,Info,Bell,Check,History} from 'lucide-react';
 import {useApp} from '../../../src/context';
 import {useCatalog} from '../../../src/host/catalog';
 import {useToolConfigViews} from '../../../src/host/tool-config';
 import type {CatalogSnapshot} from '../../../shared/contracts/catalog';
 import {useSavedSelection} from '../../../src/selections';
 import {modelSelectionKey,selectionValue} from '../../../shared/selections';
-import {Button,PageIntro,Select,Pill,Empty,ToolIcon,Modal,Skeleton} from '../../../src/components/ui';
+import {Button,PageIntro,Select,Pill,Empty,ToolIcon,Modal,Skeleton,SegmentedSwitch} from '../../../src/components/ui';
 import {Health} from '../../../src/components/Health';
 import {ModelCardFrame} from '../../../src/components/ModelCardFrame';
 import {CatalogChangeCard} from '../../../src/components/CatalogChangeCard';
 import {ChannelSelect} from '../../../src/components/ChannelSelect';
 import {PricingDetailsModal,PriceTable,PricingTimeInfo} from '../../../src/components/Pricing';
 import {availableGroups,groupRatio,groupLabel,defaultModelGroup,cheapestGroup,sortModels} from '../../../shared/catalog';
-import {displayPricingChoices,publishedRequestPricing,defaultPricingChoice} from '../../../shared/pricing';
+import {displayPricingChoices,publishedRequestPricing,requestPricingOptions,defaultPricingChoice} from '../../../shared/pricing';
 import {acknowledgeCatalogChanges,catalogChangesStorageKey,getCatalogChanges,subscribeCatalogChanges,type CatalogChangeState,type CatalogChangeView} from '../../../shared/catalog-changes';
 import type {ModelInfo,SelectionValue} from '../../../shared/types';
 import '../../../src/models-market.css';
@@ -102,25 +102,27 @@ function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;f
   const [modeKey,setModeKey]=useSavedSelection<string>(modelSelectionKey(m.model_name,'mode'),'');
   if(!d)return null;
   const routes=availableGroups(m,d.catalog),displayGroup=defaultModelGroup(m,d.catalog,savedGroup || filterGroup),ratio=groupRatio(d.catalog,displayGroup,m);
-  const choices=displayPricingChoices(m,d.status,new Date(d.fetchedAt)),choice=choices.find(s=>s.key===priceKey) || defaultPricingChoice(choices),index=choices.indexOf(choice!);
-  const variant=m.billing_plugin_variants?.find(v=>'plugin:'+v.plugin_key===choice?.sourceKey),rules=publishedRequestPricing(variant ? {...m,...variant,billing_mode:variant.billing_mode || 'tiered_expr'} : m).rules,mode=rules.find(rule=>rule.condition===modeKey);
+  const choices=displayPricingChoices(m,d.status,new Date(d.fetchedAt)),choice=choices.find(s=>s.key===priceKey) || defaultPricingChoice(choices);
+  const variant=m.billing_plugin_variants?.find(v=>'plugin:'+v.plugin_key===choice?.sourceKey),rules=requestPricingOptions(publishedRequestPricing(variant ? {...m,...variant,billing_mode:variant.billing_mode || 'tiered_expr'} : m).rules),mode=rules.find(rule=>rule.conditions.includes(modeKey));
   const favorite=preferences.favoriteModels.includes(m.model_name);
   async function toggleFavorite(){try{await updatePreferences({favoriteModels:favorite ? preferences.favoriteModels.filter(n=>n!==m.model_name) : [...preferences.favoriteModels,m.model_name]});}catch(e:any){toast(e.message,'error');}}
   return <ModelCardFrame name={m.model_name} vendor={m.vendor} actions={<>
       <button className={'icon-button star-button '+(favorite ? 'starred' : '')} aria-label={(favorite ? '取消收藏 ' : '收藏 ')+m.model_name} onClick={toggleFavorite}><Star size={16} fill={favorite ? 'currentColor' : 'none'}/></button>
-      {choices.length>1 && <button type="button" className="pricing-state-button" aria-label={m.model_name+' 定价档位：'+choice?.label} title={'切换至 '+choices[(index+1)%choices.length].label} onClick={()=>setPriceKey(choices[(index+1)%choices.length].key)}><Repeat2 size={12}/>{choice?.label}</button>}
     </>}>
     <p className="model-description" title={m.description}>{m.description || '站点可用模型。单价与计费条件由站点提供。'}</p>
     {String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).length>0 && <div className="model-tags">{String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).map(t=><Pill tone="muted" key={t}>{t}</Pill>)}</div>}
     <Health health={d.health?.models.find(h=>h.model_name===m.model_name)} error={d.healthError} windowEnd={d.health?.window_end}/>
     <div className="model-channel-control"><ChannelSelect className="model-channel-select" label={m.model_name+' 渠道'} catalog={d.catalog} model={m} groups={routes} value={displayGroup} onChange={setGroup} disabled={!routes.length}/>{!savedGroup && !filterGroup && cheapestGroup(m,d.catalog)===displayGroup && <span>最低价</span>}</div>
-    {rules.length>0 && <div className="model-mode-selector" role="group" aria-label={m.model_name+' 请求条件'}>
-      <button type="button" aria-pressed={!mode} title="普通模式 · 请求倍率 ×1" onClick={()=>setModeKey('')}><span>普通</span><small>×1</small></button>
-      {rules.map(rule=><button type="button" key={rule.condition} aria-pressed={mode?.condition===rule.condition} title={rule.label+' · 请求倍率 ×'+rule.multiplier+'\n'+rule.condition} onClick={()=>setModeKey(rule.condition)}><span>{rule.label==='Fast（Priority）' ? 'Priority' : rule.label==='Fast（fast-mode）' ? 'Fast' : rule.label}</span><small>×{rule.multiplier}</small></button>)}
+    {(rules.length>0 || choices.length>1) && <div className="model-switch-row">
+      {rules.length>0 && <SegmentedSwitch label={m.model_name+' 请求条件'}>
+        <button type="button" aria-pressed={!mode} title="普通模式 · 请求倍率 ×1" onClick={()=>setModeKey('')}><span>普通</span><small>×1</small></button>
+        {rules.map(rule=><button type="button" key={rule.condition} aria-pressed={mode===rule} title={rule.label+' · 请求倍率 ×'+rule.multiplier+'\n'+rule.conditions.join('\n')} onClick={()=>setModeKey(rule.condition)}><span>{rule.label==='Fast（fast-mode）' ? 'Fast' : rule.label}</span><small>×{rule.multiplier}</small></button>)}
+      </SegmentedSwitch>}
+      {choices.length>1 && <SegmentedSwitch label={m.model_name+' 上下文档位'} className="model-context-selector">{choices.map(option=><button type="button" key={option.key} aria-pressed={choice?.key===option.key} title={option.label} onClick={()=>setPriceKey(option.key)}><span>{option.label}</span></button>)}</SegmentedSwitch>}
     </div>}
-    {ratio===undefined ? <p className="price-caption">{displayGroup==='auto' ? '自动路由价格随实际渠道变化' : displayGroup ? '倍率未公布' : '暂无可用渠道'}</p> : <div className="model-published-prices">{choice?.sourceName && <p className="model-price-condition">{choice.sourceName}</p>}{choice?.section ? <PriceTable model={choice.model} status={d.status} ratio={ratio*(mode?.multiplier ?? 1)} rows={choice.section.rows}/> : <p className="price-caption">站点规则定价 · 详见定价详情</p>}</div>}
+    {ratio===undefined ? <p className="price-caption">{displayGroup==='auto' ? '自动路由价格随实际渠道变化' : displayGroup ? '倍率未公布' : '暂无可用渠道'}</p> : <div key={(choice?.key || '')+':'+(mode?.condition || '')} className="switch-swap model-published-prices">{choice?.sourceName && <p className="model-price-condition">{choice.sourceName}</p>}{choice?.section ? <PriceTable model={choice.model} status={d.status} ratio={ratio*(mode?.multiplier ?? 1)} rows={choice.section.rows}/> : <p className="price-caption">站点规则定价 · 详见定价详情</p>}</div>}
     <div className="model-card-price-actions"><button className="model-price-action" onClick={()=>onDetails(m)}><SlidersHorizontal size={13}/>详细定价<ArrowUpRight size={13}/></button></div>
-    {choice && <PricingTimeInfo choice={choice}/>}
+    {choice && <div key={'time:'+choice.key+':'+(mode?.condition || '')} className="switch-swap"><PricingTimeInfo choice={choice}/></div>}
     <div className="model-card-bottom"><span>{routes.length} 个可用渠道</span><div>{tools.map(tool=><button key={tool.tool} aria-label={'在 '+tool.label+' 中配置 '+m.model_name} title={'配置 '+tool.label} onClick={()=>configureModel(m.model_name,tool.tool,displayGroup)}><ToolIcon tool={tool.tool} size={21}/></button>)}</div></div>
   </ModelCardFrame>;
 }

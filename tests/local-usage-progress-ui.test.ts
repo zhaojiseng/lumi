@@ -12,7 +12,7 @@ import {DEFAULT_PREFERENCES,type DashboardQuery,type LocalSessionSummary,type Lo
 import type {AppState} from '../src/context';
 
 const bundle=build({
-  stdin:{contents:"export {default as Usage} from './plugins/source.local-sessions/renderer/Usage'; export {LocalUsageProgress} from './src/components/LocalUsageProgress'; export {SourcePreferencesProvider} from './src/host/source-preferences';",resolveDir:process.cwd(),loader:'tsx'},
+  stdin:{contents:"export {default as Usage} from './plugins/source.local-sessions/renderer/Usage'; export {LocalUsageProgress} from './src/components/LocalUsageProgress'; export {SourcePreferencesProvider} from './src/host/source-preferences'; export {TrendChart} from './src/components/charts';",resolveDir:process.cwd(),loader:'tsx'},
   bundle:true,platform:'node',format:'cjs',write:false,external:['react','react/jsx-runtime','react-dom','recharts'],loader:{'.css':'empty','.svg':'text'},logLevel:'silent',
 });
 type Element=React.ReactElement<Record<string,any>>;
@@ -81,7 +81,7 @@ async function harness(){
   const module={exports:{} as Record<string,any>},nodeRequire=createRequire(import.meta.url);
   runInNewContext((await bundle).outputFiles[0].text,{module,exports:module.exports,structuredClone,crypto:webcrypto,window:{lumi:bridge},
     require:(name:string)=>name==='react' ? hooks : nodeRequire(name)});
-  const {Usage,SourcePreferencesProvider,LocalUsageProgress}=module.exports;
+  const {Usage,SourcePreferencesProvider,LocalUsageProgress,TrendChart}=module.exports;
   function render(runEffects=true):Element{
     cursor=0;inPage=true;let tree:Element;try{tree=Usage();}finally{inPage=false;}
     if(runEffects)for(const effect of effects)if(effect.pending){effect.pending=false;effect.cleanup?.();const cleanup=effect.setup();effect.cleanup=typeof cleanup==='function' ? cleanup : undefined;}
@@ -89,7 +89,7 @@ async function harness(){
   }
   function html(){return renderToStaticMarkup(React.createElement(SourcePreferencesProvider,{value:source},render()));}
   function button(label:string){const button=elements(render()).find(node=>(node.type==='button' || typeof node.type==='function' && node.type.name==='Button') && content(node.props.children)===label);assert.ok(button,label+' exists');return button.props;}
-  function chart(){const chart=elements(render()).find(node=>typeof node.type==='function' && node.type.name==='TrendChart');assert.ok(chart,'local chart exists');return chart.props;}
+  function chart(){const chart=elements(render()).find(node=>node.type===TrendChart);assert.ok(chart,'local chart exists');return chart.props;}
   function sessionList(){const list=elements(render()).find(node=>typeof node.type==='function' && node.type.name==='LocalSessions');assert.ok(list);return list.props;}
   function sessionDetail(runEffects=true){return elements(render(runEffects)).find(node=>typeof node.type==='function' && node.type.name==='LocalSessionDetails')?.props;}
   function emit(value:LocalUsageProgress){for(const listener of listeners)listener(value);}

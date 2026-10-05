@@ -56,15 +56,32 @@
 .models-market .model-card .price-table small { font-size: 9px; margin-top: 2px; }
 .models-market .model-card-price-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 5px; margin: 6px 0 8px; }
 .models-market .model-card .model-price-action { margin: 0; font-size: 11px; }
-.models-market .model-card-actions .pricing-state-button { min-height: 25px; padding: 3px 6px; font-size: 10px; white-space: normal; text-align: left; }
-.models-market .model-mode-selector { display: flex; flex-wrap: wrap; gap: 3px; width: fit-content; max-width: 100%; margin: 7px 0; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-soft); }
-.models-market .model-mode-selector button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; min-width: 0; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1.3; cursor: pointer; }
+.models-market .pricing-state-button { min-height: 25px; padding: 3px 6px; font-size: 10px; white-space: normal; text-align: left; }
+.models-market .model-mode-selector { position: relative; display: flex; flex-wrap: wrap; gap: 0; width: fit-content; max-width: 100%; margin: 7px 0; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-soft); box-shadow: inset 0 1px 3px rgba(15,18,35,.09); }
+.models-market .model-mode-selector button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; min-width: 0; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1.3; cursor: default; }
 .models-market .model-mode-selector button > span { overflow-wrap: anywhere; text-align: left; }
 .models-market .model-mode-selector small { flex: none; color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
-.models-market .model-mode-selector button:hover { background: var(--hover-strong); color: var(--text); }
-.models-market .model-mode-selector button[aria-pressed="true"] { border-color: var(--border); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.models-market .model-mode-selector button:not([aria-pressed="true"]):hover { background: var(--hover-strong); color: var(--text); }
+.models-market .model-mode-selector button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
 .models-market .model-mode-selector button[aria-pressed="true"] small { color: inherit; }
 .models-market .model-mode-selector button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Raised knob that slides along the continuous track; JS measures the pressed stop. */
+.model-mode-selector .segmented-thumb { position: absolute; z-index: 0; left: 0; top: 0; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 7px; background: var(--panel-strong); box-shadow: 0 1px 4px rgba(15,18,35,.2), inset 0 1px 0 rgba(255,255,255,.22); pointer-events: none; transition: transform .24s cubic-bezier(.2,.8,.2,1), width .24s cubic-bezier(.2,.8,.2,1), height .24s cubic-bezier(.2,.8,.2,1); }
+/* The marketplace card runs the condition slider full width with even stops. */
+.model-switch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; }
+.model-switch-row .model-mode-selector { flex: 1 1 auto; width: max-content; }
+.model-switch-row .model-mode-selector button { flex: 1 0 auto; max-width: 100%; }
+.model-switch-row .model-mode-selector button > span { text-align: center; white-space: normal; }
+.segmented-switch button[aria-pressed="true"] { touch-action: none; user-select: none; }
+.segmented-switch[data-dragging] button { user-select: none; }
+.segmented-switch[data-dragging] .segmented-thumb { transition: none !important; }
+.model-switch-row .pricing-state-button { flex: none; margin-left: auto; }
+.pricing-state-swap { display: inline-flex; align-items: center; gap: 5px; animation: switch-swap-in .24s cubic-bezier(.2,.8,.2,1); }
+/* Request condition and context tier switches share one row, tier on the right. */
+.catalog-change-switch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; }
+/* Content below a switch cross-fades and rises whenever the selection changes. */
+.switch-swap { animation: switch-swap-in .24s cubic-bezier(.2,.8,.2,1); }
+@keyframes switch-swap-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: none; } }
 .models-market .pricing-time-info { margin-bottom: 8px; font-size: 10px; line-height: 1.45; }
 .models-market .model-card .model-card-bottom { margin: 8px -13px 0; padding: 7px 13px; border-radius: 0 0 12px 12px; }
 .models-market .model-card-bottom > span { font-size: 10px; }
@@ -110,11 +127,16 @@
 .catalog-changes-modal .model-card .price-table > .catalog-change-price-row { grid-template-columns: minmax(0,.8fr) minmax(0,1fr); }
 .catalog-changes-modal .catalog-change-tier-selector { background: color-mix(in srgb, var(--change-color) 5%, transparent); }
 .catalog-changes-modal .catalog-change-tier-selector button, .catalog-changes-modal .catalog-change-mode-selector button { color: var(--text-secondary); }
-.catalog-changes-modal .catalog-change-tier-selector button.has-change, .catalog-changes-modal .catalog-change-mode-selector button.has-change { color: var(--change-color); border-color: color-mix(in srgb, var(--change-color) 24%, transparent); background: color-mix(in srgb, var(--change-color) 6%, transparent); }
-.catalog-changes-modal .catalog-change-tier-selector button[aria-pressed="true"], .catalog-changes-modal .catalog-change-mode-selector button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
-.catalog-changes-modal .catalog-change-tier-selector button.has-change[aria-pressed="true"], .catalog-changes-modal .catalog-change-mode-selector button.has-change[aria-pressed="true"] { background: color-mix(in srgb, var(--change-color) 12%, transparent); border-color: var(--change-color); color: var(--change-color); }
+.catalog-changes-modal .catalog-change-tier-selector button.has-change, .catalog-changes-modal .catalog-change-mode-selector button.has-change { color: var(--change-color); }
+.catalog-changes-modal .catalog-change-tier-selector button[aria-pressed="true"], .catalog-changes-modal .catalog-change-mode-selector button[aria-pressed="true"] { background: transparent; color: var(--accent); font-weight: 600; }
+.catalog-changes-modal .catalog-change-tier-selector button.has-change[aria-pressed="true"], .catalog-changes-modal .catalog-change-mode-selector button.has-change[aria-pressed="true"] { background: transparent; color: var(--change-color); }
 .catalog-changes-modal .catalog-change-tier-selector button.is-added { --change-color: var(--change-added); }
 .catalog-changes-modal .catalog-change-tier-selector button.is-removed { --change-color: var(--red); }
+/* The knob carries elevation and the active border; a changed selection recolors it. */
+.catalog-changes-modal .model-mode-selector .segmented-thumb { background: var(--panel-strong); border-color: var(--accent); }
+.catalog-changes-modal .model-mode-selector:has(> button.has-change[aria-pressed="true"]) .segmented-thumb { border-color: var(--change-color); }
+.catalog-changes-modal .model-mode-selector:has(> button.is-added[aria-pressed="true"]) .segmented-thumb { border-color: var(--change-added); }
+.catalog-changes-modal .model-mode-selector:has(> button.is-removed[aria-pressed="true"]) .segmented-thumb { border-color: var(--red); }
 .catalog-changes-modal .catalog-change-detail dt { color: var(--field-color); font-size: 11px; font-weight: 500; line-height: 1.5; overflow-wrap: anywhere; }
 .catalog-changes-modal .catalog-change-detail dd { margin: 0; min-width: 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .catalog-changes-modal .catalog-change-values { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: baseline; gap: 2px 6px; font-variant-numeric: tabular-nums; }

@@ -55,29 +55,45 @@ export function usageGranularity(days: number) {
   const label=seconds<60 ? '约每 '+duration(seconds)+' 秒' : seconds<3600 ? '约每 '+duration(seconds/60)+' 分钟' : seconds<86400 ? '约每 '+duration(seconds/3600)+' 小时' : '约每 '+duration(seconds/86400)+' 天';
   return {seconds,hours:seconds/3600,days:seconds/86400,label};
 }
-export function usageSeries(points: QuotaPoint[], days: number, status: SiteStatus, range?: RangeQuery, now = new Date()) {
+/** A grouped chart shares immutable bucket labels and currency conversion across its accumulators. */
+export function createUsageSeriesFactory(days: number, status: SiteStatus, range?: RangeQuery, now = new Date()) {
   const resolved=resolveRange(range || days,now),duration=resolved.end_timestamp-resolved.start_timestamp+1,bucketCount=Math.min(30,duration);
   const edges=Array.from({length:bucketCount+1},(_,i)=>resolved.start_timestamp+Math.floor(i*duration/bucketCount));
   const buckets=edges.slice(0,-1).map((start,i)=>({start,end:edges[i+1]-1}));
   const time=(ts:number) => new Date(ts*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',...(duration<1800 ? {second:'2-digit'} : {}),hour12:false});
   const short=(ts:number) => {const d=new Date(ts*1000);return (d.getMonth()+1)+'/'+d.getDate();};
-  const rows=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,end_timestamp:end,
+  const template=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,end_timestamp:end,
     label:duration/bucketCount<86400 ? short(start)+' '+time(start) : short(start),
     tooltipLabel:localDate(start)+' '+time(start)+' – '+localDate(end)+' '+time(end),
     cost:0,tokens:0,requests:0,codex:0,claude:0,cacheInputTokens:0,cacheReadTokens:0,cacheHitRate:null as number|null,outputTokens:0,durationSeconds:0,speedSamples:0,speed:null as number|null,netOutputTokens:0,subsequentDurationSeconds:0,netSpeedSamples:0,netSpeed:null as number|null}));
   const c=currency(status);
-  for(const point of points) {
-    if(!Number.isFinite(point.created_at) || point.created_at<resolved.start_timestamp || point.created_at>resolved.end_timestamp)continue;
-    // Binary lookup also respects variable-length local days across daylight saving changes.
-    let lo=0,hi=buckets.length-1;
-    while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(buckets[mid].start<=point.created_at)lo=mid;else hi=mid-1;}
-    const row=rows[lo];if(!row)continue;row.cost+=c.value(point.quota);row.tokens+=point.token_used || 0;row.requests+=point.count || 0;
-    if(typeof point.cacheInputTokens==='number' && Number.isFinite(point.cacheInputTokens) && point.cacheInputTokens>0 && typeof point.cacheReadTokens==='number' && Number.isFinite(point.cacheReadTokens) && point.cacheReadTokens>=0 && point.cacheReadTokens<=point.cacheInputTokens){row.cacheInputTokens+=point.cacheInputTokens;row.cacheReadTokens+=point.cacheReadTokens;}
-    if(typeof point.outputTokens==='number' && Number.isFinite(point.outputTokens) && point.outputTokens>0 && typeof point.durationSeconds==='number' && Number.isFinite(point.durationSeconds) && point.durationSeconds>0){row.outputTokens+=point.outputTokens;row.durationSeconds+=point.durationSeconds;row.speedSamples+=Number.isSafeInteger(point.speedSamples) && point.speedSamples!>0 ? point.speedSamples! : 0;}
-    if(typeof point.netOutputTokens==='number' && Number.isFinite(point.netOutputTokens) && point.netOutputTokens>0 && typeof point.subsequentDurationSeconds==='number' && Number.isFinite(point.subsequentDurationSeconds) && point.subsequentDurationSeconds>0){row.netOutputTokens+=point.netOutputTokens;row.subsequentDurationSeconds+=point.subsequentDurationSeconds;row.netSpeedSamples+=Number.isSafeInteger(point.netSpeedSamples) && point.netSpeedSamples!>0 ? point.netSpeedSamples! : 0;}
-  }
-  for(const row of rows){row.cacheHitRate=row.cacheInputTokens>0 ? row.cacheReadTokens/row.cacheInputTokens : null;row.speed=row.durationSeconds>0 ? row.outputTokens/row.durationSeconds : null;row.netSpeed=row.subsequentDurationSeconds>0 ? row.netOutputTokens/row.subsequentDurationSeconds : null;}
-  return rows;
+  return ()=>{
+    const rows=template.map(row=>({...row}));
+    const add=(point:QuotaPoint)=>{
+      if(!Number.isFinite(point.created_at) || point.created_at<resolved.start_timestamp || point.created_at>resolved.end_timestamp)return false;
+      // Binary lookup also respects variable-length local days across daylight saving changes.
+      let lo=0,hi=buckets.length-1;
+      while(lo<hi){const mid=Math.ceil((lo+hi)/2);if(buckets[mid].start<=point.created_at)lo=mid;else hi=mid-1;}
+      const row=rows[lo];if(!row)return false;row.cost+=c.value(point.quota);row.tokens+=point.token_used || 0;row.requests+=point.count || 0;
+      if(typeof point.cacheInputTokens==='number' && Number.isFinite(point.cacheInputTokens) && point.cacheInputTokens>0 && typeof point.cacheReadTokens==='number' && Number.isFinite(point.cacheReadTokens) && point.cacheReadTokens>=0 && point.cacheReadTokens<=point.cacheInputTokens){row.cacheInputTokens+=point.cacheInputTokens;row.cacheReadTokens+=point.cacheReadTokens;}
+      if(typeof point.outputTokens==='number' && Number.isFinite(point.outputTokens) && point.outputTokens>0 && typeof point.durationSeconds==='number' && Number.isFinite(point.durationSeconds) && point.durationSeconds>0){row.outputTokens+=point.outputTokens;row.durationSeconds+=point.durationSeconds;row.speedSamples+=Number.isSafeInteger(point.speedSamples) && point.speedSamples!>0 ? point.speedSamples! : 0;}
+      if(typeof point.netOutputTokens==='number' && Number.isFinite(point.netOutputTokens) && point.netOutputTokens>0 && typeof point.subsequentDurationSeconds==='number' && Number.isFinite(point.subsequentDurationSeconds) && point.subsequentDurationSeconds>0){row.netOutputTokens+=point.netOutputTokens;row.subsequentDurationSeconds+=point.subsequentDurationSeconds;row.netSpeedSamples+=Number.isSafeInteger(point.netSpeedSamples) && point.netSpeedSamples!>0 ? point.netSpeedSamples! : 0;}
+      return true;
+    };
+    const merge=(other:typeof rows)=>{
+      for(let i=0;i<rows.length;i++)for(const key of ['cost','tokens','requests','codex','claude','cacheInputTokens','cacheReadTokens','outputTokens','durationSeconds','speedSamples','netOutputTokens','subsequentDurationSeconds','netSpeedSamples'] as const)rows[i][key]+=other[i][key];
+    };
+    const finish=()=>{
+      for(const row of rows){row.cacheHitRate=row.cacheInputTokens>0 ? row.cacheReadTokens/row.cacheInputTokens : null;row.speed=row.durationSeconds>0 ? row.outputTokens/row.durationSeconds : null;row.netSpeed=row.subsequentDurationSeconds>0 ? row.netOutputTokens/row.subsequentDurationSeconds : null;}
+      return rows;
+    };
+    return {add,merge,finish};
+  };
+}
+export function usageSeries(points: QuotaPoint[], days: number, status: SiteStatus, range?: RangeQuery, now = new Date()) {
+  const series=createUsageSeriesFactory(days,status,range,now)();
+  for(const point of points)series.add(point);
+  return series.finish();
 }
 export function csvEscape(value: unknown) { const s = String(value ?? ''); const safe = /^[=+@\-]/.test(s) ? `'${s}` : s; return `"${safe.replace(/"/g, '""')}"`; }
 export function logsToCsv(logs: UsageLog[], status: SiteStatus) {

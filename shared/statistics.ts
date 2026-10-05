@@ -1,4 +1,18 @@
-import type {StatisticsQuery,UsageLog} from './types';
+import type {QuotaPoint,StatisticsQuery,UsageLog} from './types';
+
+/** One pass supplies both page totals and model rankings from the same complete series. */
+export function summarizeUsagePoints(points:QuotaPoint[]){
+  const models=new Map<string,{name:string;quota:number;tokens:number;count:number}>();
+  let quota=0,tokens=0,requests=0;
+  for(const point of points){
+    quota+=point.quota;tokens+=point.token_used || 0;requests+=point.count || 0;
+    let model=models.get(point.model_name);
+    if(!model){model={name:point.model_name,quota:0,tokens:0,count:0};models.set(point.model_name,model);}
+    model.quota+=point.quota;model.tokens+=point.token_used || 0;model.count+=point.count || 0;
+  }
+  return {quota,tokens,requests,models:[...models.values()].sort((a,b)=>b.quota-a.quota)};
+}
+
 /** OR within each dimension; AND across dimensions. Token identity never uses display names. */
 export function filterLogs(rows:UsageLog[],filters:Pick<StatisticsQuery,'models'|'tokenIds'>) {
   const models=new Set(filters.models || []),tokens=new Set(filters.tokenIds || []);
