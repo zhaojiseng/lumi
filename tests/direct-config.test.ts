@@ -47,8 +47,8 @@ test('Codex configuration applies and restores while a Codex process is running'
  const store=new SettingsStore(${JSON.stringify(path.join(f.root,'app'))},cipher);await store.load();
  const service=new ConfigService(store,${JSON.stringify(path.join(f.root,'app'))},undefined,async()=>({siteId:store.activeSite().id,siteUrl:store.activeSite().url,key:'sk-only-fixture',tokenId:1,tokenName:'Lumi-test',group:'test',created:false}));
  const preview=await service.preview(${JSON.stringify(req)});
- assert.ok(preview.changes.some(text=>text.includes('无需退出或重启 ChatGPT / Codex')));
- assert.ok(!preview.changes.some(text=>text.includes('请先关闭') || text.includes('重新打开')));
+ assert.ok(preview.changes.some(text=>text.includes('应用后需要重启 Codex / CLI')));
+ assert.ok(!preview.changes.some(text=>text.includes('请先关闭')));
  assert.equal((await service.apply(preview.id)).find(state=>state.tool==='codex').model,'new-model');
  const [backup]=await service.backups();await service.restore(backup.id);
  `;

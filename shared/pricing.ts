@@ -246,6 +246,67 @@ export function publishedPricingStates(model:ModelInfo,status:SiteStatus,now=new
   });
 }
 export interface PricingChoice { key:string; label:string; sourceKey:string; sourceName:string; model:ModelInfo; section?:PublishedPriceSection; timeRates:TimeRate[]; }
+export interface RequestPriceRule {condition:string;label:string;multiplier:number;matched?:boolean;}
+function nodeText(n:Node):string {
+  if(n.k==='value')return JSON.stringify(n.value);
+  if(n.k==='var')return n.name;
+  if(n.k==='call')return n.name+'('+n.args.map(nodeText).join(',')+')';
+  if(n.k==='unary')return '('+n.op+nodeText(n.right)+')';
+  if(n.k==='choose')return '('+nodeText(n.cond)+'?'+nodeText(n.yes)+':'+nodeText(n.no)+')';
+  return '('+nodeText(n.left)+' '+n.op+' '+nodeText(n.right)+')';
+}
+export function requestPriceRuleLabel(condition:string):string {
+  try {
+    const node=compilePrice(condition).node;
+    if(isTimePriceRule(condition))return clockDescription(node);
+    const friendly=(n:Node):string=>{
+      if(n.k==='binary' && n.op==='||')return friendly(n.left)+' / '+friendly(n.right);
+      if(n.k==='binary' && n.op==='&&')return friendly(n.left)+' · '+friendly(n.right);
+      if(n.k==='binary' && ['==','has'].includes(n.op) && n.left.k==='call' && ['param','header'].includes(n.left.name) && n.left.args[0]?.k==='value' && n.right.k==='value'){
+        const key=String(n.left.args[0].value),value=String(n.right.value);
+        if(key==='service_tier' && ['fast','priority'].includes(value))return value==='fast' ? 'Fast' : 'Fast（Priority）';
+        if(key==='anthropic-beta' && value==='fast-mode')return 'Fast（fast-mode）';
+        return (n.left.name==='header' ? '请求头 ' : '请求参数 ')+key+' = '+value;
+      }
+      return conditionText(n);
+    };
+    return friendly(node);
+  }catch{return condition;}
+}
+/** Separate global request factors from context tiers; retain clock pricing in the base. */
+export function publishedRequestPricing(model:ModelInfo):{model:ModelInfo;rules:RequestPriceRule[]} {
+  if(!isExpression(model))return {model,rules:[]};
+  try {
+    const rules:RequestPriceRule[]=[];
+    const requestCondition=(n:Node):boolean=>n.k==='value' || n.k==='call' && (['param','header'].includes(n.name) && n.args.every(arg=>arg.k==='value') || n.name==='has' && n.args.every(requestCondition)) || n.k==='binary' && requestCondition(n.left) && requestCondition(n.right) || n.k==='unary' && requestCondition(n.right);
+    const factor=(n:Node)=>{
+      if(n.k!=='choose')return false;
+      const multiplier=literal(n.yes);
+      return !onlyClock(n.cond) && requestCondition(n.cond) && literal(n.no)===1 && multiplier!==null && multiplier>=0;
+    };
+    const strip=(n:Node):Node=>{
+      if(n.k!=='binary' || n.op!=='*')return n;
+      for(const [rate,base] of [[n.right,n.left],[n.left,n.right]])if(factor(rate) && rate.k==='choose'){
+        const condition=nodeText(rate.cond);rules.unshift({condition,label:requestPriceRuleLabel(condition),multiplier:literal(rate.yes)!});return strip(base);
+      }
+      return {...n,left:strip(n.left),right:strip(n.right)};
+    };
+    const node=strip(compilePrice(model.billing_expr!).node);
+    return {model:rules.length ? {...model,billing_expr:nodeText(node)} : model,rules};
+  }catch{return {model,rules:[]};}
+}
+export function isTimePriceRule(condition:string):boolean {
+  const hasClock=(n:Node):boolean=>n.k==='call' && ['hour','minute','weekday','month','day'].includes(n.name) || n.k==='binary' && (hasClock(n.left) || hasClock(n.right)) || n.k==='unary' && hasClock(n.right);
+  try{const node=compilePrice(condition).node;return onlyClock(node) && hasClock(node);}catch{return false;}
+}
+export const pricingConditionLabel=shortCondition;
+export function displayPricingChoices(model:ModelInfo,status:SiteStatus,now=new Date()):PricingChoice[] {
+  const base=publishedRequestPricing(model).model;
+  return pricingChoices({...base,billing_plugin_variants:model.billing_plugin_variants?.map(variant=>{
+    const priced=publishedRequestPricing({...model,...variant,billing_mode:variant.billing_mode || 'tiered_expr'}).model;
+    return {...variant,billing_expr:priced.billing_expr ?? variant.billing_expr};
+  })},status,now);
+}
 /** Clock branches follow the live time. The button cycles only published context/request states. */
 export function pricingChoices(model:ModelInfo,status:SiteStatus,now=new Date()):PricingChoice[] {
   const groups=new Map<string, {sourceKey:string;sourceName:string;states:PublishedPricingState[]}>();

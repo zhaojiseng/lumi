@@ -57,6 +57,14 @@
 .models-market .model-card-price-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 5px; margin: 6px 0 8px; }
 .models-market .model-card .model-price-action { margin: 0; font-size: 11px; }
 .models-market .model-card-actions .pricing-state-button { min-height: 25px; padding: 3px 6px; font-size: 10px; white-space: normal; text-align: left; }
+.models-market .model-mode-selector { display: flex; flex-wrap: wrap; gap: 3px; width: fit-content; max-width: 100%; margin: 7px 0; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--panel-soft); }
+.models-market .model-mode-selector button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; min-width: 0; padding: 4px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1.3; cursor: pointer; }
+.models-market .model-mode-selector button > span { overflow-wrap: anywhere; text-align: left; }
+.models-market .model-mode-selector small { flex: none; color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.models-market .model-mode-selector button:hover { background: var(--hover-strong); color: var(--text); }
+.models-market .model-mode-selector button[aria-pressed="true"] { border-color: var(--border); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.models-market .model-mode-selector button[aria-pressed="true"] small { color: inherit; }
+.models-market .model-mode-selector button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .models-market .pricing-time-info { margin-bottom: 8px; font-size: 10px; line-height: 1.45; }
 .models-market .model-card .model-card-bottom { margin: 8px -13px 0; padding: 7px 13px; border-radius: 0 0 12px 12px; }
 .models-market .model-card-bottom > span { font-size: 10px; }

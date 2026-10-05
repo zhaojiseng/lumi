@@ -20,9 +20,18 @@ export function buildCodex(config: string | null, auth: string | null, req: Conf
   const credentials: any = auth?.trim() ? JSON.parse(auth) : {};
   doc.model = req.model; doc.model_provider = 'custom'; delete doc.model_reasoning_effort;
   doc.model_context_window=req.contextWindow ?? 272000;
+  // Enable the CLI feature without selecting the priority request tier.
+  // Desktop speed controls additionally require ChatGPT auth and model support.
+  // Explicit default also overrides models whose catalog default is Fast.
+  doc.service_tier='default';
+  doc.features ??= {};
+  doc.features.fast_mode=true;
   if(configDir)disconnectLegacyCatalog(doc,configDir);
   const profile=typeof doc.profile==='string' ? doc.profiles?.[doc.profile] : undefined;
-  if(profile && typeof profile==='object'){profile.model=req.model;profile.model_provider='custom';profile.model_context_window=doc.model_context_window;delete profile.model_reasoning_effort;}
+  if(profile && typeof profile==='object'){
+    profile.model=req.model;profile.model_provider='custom';profile.model_context_window=doc.model_context_window;delete profile.model_reasoning_effort;
+    profile.service_tier='default';profile.features ??= {};profile.features.fast_mode=true;
+  }
   doc.model_providers ??= {};
   doc.model_providers.custom = { name: 'Lumi · New API', base_url: baseUrl + '/v1', wire_api: 'responses', experimental_bearer_token:key, requires_openai_auth: !!credentials.tokens };
   if(doc.model_providers.lumi?.name==='Lumi · New API' && !Object.values(doc.profiles || {}).some((p:any)=>p.model_provider==='lumi'))delete doc.model_providers.lumi;

@@ -19,8 +19,16 @@ async function fixture(){
 }
 test('fresh Codex config sets the actual model and connection without any catalog or instruction fields',()=>{
   const result=buildCodex(null,null,req,'https://fixture.invalid','sk-test'),doc:any=parse(result.config);
-  assert.deepEqual(JSON.parse(JSON.stringify(doc)),{model:req.model,model_provider:'custom',model_context_window:272000,model_providers:{custom:{name:'Lumi · New API',base_url:'https://fixture.invalid/v1',wire_api:'responses',experimental_bearer_token:'sk-test',requires_openai_auth:false}}});
+  assert.deepEqual(JSON.parse(JSON.stringify(doc)),{model:req.model,model_provider:'custom',model_context_window:272000,service_tier:'default',features:{fast_mode:true},model_providers:{custom:{name:'Lumi · New API',base_url:'https://fixture.invalid/v1',wire_api:'responses',experimental_bearer_token:'sk-test',requires_openai_auth:false}}});
   assert.equal(JSON.parse(result.auth).OPENAI_API_KEY,undefined);
+});
+
+test('Fast stays selectable but defaults off in root and active profile, preserving unrelated features',()=>{
+  const before='profile = "work"\nservice_tier = "fast"\n[features]\nfast_mode = false\nmulti_agent = true\n[profiles.work]\nservice_tier = "priority"\n[profiles.work.features]\nfast_mode = false\nweb_search = true\n[profiles.personal]\nservice_tier = "fast"\n[profiles.personal.features]\nfast_mode = false\n';
+  const original:any=parse(before),doc:any=parse(buildCodex(before,null,req,'https://fixture.invalid','sk-test').config);
+  assert.equal(doc.service_tier,'default');assert.equal(doc.features.fast_mode,true);assert.equal(doc.features.multi_agent,true);
+  assert.equal(doc.profiles.work.service_tier,'default');assert.equal(doc.profiles.work.features.fast_mode,true);assert.equal(doc.profiles.work.features.web_search,true);
+  assert.deepEqual(doc.profiles.personal,original.profiles.personal);
 });
 test('active profile changes model and connection while user instructions, personal profiles and MCP settings remain untouched',()=>{
   const before='profile = "work"\nbase_instructions = "User-owned content"\nmodel_instructions_file = "user.md"\n[profiles.work]\nmodel = "old"\nmodel_reasoning_effort = "high"\ndeveloper_instructions = "User-owned profile content"\n[profiles.personal]\nmodel = "personal"\n[mcp_servers.docs]\ncommand = "kept"\n';
@@ -45,7 +53,7 @@ test('two-file preview/apply/backup/restore leaves cache and old catalog bytes u
   const old='model = "original"\nmodel_catalog_json = "./'+legacyName+'"\n';
   await writeFile(config,old);await writeFile(legacy,'{not-parsed');await writeFile(cache,'{also-not-parsed');
   const preview=await f.service.preview(req);assert.equal(preview.files.length,2);
-  assert.equal(parse(preview.files[0].after).model_catalog_json,undefined);assert.equal(await readFile(config,'utf8'),old);
+  assert.equal(parse(preview.files[0].after).model_catalog_json,undefined);assert.equal(parse(preview.files[0].after).service_tier,'default');assert.equal((parse(preview.files[0].after).features as any).fast_mode,true);assert.ok(preview.changes.some(text=>text.includes('Fast 默认关闭')));assert.equal(await readFile(config,'utf8'),old);
   await f.service.apply(preview.id);assert.equal(parse(await readFile(config,'utf8')).model,req.model);
   assert.equal(await readFile(legacy,'utf8'),'{not-parsed');assert.equal(await readFile(cache,'utf8'),'{also-not-parsed');
   const [backup]=await f.service.backups();assert.deepEqual(backup.paths,[config,path.join(f.dir,'auth.json')]);

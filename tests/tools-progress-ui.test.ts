@@ -168,7 +168,7 @@ test('apply displays returned config and success immediately while bootstrap rem
   assert.match(h.html(),/applied-returned-model/);assert.equal(h.modal('确认配置变更'),undefined);
   assert.equal(h.form().locked,false);assert.equal(h.calls.reload,1);assert.equal(h.calls.refresh,0);assert.equal(h.notices.at(-1)?.kind,'success');
   reload.reject(new Error('isolated reload failure'));await Promise.resolve();await Promise.resolve();
-  assert.equal(h.notices.at(-1)?.kind,'success');assert.doesNotMatch(h.html(),/isolated reload failure|role="alert"/);assert.match(h.html(),/配置已生效，但同步设置失败/);h.unmount();
+  assert.equal(h.notices.at(-1)?.kind,'success');assert.doesNotMatch(h.html(),/isolated reload failure|role="alert"/);assert.match(h.html(),/配置已应用，但同步设置失败/);h.unmount();
 });
 
 test('preview and apply failures preserve selections and confirmation, release locks, and allow retry',async()=>{

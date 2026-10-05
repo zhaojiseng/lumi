@@ -152,7 +152,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     // Configuration is already successful. Background refresh cannot turn it into a failure.
     const session=lifetime.current,version=++syncVersion.current;
     void reloadBootstrap().catch(()=>{
-      if(alive(session) && version===syncVersion.current)setSyncNote(kind==='apply' ? '配置已生效，但同步设置失败。' : '配置已恢复，但同步设置失败。');
+      if(alive(session) && version===syncVersion.current)setSyncNote(kind==='apply' ? '配置已应用，但同步设置失败。' : '配置已恢复，但同步设置失败。');
     });
   }
   async function previewConfig(req:ConfigRequest) {
@@ -167,7 +167,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     try{
       const states=await bridge.applyConfig(preview.id);if(!current(request))return;
       setConfigs(states);setPreview(null);
-      toast(preview.tool==='codex' ? '配置已应用，原文件已加密备份。配置与相关旧对话已同步，无需重启 ChatGPT / Codex。' : 'Claude Code CLI 配置已应用，原文件已加密备份。请重新启动 Claude Code。','success');
+      toast(preview.tool==='codex' ? '配置已应用，原文件已加密备份。配置与相关旧对话已同步，需要重启 Codex / CLI，使新配置生效。' : 'Claude Code CLI 配置已应用，原文件已加密备份。请重新启动 Claude Code。','success');
       syncBootstrap('apply');
     }catch(e){fail(request,e);}finally{finish(request);}
   }
@@ -184,7 +184,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     try{
       const states=await bridge.restoreBackup(restore.id);if(!current(request))return;
       setConfigs(states);setRestore(null);setHistory(false);
-      toast('已恢复配置。请重新启动对应工具。','success');syncBootstrap('restore');
+      toast(restore.tool==='codex' ? '已恢复配置。需要重启 Codex / CLI，使配置生效。' : '已恢复配置。请重新启动对应工具。','success');syncBootstrap('restore');
     }catch(e){fail(request,e);}finally{finish(request);}
   }
   return <div className="page">

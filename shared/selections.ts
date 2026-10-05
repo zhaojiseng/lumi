@@ -40,4 +40,4 @@ export function selectionValue<T extends SelectionValue>(preferences: Preference
   if (!validSelectionValue(saved) || (validate ? !validate(saved as T) : typeof saved !== typeof fallback)) return fallback;
   return saved as T;
 }
-export const modelSelectionKey = (model: string, field: 'group' | 'price') => 'model.' + model + '.' + field;
+export const modelSelectionKey = (model: string, field: 'group' | 'price' | 'mode') => 'model.' + model + '.' + field;

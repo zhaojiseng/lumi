@@ -13,7 +13,7 @@ import {ProviderIcon} from '../../../src/components/BrandIcon';
 import {ChannelSelect} from '../../../src/components/ChannelSelect';
 import {PricingDetailsModal,PriceTable,PricingTimeInfo} from '../../../src/components/Pricing';
 import {availableGroups,groupRatio,groupLabel,defaultModelGroup,cheapestGroup,sortModels} from '../../../shared/catalog';
-import {pricingChoices,defaultPricingChoice} from '../../../shared/pricing';
+import {displayPricingChoices,publishedRequestPricing,defaultPricingChoice} from '../../../shared/pricing';
 import {CATALOG_CHANGE_LABELS,acknowledgeCatalogChanges,catalogChangesStorageKey,getCatalogChanges,subscribeCatalogChanges,type CatalogChangeState,type CatalogChangeView} from '../../../shared/catalog-changes';
 import type {ModelInfo,SelectionValue} from '../../../shared/types';
 import '../../../src/models-market.css';
@@ -104,9 +104,11 @@ function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;f
   const {preferences,updatePreferences,configureModel,toast}=useApp();
   const [savedGroup,setGroup]=useSavedSelection<string>(modelSelectionKey(m.model_name,'group'),'');
   const [priceKey,setPriceKey]=useSavedSelection<string>(modelSelectionKey(m.model_name,'price'),'');
+  const [modeKey,setModeKey]=useSavedSelection<string>(modelSelectionKey(m.model_name,'mode'),'');
   if(!d)return null;
   const routes=availableGroups(m,d.catalog),displayGroup=defaultModelGroup(m,d.catalog,savedGroup || filterGroup),ratio=groupRatio(d.catalog,displayGroup,m);
-  const choices=pricingChoices(m,d.status,new Date(d.fetchedAt)),choice=choices.find(s=>s.key===priceKey) || defaultPricingChoice(choices),index=choices.indexOf(choice!);
+  const choices=displayPricingChoices(m,d.status,new Date(d.fetchedAt)),choice=choices.find(s=>s.key===priceKey) || defaultPricingChoice(choices),index=choices.indexOf(choice!);
+  const variant=m.billing_plugin_variants?.find(v=>'plugin:'+v.plugin_key===choice?.sourceKey),rules=publishedRequestPricing(variant ? {...m,...variant,billing_mode:variant.billing_mode || 'tiered_expr'} : m).rules,mode=rules.find(rule=>rule.condition===modeKey);
   const favorite=preferences.favoriteModels.includes(m.model_name);
   async function toggleFavorite(){try{await updatePreferences({favoriteModels:favorite ? preferences.favoriteModels.filter(n=>n!==m.model_name) : [...preferences.favoriteModels,m.model_name]});}catch(e:any){toast(e.message,'error');}}
   return <article className="surface model-card">
@@ -118,7 +120,11 @@ function ModelCard({model:m,filterGroup,onDetails,snapshot:d}:{model:ModelInfo;f
     {String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).length>0 && <div className="model-tags">{String(m.tags || '').split(/[,，]/).filter(t=>t && !/responses|anthropic messages|openai api|gemini api/i.test(t)).slice(0,2).map(t=><Pill tone="muted" key={t}>{t}</Pill>)}</div>}
     <Health health={d.health?.models.find(h=>h.model_name===m.model_name)} error={d.healthError} windowEnd={d.health?.window_end}/>
     <div className="model-channel-control"><ChannelSelect className="model-channel-select" label={m.model_name+' 渠道'} catalog={d.catalog} model={m} groups={routes} value={displayGroup} onChange={setGroup} disabled={!routes.length}/>{!savedGroup && !filterGroup && cheapestGroup(m,d.catalog)===displayGroup && <span>最低价</span>}</div>
-    {ratio===undefined ? <p className="price-caption">{displayGroup==='auto' ? '自动路由价格随实际渠道变化' : displayGroup ? '倍率未公布' : '暂无可用渠道'}</p> : <div className="model-published-prices">{choice?.sourceName && <p className="model-price-condition">{choice.sourceName}</p>}{choice?.section ? <PriceTable model={choice.model} status={d.status} ratio={ratio} rows={choice.section.rows}/> : <p className="price-caption">站点规则定价 · 详见定价详情</p>}</div>}
+    {rules.length>0 && <div className="model-mode-selector" role="group" aria-label={m.model_name+' 请求条件'}>
+      <button type="button" aria-pressed={!mode} title="普通模式 · 请求倍率 ×1" onClick={()=>setModeKey('')}><span>普通</span><small>×1</small></button>
+      {rules.map(rule=><button type="button" key={rule.condition} aria-pressed={mode?.condition===rule.condition} title={rule.label+' · 请求倍率 ×'+rule.multiplier+'\n'+rule.condition} onClick={()=>setModeKey(rule.condition)}><span>{rule.label==='Fast（Priority）' ? 'Priority' : rule.label==='Fast（fast-mode）' ? 'Fast' : rule.label}</span><small>×{rule.multiplier}</small></button>)}
+    </div>}
+    {ratio===undefined ? <p className="price-caption">{displayGroup==='auto' ? '自动路由价格随实际渠道变化' : displayGroup ? '倍率未公布' : '暂无可用渠道'}</p> : <div className="model-published-prices">{choice?.sourceName && <p className="model-price-condition">{choice.sourceName}</p>}{choice?.section ? <PriceTable model={choice.model} status={d.status} ratio={ratio*(mode?.multiplier ?? 1)} rows={choice.section.rows}/> : <p className="price-caption">站点规则定价 · 详见定价详情</p>}</div>}
     <div className="model-card-price-actions"><button className="model-price-action" onClick={()=>onDetails(m)}><SlidersHorizontal size={13}/>详细定价<ArrowUpRight size={13}/></button></div>
     {choice && <PricingTimeInfo choice={choice}/>}
     <div className="model-card-bottom"><span>{routes.length} 个可用渠道</span><div><button aria-label={'在 Codex 中配置 '+m.model_name} title="配置 Codex" onClick={()=>configureModel(m.model_name,'codex',displayGroup)}><ToolIcon tool="codex" size={21}/></button><button aria-label={'在 Claude Code 中配置 '+m.model_name} title="配置 Claude Code" onClick={()=>configureModel(m.model_name,'claude',displayGroup)}><ToolIcon tool="claude" size={21}/></button></div></div>
@@ -149,7 +155,7 @@ export default function Models(){
     <div className="surface model-toolbar"><div className="search-input"><Search size={17}/><input ref={searchRef} value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索模型、提供商或能力…" aria-label="搜索模型"/><kbd>/</kbd></div><Select label="筛选模型渠道" value={group} onChange={changeGroup}><option value="">全部渠道</option>{Object.keys(d.catalog.usableGroups).map(g=><option key={g} value={g}>{groupLabel(d.catalog,g)}</option>)}</Select><button className={'favorite-filter '+(favoritesOnly ? 'active' : '')} onClick={()=>setFavoritesOnly(!favoritesOnly)}><Star size={15} fill={favoritesOnly ? 'currentColor' : 'none'}/>收藏</button></div>
     <div className="vendor-tabs"><button className={vendor==='all' ? 'active' : ''} onClick={()=>setVendor('all')}>全部模型<span>{d.catalog.models.length}</span></button>{vendors.map(v=><button key={v} className={vendor===v ? 'active' : ''} onClick={()=>setVendor(v)}>{v}<span>{d.catalog.models.filter(m=>m.vendor===v).length}</span></button>)}<span className="results-label">{models.length} 个结果</span></div>
     <MotionSwap identity={JSON.stringify([vendor,group,favoritesOnly,query,models.map(m=>m.model_name)])}>{models.length ? <ModelGrid models={models} snapshot={d} filterGroup={group} onDetails={setPricingModel}/> : <Empty title="没有找到模型" description="尝试调整关键词、提供商或渠道。" action={<Button onClick={reset}>重置筛选</Button>}/>}</MotionSwap>
-    <div className="info-note"><Info size={15}/><span>首次显示最低价渠道；手动选择后，价格与工具配置沿用所选渠道并自动保存。卡片档位按钮切换站点公布的上下文档位，单价包含当前时间倍率，时间规则以橙色显示。分时倍率随时钟变化不会产生目录变动提示。健康度为最近 24 小时全部渠道统计，渠道健康度见详细定价。</span></div>
+    <div className="info-note"><Info size={15}/><span>首次显示最低价渠道；上下文档位和 Fast 等请求条件可分别切换，选择按站点保存。单价包含所选分组、当前时间与请求条件倍率；条件同时命中时按规则叠乘。健康度为最近 24 小时全部渠道统计，完整档位与条件见详细定价。</span></div>
     <ModalPresence>{pricingModel && <PricingDetailsModal key={pricingModel.model_name} snapshot={d} model={pricingModel} catalog={d.catalog} status={d.status} initialGroup={selectionValue(preferences,modelSelectionKey(pricingModel.model_name,'group'),group)} health={d.health?.models.find(h=>h.model_name===pricingModel.model_name)} healthError={d.healthError} onClose={()=>setPricingModel(null)}/>}</ModalPresence>
   </div>;
 }
