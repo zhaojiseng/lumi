@@ -60,11 +60,13 @@ const run=async kind=>win.webContents.executeJavaScript('('+async function(kind)
     await until(()=>modal.textContent.includes('含分组倍率 · Fast ×2'));check(modal.querySelector('tbody').textContent.includes('$1.2'),'Fast mode failed to multiply published unit prices');
   }else{
     const mode=document.querySelector('[aria-label="fixture-model 请求条件"]');check(mode.querySelectorAll('button').length===2,'Fast/Priority has duplicate stops');check(mode.querySelector('[aria-pressed="true"]').textContent.includes('Fast'),'pricing mode was not shared with model card');
-    const knobOf=group=>{const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb');check(knob,'slider knob missing');const match=/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(knob.style.transform);check(match && Number(match[1])===active.offsetLeft && Number(match[2])===active.offsetTop,'knob not aligned with the pressed stop');check(parseFloat(knob.style.width)===active.offsetWidth,'knob size differs from the stop');return knob.style.transform;},initialKnob=knobOf(mode);
+    // Font layout and ResizeObserver can commit after the selection on macOS.
+    // Wait for the measured thumb while retaining exact position/size assertions.
+    const knobOf=async group=>{await until(()=>{const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb'),match=knob && /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(knob.style.transform);return match && Number(match[1])===active.offsetLeft && Number(match[2])===active.offsetTop && parseFloat(knob.style.width)===active.offsetWidth;});const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb');check(parseFloat(knob.style.width)===active.offsetWidth,'knob size differs from the stop');return knob.style.transform;},initialKnob=await knobOf(mode);
     mode.querySelector('button').click();await until(()=>document.querySelector('[aria-label="fixture-model 请求条件"] [aria-pressed="true"]').textContent.includes('普通'));
-    check(knobOf(mode)!==initialKnob,'knob did not slide to the ordinary stop');
+    check(await knobOf(mode)!==initialKnob,'knob did not slide to the ordinary stop');
     check(document.querySelector('.model-card .price-table').textContent.includes('$0.6'),'ordinary price changed after mode selection');
-    const tier=document.querySelector('[aria-label="fixture-model 上下文档位"]');check(tier.classList.contains('segmented-switch'),'context tier must use the same slider');check(tier.closest('.model-switch-row'),'context tier not placed beside the slider');tier.querySelectorAll('button')[1].click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$4.5'));knobOf(tier);
+    const tier=document.querySelector('[aria-label="fixture-model 上下文档位"]');check(tier.classList.contains('segmented-switch'),'context tier must use the same slider');check(tier.closest('.model-switch-row'),'context tier not placed beside the slider');tier.querySelectorAll('button')[1].click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$4.5'));await knobOf(tier);
   }
   check(fixture.errors.length===0,'renderer errors '+fixture.errors);return {kind,height:modal?.clientHeight,viewport:innerHeight};
 }.toString()+')('+JSON.stringify(kind)+')');
@@ -82,9 +84,11 @@ const dragSwitch=async(label,price)=>{
   win.webContents.sendInputEvent({type:'mouseUp',button:'left',clickCount:1,...stops.end});
   await win.webContents.executeJavaScript('('+async function(label,price){
     const end=performance.now()+4000;while(!document.querySelector('.model-card .price-table').textContent.includes(price)){if(performance.now()>end)throw new Error('Drag did not select the expected price '+price);await new Promise(resolve=>setTimeout(resolve,10));}
-    const group=document.querySelector('[aria-label="'+label+'"]'),active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb');
-    const position=/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(knob.style.transform);
-    if(group.hasAttribute('data-dragging') || !position || Number(position[1])!==active.offsetLeft || Number(position[2])!==active.offsetTop || parseFloat(knob.style.width)!==active.offsetWidth)throw new Error('Dragged knob did not snap to the selected stop');
+    const group=document.querySelector('[aria-label="'+label+'"]');
+    while(true){const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb'),position=/translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(knob.style.transform);
+      if(!group.hasAttribute('data-dragging') && position && Number(position[1])===active.offsetLeft && Number(position[2])===active.offsetTop && parseFloat(knob.style.width)===active.offsetWidth)break;
+      if(performance.now()>end)throw new Error('Dragged knob did not snap to the selected stop');await new Promise(resolve=>setTimeout(resolve,10));
+    }
   }.toString()+')('+JSON.stringify(label)+','+JSON.stringify(price)+')');
 };
 await dragSwitch('fixture-model 请求条件','$9');await dragSwitch('fixture-model 上下文档位','$1.2');
