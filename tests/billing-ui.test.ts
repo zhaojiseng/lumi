@@ -39,7 +39,7 @@ for(const name of ['userData','sessionData','logs','crashDumps']){const dir=path
 app.whenReady().then(async()=>{
 // Windows/Linux support native pointer capture on offscreen surfaces. AppKit needs
 // a focused native window for capture, so the isolated macOS fixture uses one.
-const win=new BrowserWindow({width:1100,height:720,useContentSize:true,show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform!=='darwin'}});await win.loadFile(path.join(__dirname,'index.html'));
+const win=new BrowserWindow({width:1100,height:720,useContentSize:true,frame:process.platform!=='darwin',show:false,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,offscreen:process.platform!=='darwin'}});await win.loadFile(path.join(__dirname,'index.html'));if(process.platform==='darwin'){win.show();win.focus();win.setContentSize(1100,720);}
 win.webContents.on('console-message',event=>{if(event.level==='error')console.error(event.message);});
 const run=async kind=>win.webContents.executeJavaScript('('+async function(kind){
   const check=(value,label)=>{if(!value)throw new Error(label);},until=async fn=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Timeout: '+fn+' '+fixture.errors);await new Promise(resolve=>setTimeout(resolve,10));}};
@@ -106,7 +106,6 @@ await win.webContents.executeJavaScript('('+async function(){
   for(const group of [mode,context])for(const button of group.querySelectorAll('button')){const span=button.querySelector('span');if(span.scrollWidth>span.clientWidth+1 || getComputedStyle(span).textOverflow==='ellipsis')throw new Error('Selector labels were truncated');}
 }.toString()+')()');
 fs.writeFileSync(path.resolve('.test-data/billing-market-narrow.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());await win.webContents.executeJavaScript('document.querySelector(".model-card").style.width=""');
-if(process.platform==='darwin')win.hide();
 for(const size of [[1280,800],[1000,680]]){win.setContentSize(...size);for(const kind of ['request','pricing'])console.log('BILLING_UI '+JSON.stringify(await run(kind)));}
 win.setContentSize(1100,720);await win.webContents.executeJavaScript('document.documentElement.dataset.theme="dark";document.querySelector(".desktop-shell").dataset.theme="dark"');
 for(const kind of ['request','pricing']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'-dark.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());}
