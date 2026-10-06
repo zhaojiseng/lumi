@@ -317,7 +317,7 @@ async function start() {
         const trayDisabled=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='surface.tray' && s.state==='disabled');
         await window.lumi.setPluginEnabled('surface.tray',true);
         let invalidCodex=false,noCodex=false;try{await window.lumi.readCodexUsage({path:'../auth.json'});}catch{invalidCodex=true;}try{await window.lumi.readCodexUsage({});}catch{noCodex=true;}
-        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && toolAdaptersValid && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===7;
+        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && toolAdaptersValid && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===8;
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});

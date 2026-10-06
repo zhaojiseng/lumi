@@ -4,9 +4,10 @@
 
 日期：2026-10-06，Windows x64。模型供应商与界面外观采用连续滑块，支持 pressed 按钮及 checked 单选项、原生拖动、键盘切换和 Escape 取消。宿主允许显式声明的功能容器在独立背景层消费位移图，优先分配滑块及浮层，保留视口裁切与 96 个表面上限。层级说明见 `docs/GLASS_LAYERS.md`。
 
-- 另一会话正在开发 Codex 桥接，在共享工作区运行旧测试会因新增插件导致“六项开关”断言不符。本轮在 `.cache/glass-continuous-host` 的隔离 checkout 仅放入本轮文件验证，不将桥接变更打包或提交。最终全量 738 项：735 通过、3 项平台跳过、0 失败／取消；新增真实 Chromium 检查覆盖 pressed／checked 拖动预览、松手一次应用、Escape 取消、键盘 End 与连续动画中间位置。
+- 前期在 `.cache/glass-continuous-host` 隔离验证本轮界面：738 项，735 通过、3 项平台跳过。最终在 `.cache/glass-release-0517` 合入另一会话已提交的 Codex 桥接与 0.5.16 发布修订，全量 745 项：742 通过、3 项平台跳过、0 失败／取消。新增真实 Chromium 检查覆盖 pressed／checked 拖动预览、松手一次应用、Escape 取消、键盘 End 与连续动画中间位置。
 - 浮梦 1.1.4 的真实外观设置、模型广场与插件树检查在软件和硬件渲染中通过。外观／供应商实际文字的平均 RGB 像素差，软件浅色 2.21／15.60、深色 2.51／24.22；硬件浅色 2.66／18.06、深色 3.07／27.80。滑块在文字上方，容器背景位于独立伪元素，正文不应用 filter；六组材质、四档统一背景模糊、窄窗口和系统无障碍回退通过。插件树不再重复绘制方形卡片背景或投影，已检查截图。
-- 类型检查、完整构建、隔离桌面启动、包内校验与依赖审计通过；75 个构建文件匹配，65 个依赖完整许可及本地数据排除通过；审计 0 漏洞。Windows EXE 为 `release/local-0516-release/Lumi-0.5.16-x64.exe`，SHA-256：`cf1de7fd31a2b90729f712219b6d34439f15d04c3687b2ec3eb22443304745de`。
+- 最终类型检查、完整构建、隔离桌面启动、包内校验与依赖审计通过；75 个构建文件匹配，完整依赖许可及本地数据排除通过；审计 0 漏洞。新增桥接后桌面检查的内置可配置插件预期数量更新为 8，其余 IPC 校验全部通过。Windows EXE 为发布 checkout 的 `release/Lumi-0.5.17-x64.exe`，SHA-256：`b1d462be476866c532e8b94840bfb1257c42e4438be1754282f3dd5802d6dc78`。
+- 最终集成日志在 `.cache/glass-release-0517/.test-data/glass-0517-{tests-final,package-final,desktop-final,verify-final,extensions,audit}.log`。
 - 主程序日志位于 `.cache/glass-continuous-host/.test-data/glass-continuous-{tests-final,slider,package,desktop,verify,audit}.log`；插件日志在兄弟仓库 `.cache/dreamy-continuous-*.log`。macOS 原生打包及公开附件由标签工作流验证，本机检查不替代其结果。
 
 ## 0.5.16 · Codex 外部对话桥接
