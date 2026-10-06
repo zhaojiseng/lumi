@@ -20,6 +20,8 @@ const bundledFiles=listing.filter(name=>!asar.statFile(archive,name.slice(1).spl
 const extract=name=>asar.extractFile(archive,name.split('/').join(path.sep));
 assert.equal(JSON.parse(extract('package.json')).version,pkg.version);
 for(const file of ['dist/widget.html','dist-electron/widget-preload.cjs'])assert.ok(listing.includes('/'+file),'Missing floating widget entry: '+file);
+const sdkRuntime=extract('dist-electron/lumi-extension-sdk.js').toString();
+assert.ok(sdkRuntime.includes('LumiGlassRuntime') && sdkRuntime.includes('installGlassRefraction') && sdkRuntime.includes('lumi-extension/1'),'Missing bundled extension glass runtime');
 async function files(directory){
   const result=[];
   for(const entry of await readdir(directory,{withFileTypes:true})){const file=path.join(directory,entry.name);if(entry.isDirectory())result.push(...await files(file));else if(entry.isFile())result.push(file.replaceAll('\\','/'));}

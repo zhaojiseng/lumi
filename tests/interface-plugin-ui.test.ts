@@ -14,6 +14,9 @@ test('real interface host applies external layout, preserves settings drafts and
 :scope{--lumi-glass-distortion:3;--text:light-dark(rgb(50,30,70),rgb(240,230,250));--panel:light-dark(rgb(250,245,255),rgb(35,25,50));color:var(--text)}
 :scope[data-theme="light"]{--theme-marker:light}:scope[data-theme="dark"]{--theme-marker:dark}
 .sidebar{backdrop-filter:var(--lumi-glass-filter,blur(0px))}
+.content-scroll{--lumi-glass-surface:1}
+.content-scroll::before{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;backdrop-filter:var(--lumi-glass-filter,blur(0px))}
+.segmented-thumb{backdrop-filter:var(--lumi-glass-filter,blur(0px))}
 .nav-item.active{color:white!important}
 `;
   const script=await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {DEFAULT_PREFERENCES} from './shared/types';import {builtinManifests} from './plugins/manifests';import {extensionPluginManifest} from './shared/contracts/extensions';
@@ -39,6 +42,9 @@ Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(thr
 document.querySelector('[data-interface-style="extension.lumi.compact"] [role=switch]').click();await until(()=>shell.dataset.interface==='extension.lumi.compact');
 check(document.querySelector('.sidebar').getBoundingClientRect().width<originalWidth,'Interface layout did not change');
 await until(()=>document.querySelector('.sidebar').style.getPropertyValue('--lumi-glass-filter').includes('url('));check(shell.querySelector('[data-lumi-glass-defs] filter'),'Host refraction missing');
+await until(()=>scroll.style.getPropertyValue('--lumi-glass-filter').includes('url('));
+scroll.style.setProperty('--lumi-glass-surface','0');await until(()=>!scroll.style.getPropertyValue('--lumi-glass-filter'));
+scroll.style.removeProperty('--lumi-glass-surface');await until(()=>scroll.style.getPropertyValue('--lumi-glass-filter').includes('url('));
 // Offscreen layout boxes must not exhaust the 96 surface slots. Scrolling a
 // clipped list must release old surfaces and attach newly visible ones.
 const viewport=document.createElement('div');viewport.style.cssText='position:fixed;left:400px;top:200px;width:200px;height:80px;overflow:auto';

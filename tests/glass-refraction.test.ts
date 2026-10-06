@@ -29,3 +29,11 @@ test('selection lens magnifies the interior around a neutral anchor without disp
   assert.ok(rg(lens,30,13)[0]>128 && rg(lens,70,13)[0]<128);
   assert.ok(rg(lens,50,9)[1]>128 && rg(lens,50,17)[1]<128);
 });
+
+test('workspace and model surfaces bend a wider background band while keeping the center neutral',()=>{
+  const flat=glassDisplacement(400,240,20),surface=glassDisplacement(400,240,20,384,false,true);
+  const rg=(map:typeof surface,x:number,y:number)=>[...map.data.slice((y*map.width+x)*4,(y*map.width+x)*4+2)];
+  assert.deepEqual(rg(flat,30,100),[128,128]);
+  assert.ok(rg(surface,30,100)[0]>128);
+  assert.deepEqual(rg(surface,192,115),[128,128]);
+});

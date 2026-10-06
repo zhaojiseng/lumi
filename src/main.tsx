@@ -10,4 +10,5 @@ import './theme.css';
 import './updates-trends.css';
 import './filters-tools-motion.css';
 import './platform-logs.css';
+import './host/extension-layout.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);

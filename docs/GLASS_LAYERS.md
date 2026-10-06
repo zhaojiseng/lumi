@@ -11,7 +11,33 @@
 | 选中透镜 | 移动玻璃面与文字放大 | 滑块在 `z-index: 2`，pointer-events 为 none，采样实际文字；不附加文字模糊 |
 | 浮层 | 下拉、popover、弹窗、通知 | 宿主公共弹层管理堆叠、焦点和退出生命周期；主题只提供材质 |
 
-插件树行是共享容器内的内容，不分别绘制卡片背景或投影。嵌套容器自行重置 `--lumi-glass-filter`，避免复用父容器尺寸不同的位移图。宿主优先为滑块和临时浮层分配滤镜，视口外或被滚动容器裁切的节点不占名额。
+插件树行是共享容器内的内容，不分别绘制卡片背景或投影。宿主用弱作用域规则为每个元素重置 `--lumi-glass-filter`，仅为已注册目标设置本地 URL。目标的伪元素仍继承自己的滤镜，子组件不能误用父组件的位移图。临时浮层优先于透镜、侧栏／工作区及普通容器；隐藏、透明度为零、视口外或被滚动容器裁切的节点不占用 96 个滤镜名额。
+
+## 新组件的折射约定
+
+新组件显式声明 `data-lumi-glass="background"`（独立背景伪元素）、`surface`（宽边缘容器）或 `lens`（选择文字透镜），无需假借已有组件类名。该属性仅声明宿主管理的本地几何滤镜，不允许任意 URL；皮肤仍需在相应背景层消费 `var(--lumi-glass-filter, blur(0px))`。旧组件选择器和 `--lumi-glass-surface:1` 保留兼容。
+
+```html
+<div data-lumi-glass="background" class="message-preview">
+  <div class="message-preview-content">用户消息</div>
+</div>
+```
+
+```css
+.message-preview { position: relative; isolation: isolate; opacity: 1; }
+.message-preview::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  backdrop-filter: var(--theme-popup-blur, blur(0px)) var(--lumi-glass-filter, blur(0px));
+}
+```
+
+透明度动画必须在背景伪元素和文字层分别执行，过滤层的父容器保持 `opacity:1`，避免产生新的 backdrop root 截断背景采样。关闭扭曲、实色、系统减少透明度／强制颜色时释放位移图；模糊由皮肤的同一选项控制。
+
+主窗口和功能插件 iframe 使用同一份 `src/host/glass-refraction.ts`。`scripts/extension-ui.mjs` 编译算法并与 SDK 合并，构建输出 `dist-electron/lumi-extension-sdk.js` 是实际供给文件；SDK 源文件本身不包含算法。每个文档独立安装、同一根节点重复安装去重，换肤与 `pagehide/pageshow` 管理清理和重建。不要在插件包内复制算法或 SDK。
+
+运行时没有常驻动画循环，更新合并到下一帧；自身滤镜变量写入不会触发重复扫描。几何纹理用最多 32 项的 LRU 缓存复用，强度变化只改位移 scale，退出时恢复原内联样式并释放纹理、观察器和 SVG。
+
+新增组件需覆盖主窗口或 iframe 的真实背景像素、进入／退出中间帧、换肤、尺寸、隐藏、强度与辅助显示模式。纯 CSS 计算属性、注入条纹，或接近零的渐变差异只可证明链路部分工作，不能替代实际消息／控件画面。对应回归为 `glass-refraction-ui.test.ts`、`extension-refraction-ui.test.ts` 和插件 `check-codex-ui.mjs`／`check-dreamy-ui.mjs`。
 
 背景玻璃统一沿用当前模糊选项；选择透镜保留零模糊以呈现文字折射。透明度、扭曲强度分别控制，系统减少透明度和强制颜色优先于插件设置。不透明模式将文字移到滑块上方，禁用背景滤镜。减少动态效果关闭位移动画。
 

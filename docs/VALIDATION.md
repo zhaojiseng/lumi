@@ -1,5 +1,59 @@
 # Lumi 验证记录
 
+## 0.5.20 · 整体发布前验证（2026-10-07）
+
+- 本次重新执行严格类型检查、内置插件校验和全量测试：751 项，748 通过、3 项平台跳过，0 失败／取消；`npm audit` 为 0 漏洞。新 Electron 画面夹具在 macOS 使用可见窗口以确保真实绘制，Windows 保持隐藏窗口；三平台结果另由标签工作流确认。
+- 调整画面夹具的 macOS 窗口策略后，四项新增真实 Electron 回归在 Windows 定向复验全部通过：生产 CSP 下的 iframe 折射、设置前景清晰度、连续窗口缩放填充布局和折射资源／退出生命周期。日志：`.test-data/project-release-ui-tests.log`。
+- 本次 `npm run dist` 完成 Windows x64 安装包；隔离 `test:desktop` 通过，真实 F12 开关检查为 `debugShortcutValid=true`。`verify:release` 匹配 77 个构建文件，完整第三方许可、本地数据排除及生产 SDK／折射 bundle 检查通过。
+- 本地安装包：`release/project-release-0520/Lumi-0.5.20-x64.exe`，SHA-256 `af33654d1a7ba51189b48798fe5340e33f733922c087073004ebe44c2f52854a`。这是本机打包结果，公开附件由标签工作流独立构建，摘要可能不同。
+- 匹配当前 checkout 的独立插件新回归：梦幻完整软件画面与设置弹窗 18 场景通过；Codex 软件回归通过分页、实时状态、每秒刷新无请求重叠、隐藏暂停、长列表有界测量、菜单语义色、浅深及宽窄／短布局和真实浮窗折射。400 条历史会话仅测量 17 行、发出 9 个轻量元数据请求。所有夹具均使用隔离模拟数据，没有真实账户请求。
+- 主程序日志：`.test-data/project-release-{typecheck,tests,extensions,audit,dist,desktop,verify}.log`（审计为 `.json`）；插件日志：兄弟仓库 `.cache/project-release-{dreamy-ui,dreamy-settings,codex-ui}.log`。本条记录发布前的真实本机结果，不代表已执行安装或 macOS 原生验证；macOS ARM64 打包和公开发布须等待 GitHub 标签工作流成功。
+
+## 0.5.20 · 折射渲染管线全面检查（2026-10-07，本地追加）
+
+- 统一主窗口／iframe 的注册、可见区域、背景分层、采样、换肤、资源缓存及退出链路。新增 `data-lumi-glass` 三种声明；浮窗优先于透镜和容器，隐藏节点不占用 96 个名额，独立引用隔离避免错误继承。32 项 LRU 纹理缓存复用相同几何，强度只更新 scale，自身样式写入不引发持续帧循环。
+- SDK 缓存早到主题，覆盖 DOM 解析前 init 及 DOMContentLoaded 后安装。观察器随退出释放并在恢复时重建，head 样式变化、隐藏／open 和动画起止也参与更新；生产包校验明确要求完整 SDK／折射 bundle。
+- 最终全量 `npm test` 751 项：748 通过、3 项平台跳过，0 失败／取消。严格类型检查、生产构建通过。新回归覆盖显式目标、旧浮层、资源上限、优先级、几何缓存、空闲帧、恢复原样式、实际 host.asset/CSP、SDK 时序和生命周期。
+- iframe 软件／硬件实际背景折射像素变化为 1175／2001；固定 6px 模糊时，`blur → SVG` 与纯模糊的中性中心完全一致，关闭模糊后真实消息文字平均差异约 18～21，超过 4200 个像素变化，前景字形保持清晰。不是通过注入条纹证明实际界面效果。
+- Codex 软件／硬件回归通过，覆盖浅／深进入和退出中间帧真实采样、退出隐藏、减少动态效果、皮肤和尺寸。梦幻完整软件／硬件回归通过，原生下拉、连续透镜、浮层、真实背景及模糊动画继续通过。平滑渐变上折射仍可能轻微，强度不替代可采样细节。
+- 本地 Windows x64 安装包、隔离桌面启动及更新后的包内校验通过：`release/local-glass-pipeline-0520/Lumi-0.5.20-x64.exe`，SHA-256 `9a93a030f31a281bcf77e67bb5d990d7aa283ee2b24a9956afa52460d276afbd`；Codex 2.2.4 ZIP 单独提供。本轮未执行真实安装、macOS 验证或公开发布。
+- 主仓库日志：`.test-data/glass-pipeline-full-tests-final.log`、`glass-pipeline-typecheck-final.log`、`glass-pipeline-dist.log`、`glass-pipeline-desktop.log`、`glass-pipeline-verify.log`。插件日志：`.cache/codex-glass-layer-audit-ui-final.log`、`codex-glass-layer-audit-hardware-final.log`、`glass-pipeline-dreamy-software-full.log`、`glass-pipeline-dreamy-hardware.log`。
+- 新组件的分层和验证约定记录在 [GLASS_LAYERS.md](GLASS_LAYERS.md)，后续必须检查实际背景、动画中间帧与退出生命周期，不仅检查 CSS 值。
+
+## 0.5.20 · 插件 iframe 折射（2026-10-07，本地追加）
+
+- 用户明确授权后，将同一份 `glass-refraction.ts` 算法编译进宿主提供的 SDK，在选择宿主 UI 的 iframe 内安装，并在页面退出时释放；不增加插件权限。
+- 类型检查、生产构建通过；折射算法与 Codex 桥接定向测试 12 项通过，插件宿主／设置玻璃／填充布局回归 11 项通过。未声称本轮重跑全部测试。
+- 独立 Codex 回归通过：真实浮窗区域裁剪对比扭曲开启／关闭，9703 个像素 RGB 差值总和大于 6；使用实际消息与文件卡片背景，没有注入条纹。另覆盖浅深皮肤、多尺寸、历史索引与流式更新，运行日志在插件 `.cache/codex-iframe-glass-pixels-final.log`。
+- Windows x64 本地安装包、隔离桌面启动及包内校验通过：`release/local-iframe-glass-0520/Lumi-0.5.20-x64.exe`，SHA-256 `57c120d1ece60c5d380071bed9de3599f21882a7c5b7ac580d64e8730c21e4bc`。插件单独提供，没有编入 EXE；本轮未执行安装、macOS 构建或公开发布。
+
+## 0.5.20 · 工作区背景玻璃与输入触底（本地追加）
+
+2026-10-06，Windows x64。`content-scroll` 只有皮肤设置 `--lumi-glass-surface:1` 才分配折射；侧栏与工作区优先分配，继续保持 96 个表面上限。梦幻 1.1.6 将背景玻璃置于独立伪元素。Codex 状态提示置于输入卡片内部。
+
+- 全量 748 项：745 通过、3 项平台跳过、0 失败／取消。真实宿主测试覆盖工作区折射启用、退出与重新启用，以及原有视口裁切；Codex 回归覆盖有状态提示时输入卡片触底，并保留原有分页、流式、审批、主题和尺寸检查。
+- 梦幻完整 UI 回归通过浅深色、减少动态效果、弹层开启／关闭实际像素渐变及控件材质。软件合成和硬件加速均验证工作区／侧栏背景使用滤镜、滚动不移动背景层、实际渐变背景关闭／开启折射的像素差异。渐变背景下差异较小：软件合成侧栏约 0.10～0.17、工作区约 0.29～1.35；这证明效果已接入，不表示平滑背景上有强烈视觉扭曲。既有条纹与真实选择文字折射另行保留验证。
+- 类型检查、构建、插件校验、隔离桌面启动与包内校验通过。日志 `.test-data/workspace-glass-{tests,ui,package,desktop,verify}.log`，插件日志在兄弟仓库 `.cache/dreamy-workspace-{ui,refraction,refraction-gpu}.log` 与 `.cache/codex-flush-ui.log`。
+- 本地 EXE：`release/local-workspace-glass-0520/Lumi-0.5.20-x64.exe`，SHA-256：`10341e33506454818f6cf0ee3953bda198618f323e4b7cb0ce04fb8eabfbfaeb`。没有公开发布或本地 macOS 打包。
+
+## 0.5.20 · 触底、嵌入设置层级与调试（本地追加）
+
+2026-10-06，Windows x64。填充侧栏移除底部 16px 留白，Codex 空状态栏不占位。插件设置弹窗的玻璃背景、宿主内容与嵌入 iframe 分层，SDK 在设置视图关闭重复的面板背景虚化。
+
+- 全量 748 项：745 通过、3 项平台跳过、0 失败／取消。真实宿主连续缩放检查通过触底、无外层滚动、草稿保留与自然高度恢复；嵌入设置的玻璃材质回归比较有／无背景滤镜的前景像素对比度，浅深主题均通过。该夹具检查背景滤镜不侵入宿主标题、介绍、iframe 与权限区域，不代表全部梦幻外观参数逐一验证。
+- Codex 2.2.0 的真实 Electron 回归通过分页、DOM 上限、外部新增消息补齐、空闲会话续接、非当前线程的等待／运行状态、流式输出与审批。保留原有宽窄、浅深、默认／梦幻画面检查；使用隔离 mock，不发真实 Codex 请求。
+- 构建类型检查、完整安装包、隔离桌面启动与包内校验通过。主窗口发送真实 F12 按键验证调试工具开启和关闭，结果 `debugShortcutValid=true`；受限登录与其他桌面窗口没有开放调试工具。
+- 日志 `.test-data/codex-sync-{tests,glass,viewport,package,desktop,verify}.log`，插件日志在兄弟仓库 `.cache/codex-sync-{ui,check}.log`。本地 EXE：`release/local-codex-sync-0520/Lumi-0.5.20-x64.exe`，SHA-256：`6248c4769fd8d376172aaa5ae3339f59470e6a9198062616f69f613843c4900b`。本次没有公开发布，也没有执行 macOS 本地打包。
+
+## 0.5.20 · 对话工作区尺寸适配（本地）
+
+2026-10-06，Windows x64。侧栏 iframe 可选择填充可用工作区，SDK 提供 `--lumi-viewport-height`；仅明确选择填充的侧栏视图放宽宽度限制。
+
+- 全量 747 项：744 通过、3 项平台跳过、0 失败／取消。新增真实 `ExtensionFrame` 与 SDK 沙箱回归覆盖 2100×1200、900×540、1200×800、1000×420、1600×1000 的连续缩放、输入框位置、草稿保留、无外层滚动、自然高度恢复及卸载重建。
+- Codex 对话 2.2.0 真实 Electron 回归通过默认／梦幻 × 浅／深 × 1920、1440、1150、900、760、640、420 七档宽度，以及 300～1000px 高度连续切换。覆盖短窗口输入与消息可见性，并保留原有分页、160 条 DOM 上限、项目分组、特殊卡片、耗时、流式输出、审批、重试与重连检查。已检查梦幻宽屏浅色和窄屏深色截图。隔离 mock，无真实 CLI 请求。
+- 类型检查、完整构建、插件清单校验、隔离桌面启动与安装包校验通过。完整第三方许可、76 项构建资源及本地数据排除通过。日志：`.test-data/codex-responsive-{tests,package,desktop,verify}.log`，插件回归日志在兄弟仓库 `.cache/codex-responsive-ui.log`。
+- 本地 EXE：`release/local-codex-responsive-0520/Lumi-0.5.20-x64.exe`，SHA-256：`c1fadae37753d62f17732f5dae7fab8082d696f4bf44a56e87c673b011a282a5`。本条仅记录 Windows 本地结果，不代表 macOS 验证或公开发布。
+
 ## 0.5.19 · 默认桥接与功能插件皮肤
 
 2026-10-06，Windows x64。Codex 桥接迁入 `electron/services`，移除内置插件与 capability 注册；旧桥接开关归一化后不再保留，服务按视图惰性创建连接，退出时关闭工厂。

@@ -78,9 +78,15 @@ async function start() {
   const startupStarted=performance.now();
   const icon = nativeImage.createFromPath(path.join(root, 'public/icon.png'));
   win = new BrowserWindow({ ...windowLayout(process.platform,screen.getPrimaryDisplay().workAreaSize), show: false, backgroundColor: '#f5f7f8', icon,
-    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: !app.isPackaged },
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, devTools: true },
   });
   const closeAnimation=new WindowCloseAnimation(win,()=>systemPreferences.getAnimationSettings().prefersReducedMotion);
+  win.webContents.on('before-input-event',(event,input)=>{
+    if(input.type!=='keyDown' || input.key!=='F12' || input.isAutoRepeat)return;
+    event.preventDefault();
+    if(win.webContents.isDevToolsOpened())win.webContents.closeDevTools();
+    else win.webContents.openDevTools({mode:'detach'});
+  });
   const quit=()=>closeAnimation.run(()=>app.quit());
   let closeAllowed=false;
   Menu.setApplicationMenu(process.platform==='darwin' ? Menu.buildFromTemplate(macMenu()) : null);
@@ -138,7 +144,7 @@ async function start() {
   const codexBridge=createExtensionCodexBridge(()=>codexBridgeFactory,event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
   const dropBridgeSubscriber=(id:string)=>codexBridge.drop(id);
   const dropAllBridgeSubscribers=()=>codexBridge.drop();
-  const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,uiCss:await readFile(path.join(root,'dist-electron/extension-ui.css')),sdk:await readFile(path.join(root,process.env.LUMI_DEV_URL && !app.isPackaged ? 'public/lumi-extension-sdk.js' : 'dist/lumi-extension-sdk.js')),
+  const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,uiCss:await readFile(path.join(root,'dist-electron/extension-ui.css')),sdk:await readFile(path.join(root,'dist-electron/lumi-extension-sdk.js')),
     interfacePreferences:()=>({candidates:[{id:DEFAULT_INTERFACE_ID,enabled:store.preferences.defaultInterfaceEnabled,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:pluginEnabled(backgroundInterfaceManifest,store.preferences),priority:200}],priorities:store.preferences.interfacePriorities}),
     context:()=>{const site=store.activeSite();return {theme:resolvedTheme(),locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
     scope:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return JSON.stringify([site.id,site.url,secret.sessionId,secret.userId,secret.accessToken,secret.cookies,plugins.generation('provider.newapi'),plugins.isEnabled('provider.newapi')]);},
@@ -349,6 +355,11 @@ async function start() {
         return {desktop:b.desktop,secureStorage:b.secureStorage,contextIsolation:typeof require === 'undefined',ipcValidation,toolIpcValidation,pluginIpcValid,localSessionIpcValid,localSessionChecks,appCacheValid,loginVisible:document.body.innerText.includes('登录'),noDemo:!document.body.innerText.includes('演示'),page:document.body.innerText.includes('工作台'),startupLogs:logs.entries.some(e=>e.source==='启动'),platform:b.platform,titlebarGeometry};
       })()`);
       result.startupPaintMs=startupPaintMs;result.startupWindows=BrowserWindow.getAllWindows().length;
+      const waitDevTools=async(open:boolean)=>{const deadline=Date.now()+5000;while(win.webContents.isDevToolsOpened()!==open){if(Date.now()>deadline)throw new Error('F12 调试工具未切换');await new Promise(resolve=>setTimeout(resolve,20));}};
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:'F12'});await waitDevTools(true);
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:'F12'});
+      win.webContents.sendInputEvent({type:'keyDown',keyCode:'F12'});await waitDevTools(false);
+      win.webContents.sendInputEvent({type:'keyUp',keyCode:'F12'});result.debugShortcutValid=true;
       await win.webContents.executeJavaScript(String.raw`(async()=>{
         document.querySelector('.settings-nav').click();
         const until=async(fn)=>{const end=performance.now()+6000;while(!fn()){if(performance.now()>end)throw new Error('Extension smoke view timed out');await new Promise(r=>setTimeout(r,20));}};

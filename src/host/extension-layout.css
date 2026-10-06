@@ -1,0 +1,25 @@
+/* Only explicitly opted-in sidebar views use the full workspace width. */
+.content-container:has(.extension-view[data-layout="fill"]) {
+  max-width: none;
+  width: 100%;
+  padding-bottom: 0;
+}
+.plugin-details-modal .extension-view { position: relative; isolation: isolate; contain: paint; }
+.plugin-details-modal :is(.modal-heading,.plugin-details-page) { position: relative; z-index: 1; }
+.modal.plugin-details-modal {
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+  backdrop-filter: none !important;
+  background: transparent !important;
+}
+.modal.plugin-details-modal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--dream-sheen, none) var(--dream-floating-glass, var(--panel));
+  backdrop-filter: var(--dream-popup-blur, blur(0px)) var(--lumi-glass-filter, blur(0px));
+}

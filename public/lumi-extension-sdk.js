@@ -1,20 +1,27 @@
 /* Lumi external-extension SDK v1. MIT. Served by the host inside isolated extension views. */
 (() => {
   const protocol = 'lumi-extension/1', pending = new Map();
-  let nonce = '', next = 0, context, view;
+  let nonce = '', next = 0, context, view, canFillViewport=false;
   let resolveReady;
   const ready = new Promise(resolve => { resolveReady = resolve; });
   const listeners = new Set();
+  let disposeGlass,latestUiTheme,bodyResize,layoutObserver,activePage=true;
   function applyUiTheme(value) {
-    if (!value || !document.querySelector?.('link[data-lumi-ui]') || !document.body) return;
-    const root=document.body;root.dataset.lumiUi='';root.dataset.interface=value.id || 'interface.default';root.dataset.theme=value.theme;
+    if (!value) return;latestUiTheme=value;
+    if (!activePage || !document.querySelector?.('link[data-lumi-ui]') || !document.body) return;
+    const root=document.body;root.dataset.lumiUi='';root.dataset.lumiView=view?.slot || '';root.dataset.interface=value.id || 'interface.default';root.dataset.theme=value.theme;
     document.documentElement.dataset.theme=value.theme;
     for(const attribute of [...root.attributes])if(attribute.name.startsWith('data-appearance-'))root.removeAttribute(attribute.name);
     for(const [id,option] of Object.entries(value.appearance || {}))root.setAttribute('data-appearance-'+id,option);
     let sheet=document.getElementById('lumi-ui-theme');if(!sheet){sheet=document.createElement('style');sheet.id='lumi-ui-theme';document.head.append(sheet);}
-    sheet.textContent=(value.css ? '@scope (body[data-lumi-ui]) {\n'+value.css+'\n}\n' : '')+'body[data-lumi-ui]{background:transparent}';
+    const css=(value.css ? '@scope (body[data-lumi-ui]) {\n'+value.css+'\n}\n' : '')+'body[data-lumi-ui]{background:transparent}\nbody[data-lumi-view="settingsTab"]{isolation:isolate}body[data-lumi-view="settingsTab"] .surface.panel::before{backdrop-filter:none!important}';
+    if(sheet.textContent!==css){disposeGlass?.();disposeGlass=undefined;sheet.textContent=css;}
+    if (!value.css) {disposeGlass?.();disposeGlass=undefined;}
+    else if (!disposeGlass && typeof LumiGlassRuntime !== 'undefined') disposeGlass=LumiGlassRuntime.installGlassRefraction(root);
   }
   const eventListeners = new Map();
+  window.addEventListener('pagehide',()=>{activePage=false;disposeGlass?.();disposeGlass=undefined;bodyResize?.disconnect();bodyResize=undefined;layoutObserver?.disconnect();layoutObserver=undefined;});
+  window.addEventListener('pageshow',()=>{activePage=true;setupDocument();});
   function onEvent(topic, listener) { let set = eventListeners.get(topic); if (!set) { set = new Set(); eventListeners.set(topic, set); if (topic === 'codex.bridge') call('codex.bridge.subscribe', {}).catch(error => emitEvent(topic, {method:'lumi/bridge/exited',params:{detail:error.message}})); } set.add(listener); let active=true; return () => { if (!active) return; active=false; set.delete(listener); if (!set.size && eventListeners.get(topic) === set) { eventListeners.delete(topic); if (topic === 'codex.bridge') call('codex.bridge.unsubscribe', {}).catch(()=>{}); } }; }
   function emitEvent(topic, payload) { const set = eventListeners.get(topic); if (set) for (const listener of [...set]) listener(payload); }
   function send(message) { parent.postMessage({protocol, nonce, ...message}, '*'); }
@@ -28,7 +35,7 @@
   window.addEventListener('message', event => {
     if (event.source !== parent || event.data?.protocol !== protocol) return;
     const message = event.data;
-    if (message.type === 'init' && !nonce) { nonce=message.nonce; context=message.context; view=message.view; applyUiTheme(message.uiTheme);resolveReady({context,view}); send({type:'initialized'}); return; }
+    if (message.type === 'init' && !nonce) { nonce=message.nonce; context=message.context; view=message.view;canFillViewport=message.uiFeatures?.fillViewport===true && view?.slot==='sidebar'; applyUiTheme(message.uiTheme);resolveReady({context,view}); send({type:'initialized'}); return; }
     if (!nonce || message.nonce !== nonce) return;
     if (message.type === 'context') { context=message.context; listeners.forEach(listener => listener(context)); }
     if (message.type === 'ui-theme') { applyUiTheme(message.uiTheme); }
@@ -56,7 +63,26 @@
     network:Object.freeze({read:input=>call('network.read',input)}),
   });
   Object.defineProperty(window,'lumiExtension',{value:sdk,writable:false,configurable:false});
-  const resize=()=>{if(nonce)send({type:'resize',height:Math.ceil(document.body?.getBoundingClientRect().height || 120)+20});};
-  window.addEventListener('DOMContentLoaded',()=>{new ResizeObserver(resize).observe(document.body);ready.then(resize);});
+  const resize=()=>{
+    if(!nonce || !activePage)return;
+    const root=document.body;
+    if(canFillViewport && root?.dataset.lumiLayout==='fill'){
+      root.style.setProperty('--lumi-viewport-height',window.innerHeight+'px');
+      send({type:'resize',layout:'fill'});
+    }else{
+      root?.style.removeProperty('--lumi-viewport-height');
+      send({type:'resize',height:Math.ceil(root?.getBoundingClientRect().height || 120)+20});
+    }
+  };
+  window.addEventListener('resize',resize);
+  function setupDocument(){
+    if(!activePage || !document.body)return;
+    applyUiTheme(latestUiTheme);
+    if(!bodyResize){bodyResize=new ResizeObserver(resize);bodyResize.observe(document.body);}
+    if(!layoutObserver){layoutObserver=new MutationObserver(resize);layoutObserver.observe(document.body,{attributes:true,attributeFilter:['data-lumi-layout']});}
+    ready.then(resize);
+  }
+  window.addEventListener('DOMContentLoaded',setupDocument);
+  if(typeof document!=='undefined' && document.readyState!=='loading')setupDocument();
   send({type:'ready'});
 })();
