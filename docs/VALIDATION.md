@@ -9,6 +9,16 @@
 - 类型检查、完整构建、隔离桌面启动、包内校验与依赖审计通过；75 个构建文件匹配，65 个依赖完整许可及本地数据排除通过；审计 0 漏洞。Windows EXE 为 `release/local-0516-release/Lumi-0.5.16-x64.exe`，SHA-256：`cf1de7fd31a2b90729f712219b6d34439f15d04c3687b2ec3eb22443304745de`。
 - 主程序日志位于 `.cache/glass-continuous-host/.test-data/glass-continuous-{tests-final,slider,package,desktop,verify,audit}.log`；插件日志在兄弟仓库 `.cache/dreamy-continuous-*.log`。macOS 原生打包及公开附件由标签工作流验证，本机检查不替代其结果。
 
+## 0.5.16 · Codex 外部对话桥接
+
+2026-10-06，Windows x64，Node.js 24.18.0、npm 11.16.0。在隔离 worktree 验证，不包含工作区另行进行的样式修改。
+
+- 全量测试 744 项：741 通过、3 项平台检查跳过、0 失败；类型检查随完整构建通过，内置插件校验通过。
+- 7 项桥接回归覆盖真实子进程输出超限后的终止、视图间事件与审批隔离、撤回在途任务、重新连接及 SDK 多监听者引用计数。旧审批和跨视图审批拒绝回写；使用假进程和隔离数据，没有付费请求或实际 CLI 配置写入。
+- 完整 Windows 安装包构建、隔离桌面启动和包内校验通过；完整第三方许可及本地数据排除通过。安装包 SHA-256：`d26864bf25481a2807644da733d4fa74fdeb7a6d18628b831f37d2957de4382b`。日志位于原 checkout 的 `.test-data/codex-release-tests-final.log`、`codex-release-package.log`、`codex-release-desktop.log`、`codex-release-verify.log`。
+- `npm audit`：0 vulnerabilities。公开附件及 macOS ARM64 的最终结果由标签工作流分别验证，本机 Windows 不替代 macOS。
+- 对应独立 Codex 对话插件 2.0.0 的真实 Electron 沙箱回归通过：流式消息、线程隔离、审批不自动放行、失败重试、补充答案、模型强度切换、页面内重命名和删除确认、重连、浅深主题与窄宽布局。未执行真实账户对话。
+
 ## 0.5.15 · 背景叠加与排序动画
 
 日期：2026-10-06，Windows x64。自定义背景退出互斥风格选择，独立叠加；主进程与渲染器共享选择逻辑，背景最高优先级也不会撤掉额外风格。无需修改独立插件仓库。
