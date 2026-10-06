@@ -19,8 +19,8 @@ const request=(store:SettingsStore)=>({siteId:store.activeSite().id,siteUrl:stor
 function snapshot(store:SettingsStore):CatalogSnapshot{return {...request(store),loggedIn:false,catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]},status:{system_name:'Fixture',quota_per_unit:1},warnings:[],fetchedAt:1};}
 
 test('product and tool plugins own declared settings and extensible custom switches',()=>{
-  assert.deepEqual(settingsGroups().filter(g=>g.group!=='interface').map(g=>[g.title,g.views.map(v=>v.title)]),[['NewAPI',['工作台','用量分析','模型广场','API令牌']],['Codex',['工作台']],['Codex 桥接',['桥接']],['浮窗',[]],['托盘',[]],['Codex 工具配置',[]],['Claude Code 工具配置',[]]]);
-  assert.deepEqual(builtinManifests.filter(m=>m.configurable && m.settings?.group!=='interface').map(m=>m.id),['provider.newapi','provider.codex','provider.codex-bridge','surface.widget','surface.tray','adapter.tool.codex','adapter.tool.claude']);
+  assert.deepEqual(settingsGroups().filter(g=>g.group!=='interface').map(g=>[g.title,g.views.map(v=>v.title)]),[['NewAPI',['工作台','用量分析','模型广场','API令牌']],['Codex',['工作台']],['浮窗',[]],['托盘',[]],['Codex 工具配置',[]],['Claude Code 工具配置',[]]]);
+  assert.deepEqual(builtinManifests.filter(m=>m.configurable && m.settings?.group!=='interface').map(m=>m.id),['provider.newapi','provider.codex','surface.widget','surface.tray','adapter.tool.codex','adapter.tool.claude']);
   assert.deepEqual(settingsGroups().filter(group=>group.group==='tools').map(group=>group.id),['adapter.tool.codex','adapter.tool.claude']);
   const custom={...builtinManifests[0],id:'provider.custom',settings:{title:'Custom',description:'',order:50,views:[{id:'history',title:'History',defaultEnabled:false}]}};
   validatePluginView('provider.custom','history',[custom]);assert.throws(()=>validatePluginView('provider.custom','tokens',[custom]));

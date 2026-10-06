@@ -12,17 +12,16 @@ import {createTrayPlugin} from '../../plugins/surface.tray/main';
 import {workbenchPlugin} from '../../plugins/feature.workbench/main';
 import {usagePlugin} from '../../plugins/feature.usage/main';
 import {codexProviderPlugin} from '../../plugins/provider.codex/main';
-import {codexBridgePlugin} from '../../plugins/provider.codex-bridge/main';
 import type {SettingsStore} from '../services/store';
 import type {Command} from '../services/tool-runtime';
 import type {DesktopSurfaceEnvironment} from '../../shared/contracts/desktop-surface';
 
 /** Product and tool plugins can be toggled independently; system surfaces stay host-owned. */
-export async function createBuiltinPlugins(store:SettingsStore,options:{catalog?:CatalogReadCapability;localHome?:string;resolveCodex?:()=>Promise<Command|undefined>;resolveCodexAppServer?:()=>Promise<Command|undefined>;chooseDirectory?:()=>Promise<string|null>;beforeDisable?:(id:string)=>void;desktop?:DesktopSurfaceEnvironment}={}){
+export async function createBuiltinPlugins(store:SettingsStore,options:{catalog?:CatalogReadCapability;localHome?:string;resolveCodex?:()=>Promise<Command|undefined>;beforeDisable?:(id:string)=>void;desktop?:DesktopSurfaceEnvironment}={}){
   let dataEpoch=0;
   const desktop=options.desktop ? {...options.desktop,identity:()=>JSON.stringify([options.desktop!.identity(),dataEpoch])} : undefined;
-  const implemented=['provider.newapi','provider.codex','provider.codex-bridge','source.local-sessions','adapter.tool.codex','adapter.tool.claude','surface.widget','surface.tray','feature.workbench','feature.usage'];
-  const host=createPluginHost({plugins:[newApiPlugin(store,options.catalog),localSessionsPlugin(options.localHome),codexAdapterPlugin,claudeAdapterPlugin,createWidgetPlugin(desktop),createTrayPlugin(desktop),workbenchPlugin(()=>store.preferences),usagePlugin(()=>store.preferences),codexProviderPlugin(options.resolveCodex || (async()=>undefined)),codexBridgePlugin({resolve:options.resolveCodexAppServer || (async()=>undefined),chooseDirectory:options.chooseDirectory}),...builtinManifests.filter(m=>!implemented.includes(m.id)).map(manifest=>({manifest,activate(){}}))]});
+  const implemented=['provider.newapi','provider.codex','source.local-sessions','adapter.tool.codex','adapter.tool.claude','surface.widget','surface.tray','feature.workbench','feature.usage'];
+  const host=createPluginHost({plugins:[newApiPlugin(store,options.catalog),localSessionsPlugin(options.localHome),codexAdapterPlugin,claudeAdapterPlugin,createWidgetPlugin(desktop),createTrayPlugin(desktop),workbenchPlugin(()=>store.preferences),usagePlugin(()=>store.preferences),codexProviderPlugin(options.resolveCodex || (async()=>undefined)),...builtinManifests.filter(m=>!implemented.includes(m.id)).map(manifest=>({manifest,activate(){}}))]});
   for(const manifest of builtinManifests.filter(m=>!m.configurable))await host.enable(manifest.id);
   for(const manifest of builtinManifests.filter(m=>m.configurable))if(pluginEnabled(manifest,store.preferences)){
     try{await host.enable(manifest.id);}catch{/* A failed product plugin must not abort the settings shell. */}

@@ -1,2 +1,0 @@
-import type {PluginManifest} from '../../shared/contracts/plugins';
-export const codexBridgeManifest:PluginManifest={id:'provider.codex-bridge',version:'1.0.0',hostApiVersion:1,configurable:true,defaultEnabled:false,requires:[],optional:[],provides:['codexBridge'],settings:{title:'Codex 桥接',description:'把本机 Codex CLI 的 app-server 会话透传给外部插件；不解释协议、不覆盖沙箱与审批设置。',order:25,views:[{id:'bridge',title:'桥接'}]}};

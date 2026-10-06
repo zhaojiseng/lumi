@@ -515,7 +515,13 @@ extension.author.layout/
 }
 ```
 
-宿主包装为 `@scope (.desktop-shell[data-interface="<插件ID>"])`。`:scope` 指向外壳，不能用 `:root`、html 或 body 改全局文档。功能 iframe 的内容有独立样式，主窗口 CSS 不会进入其中。
+宿主包装为 `@scope (.desktop-shell[data-interface="<插件ID>"])`。`:scope` 指向外壳，不能用 `:root`、html 或 body 改全局文档。功能 iframe 的内容保持隔离；Lumi 0.5.19 起可主动复用宿主元素样式。
+
+功能插件在入口 HTML 加入 `<link rel="stylesheet" href="lumi-ui.css" data-lumi-ui>`，在其后加载自己的布局 CSS，并为 body 设置 `data-lumi-ui`。`lumi-ui.css` 与 `lumi-sdk.js` 均由宿主提供，不打入插件包。使用 `.surface.panel`、`.button`（可加 `.primary`、`.ghost`、`.danger`）、`.text-input`、`.select-wrap` 与 `.pill` 等现有元素类；插件只维护排版即可跟随主程序皮肤。
+
+SDK 在沙箱文档 body 上应用当前皮肤的独立 CSS 作用域与 `data-appearance-*`，同步浅深主题和外观选项。切换皮肤只更新样式与属性，保留插件 DOM、草稿与焦点。未引入该链接的插件继续使用自己的样式。iframe 不获得主窗口 DOM、preload 或文件权限，主窗口位移图也不跨文档引用；玻璃材质在 iframe 中使用其 CSS fallback。
+
+Codex 桥接由宿主默认提供，不列入内置插件列表，也无需启用开关。外部对话插件仍需声明 `codex.bridge` 权限；每个视图按需创建独立连接，关闭视图、停用插件或退出宿主时释放。安装与登录由 Codex CLI 自身管理。
 
 ### 受控液态玻璃折射（当前开发构建）
 

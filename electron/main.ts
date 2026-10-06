@@ -1,3 +1,4 @@
+import {createCodexBridgeFactory} from './services/codex-bridge-factory';
 import {createExtensionCodexBridge} from './extensions/codex-bridge';
 import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
 import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol,systemPreferences } from 'electron';
@@ -121,7 +122,7 @@ async function start() {
   const surfaceTheme=new SurfaceThemeState(()=>({interfaceId:readInterfaceId(),mode:resolvedTheme(),appearanceKey:readAppearanceKey()})),surfaceThemeListeners=new Set<()=>void>();
   const notifySurfaceTheme=()=>surfaceThemeListeners.forEach(listener=>listener());
   let plugins:Awaited<ReturnType<typeof createBuiltinPlugins>>;
-  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),resolveCodexAppServer:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexAppServerCommand(),chooseDirectory:async()=>{const picked=await dialog.showOpenDialog(win,{title:'选择 Codex 工作目录',properties:['openDirectory','createDirectory']});return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];},beforeDisable:id=>{if(id==='provider.codex-bridge')dropAllBridgeSubscribers();if(id==='provider.newapi')configs.invalidatePreviews();if(id==='adapter.tool.codex')configs.invalidatePreviews('codex');if(id==='adapter.tool.claude')configs.invalidatePreviews('claude');},desktop:{
+  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();if(id==='adapter.tool.codex')configs.invalidatePreviews('codex');if(id==='adapter.tool.claude')configs.invalidatePreviews('claude');},desktop:{
     root,preloadDirectory:__dirname,devUrl:process.env.LUMI_DEV_URL,platform:process.platform,packaged:app.isPackaged,resourcesPath:process.resourcesPath,smoke:process.env.LUMI_SMOKE==='1',
     preferences:()=>store.preferences,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');},
     theme:resolvedTheme,palette:()=>surfaceTheme.palette(),
@@ -133,10 +134,11 @@ async function start() {
   const accountApi=plugins.port('provider.newapi','account.session'),onlineApi=plugins.port('provider.newapi','online.usage'),tokensApi=plugins.port('provider.newapi','tokens.manage');
   const usage=plugins.require('source.local-sessions','localSessions.read');
   const configs = new ConfigService(store, data, undefined, req => plugins.require('provider.newapi','toolCredential.provision').provision(req),tool=>plugins.require('adapter.tool.'+tool,'toolConfig.build'));
-  const codexBridge=createExtensionCodexBridge(()=>plugins.require('provider.codex-bridge','codexBridge'),event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
+  const codexBridgeFactory=createCodexBridgeFactory({resolve:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexAppServerCommand(),chooseDirectory:async()=>{const picked=await dialog.showOpenDialog(win,{title:'选择 Codex 工作目录',properties:['openDirectory','createDirectory']});return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];}});
+  const codexBridge=createExtensionCodexBridge(()=>codexBridgeFactory,event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
   const dropBridgeSubscriber=(id:string)=>codexBridge.drop(id);
   const dropAllBridgeSubscribers=()=>codexBridge.drop();
-  const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,sdk:await readFile(path.join(root,process.env.LUMI_DEV_URL && !app.isPackaged ? 'public/lumi-extension-sdk.js' : 'dist/lumi-extension-sdk.js')),
+  const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,uiCss:await readFile(path.join(root,'dist-electron/extension-ui.css')),sdk:await readFile(path.join(root,process.env.LUMI_DEV_URL && !app.isPackaged ? 'public/lumi-extension-sdk.js' : 'dist/lumi-extension-sdk.js')),
     interfacePreferences:()=>({candidates:[{id:DEFAULT_INTERFACE_ID,enabled:store.preferences.defaultInterfaceEnabled,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:pluginEnabled(backgroundInterfaceManifest,store.preferences),priority:200}],priorities:store.preferences.interfacePriorities}),
     context:()=>{const site=store.activeSite();return {theme:resolvedTheme(),locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
     scope:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return JSON.stringify([site.id,site.url,secret.sessionId,secret.userId,secret.accessToken,secret.cookies,plugins.generation('provider.newapi'),plugins.isEnabled('provider.newapi')]);},
@@ -158,7 +160,7 @@ async function start() {
     try{const current=new URL(source),target=new URL(details.url);done({cancel:target.protocol!=='data:' && (target.protocol!=='lumi-extension:' || current.host!==target.host)});}catch{done({cancel:true});}
   });
   app.on('before-quit',()=>extensions.dispose());
-  app.on('before-quit',dropAllBridgeSubscribers);
+  app.on('before-quit',()=>{dropAllBridgeSubscribers();codexBridgeFactory.close();});
   const allPluginStatuses=()=>[...plugins.list().map(s=>({...s,origin:'builtin' as const})),...extensions.statuses()];
   const updateSurfaceInterface=(previous:ReturnType<typeof extensions.inventory>['interfaceStyle'])=>{const next=extensions.inventory().interfaceStyle;if(previous?.id!==next?.id || previous?.css!==next?.css){surfaceTheme.clear();notifySurfaceTheme();}};
   app.on('before-quit',()=>{void plugins.dispose().catch(error=>appLogs.write('error','插件',error instanceof Error ? error.message : '插件清理失败。'));});
@@ -317,7 +319,7 @@ async function start() {
         const trayDisabled=(await window.lumi.listPlugins()).some(s=>s.manifest.id==='surface.tray' && s.state==='disabled');
         await window.lumi.setPluginEnabled('surface.tray',true);
         let invalidCodex=false,noCodex=false;try{await window.lumi.readCodexUsage({path:'../auth.json'});}catch{invalidCodex=true;}try{await window.lumi.readCodexUsage({});}catch{noCodex=true;}
-        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && toolAdaptersValid && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===8;
+        const pluginIpcValid=marketIpcValid && invalidPlugin && fixedRejected && invalidCatalog && invalidView && disabledCatalog && savedChild && savedParent && disabledTokens && disabledTools && fixedActive && localTools && toolAdaptersValid && trayDisabled && invalidCodex && noCodex && !restartedCatalog.loggedIn && !catalog.loggedIn && !('tokens' in catalog) && !('logs' in catalog) && pluginStatuses.filter(s=>s.manifest.configurable && s.origin!=='external').length===7;
         let invalidDetails=false;try{await window.lumi.localSessionDetails({sessionId:'../auth.json',query:1});}catch{invalidDetails=true;}
         const requestId=crypto.randomUUID(),progress=[];
         const stopProgress=window.lumi.onLocalUsageProgress(value=>{if(value.requestId===requestId)progress.push(value);});

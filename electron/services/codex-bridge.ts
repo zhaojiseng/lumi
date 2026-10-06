@@ -1,8 +1,8 @@
 import {spawn,type ChildProcessWithoutNullStreams} from 'node:child_process';
 import path from 'node:path';
 import {z} from 'zod';
-import type {Command} from '../../../electron/services/tool-runtime';
-import type {CodexBridgeStatus,CodexBridgeMessage} from '../../../shared/contracts/codex-bridge';
+import type {Command} from './tool-runtime';
+import type {CodexBridgeStatus,CodexBridgeMessage} from '../../shared/contracts/codex-bridge';
 
 /** Conversation-only surface. Process/fs/config/account-write methods stay unreachable from extensions. */
 export const CODEX_BRIDGE_METHODS=Object.freeze(['initialize','initialized','thread/start','thread/resume','thread/read','thread/list','thread/fork','thread/unarchive','thread/name/set','thread/archive','thread/delete','thread/loaded/list','thread/turns/list','thread/items/list','turn/start','turn/steer','turn/interrupt','model/list','skills/list','account/read','account/rateLimits/read']);

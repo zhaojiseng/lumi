@@ -20,6 +20,7 @@ const PluginSettingsContext=createContext<PluginSettingsValue|null>(null);
 export function usePluginSettings(){const value=useContext(PluginSettingsContext);if(!value)throw new Error('插件设置宿主未提供。');return value;}
 export function usePluginStatus(id:string){return useContext(PluginSettingsContext)?.items.find(item=>item.id===id)?.status;}
 export function usePluginStatuses(){const value=useContext(PluginSettingsContext);return value?.statuses || value?.items.map(item=>item.status) || [];}
+export function useInterfaceStyle(){return useContext(PluginSettingsContext)?.extensions?.interfaceStyle;}
 export function usePluginHost(){
   const [resource]=useState(()=>new PluginResource(bridge,inventory=>registerExternalRenderers(inventory.plugins)));
   const state=useSyncExternalStore(resource.subscribe,resource.getState);

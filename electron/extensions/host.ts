@@ -11,7 +11,7 @@ import type {InterfaceSelection} from '../../shared/contracts/interface';
 import {preferredInterface,type StyleCandidate} from '../../shared/interface-styles';
 interface ActivePackage {pkg:ExtensionPackage;enabled:boolean;generation:number;controller:AbortController;pending:number;}
 export interface ExtensionHostOptions {
-  directory:string;roots?:string[];settingsDirectory:string;cipher:Cipher;sdk:Buffer;
+  directory:string;roots?:string[];settingsDirectory:string;cipher:Cipher;sdk:Buffer;uiCss?:Buffer;
   context():ExtensionContext;scope():string;
   interfacePreferences?():{candidates:StyleCandidate[];priorities:Record<string,number>};
   read(method:'workbench.read'|'usage.read'|'codex.usage.read',input:unknown):Promise<unknown>;
@@ -131,7 +131,7 @@ export class ExtensionHost {
     const item=this.packages.get(url.hostname);if(this.closing || !item?.enabled)return;
     const segments=url.pathname.slice(1).split('/'),generation=segments.shift(),name=segments.join('/');
     if(generation!==String(item.generation) || !safeExtensionPath(name))return;
-    const body=name==='lumi-sdk.js' ? this.options.sdk : item.pkg.files.get(name),type=name==='lumi-sdk.js' ? EXTENSION_MIME['.js'] : EXTENSION_MIME[path.extname(name)];if(!body || !type)return;
+    const body=name==='lumi-sdk.js' ? this.options.sdk : name==='lumi-ui.css' ? this.options.uiCss : item.pkg.files.get(name),type=EXTENSION_MIME[path.extname(name)];if(!body || !type)return;
     const origin='lumi-extension://'+url.hostname;
     return {body,type,csp:`default-src 'none'; script-src ${origin}; style-src ${origin} 'unsafe-inline'; img-src ${origin} data:; font-src ${origin}; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`};
   }

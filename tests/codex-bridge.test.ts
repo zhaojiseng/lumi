@@ -2,11 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {CodexBridgeService,CODEX_BRIDGE_METHODS,childTransport} from '../plugins/provider.codex-bridge/services/bridge';
+import {CodexBridgeService,CODEX_BRIDGE_METHODS,childTransport} from '../electron/services/codex-bridge';
 import {createExtensionCodexBridge} from '../electron/extensions/codex-bridge';
 import {runInNewContext} from 'node:vm';
 import {spawnSync} from 'node:child_process';
 import type {CodexBridgeMessage} from '../shared/contracts/codex-bridge';
+import {createCodexBridgeFactory} from '../electron/services/codex-bridge-factory';
+import {builtinManifests} from '../plugins/manifests';
+import {normalizePluginEnabled} from '../shared/plugin-preferences';
+
+test('host bridge is available without a plugin switch, stays lazy and closes permanently',async()=>{
+  assert.ok(!builtinManifests.some(manifest=>manifest.id==='provider.codex-bridge'));
+  assert.deepEqual(normalizePluginEnabled({'provider.codex-bridge':false}),{});
+  let resolves=0;const factory=createCodexBridgeFactory({resolve:async()=>{resolves++;return undefined;}});
+  const first=factory.create(),second=factory.create();assert.equal(resolves,0);
+  assert.equal((await first.status()).installed,false);assert.equal(resolves,1);
+  factory.release(first);factory.close();factory.close();
+  await assert.rejects(second.send({method:'initialize'}));assert.throws(()=>factory.create(),/退出/);
+});
 
 async function fixture(t:{after(fn:()=>Promise<void>):void}){const base=path.resolve('.test-data');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'codex-bridge-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));return root;}
 const until=async(fn:()=>boolean,label:string)=>{const end=Date.now()+3000;while(!fn()){if(Date.now()>end)throw new Error('timeout: '+label);await new Promise(r=>setTimeout(r,10));}};

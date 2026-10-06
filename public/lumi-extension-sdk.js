@@ -5,6 +5,15 @@
   let resolveReady;
   const ready = new Promise(resolve => { resolveReady = resolve; });
   const listeners = new Set();
+  function applyUiTheme(value) {
+    if (!value || !document.querySelector?.('link[data-lumi-ui]') || !document.body) return;
+    const root=document.body;root.dataset.lumiUi='';root.dataset.interface=value.id || 'interface.default';root.dataset.theme=value.theme;
+    document.documentElement.dataset.theme=value.theme;
+    for(const attribute of [...root.attributes])if(attribute.name.startsWith('data-appearance-'))root.removeAttribute(attribute.name);
+    for(const [id,option] of Object.entries(value.appearance || {}))root.setAttribute('data-appearance-'+id,option);
+    let sheet=document.getElementById('lumi-ui-theme');if(!sheet){sheet=document.createElement('style');sheet.id='lumi-ui-theme';document.head.append(sheet);}
+    sheet.textContent=(value.css ? '@scope (body[data-lumi-ui]) {\n'+value.css+'\n}\n' : '')+'body[data-lumi-ui]{background:transparent}';
+  }
   const eventListeners = new Map();
   function onEvent(topic, listener) { let set = eventListeners.get(topic); if (!set) { set = new Set(); eventListeners.set(topic, set); if (topic === 'codex.bridge') call('codex.bridge.subscribe', {}).catch(error => emitEvent(topic, {method:'lumi/bridge/exited',params:{detail:error.message}})); } set.add(listener); let active=true; return () => { if (!active) return; active=false; set.delete(listener); if (!set.size && eventListeners.get(topic) === set) { eventListeners.delete(topic); if (topic === 'codex.bridge') call('codex.bridge.unsubscribe', {}).catch(()=>{}); } }; }
   function emitEvent(topic, payload) { const set = eventListeners.get(topic); if (set) for (const listener of [...set]) listener(payload); }
@@ -19,9 +28,10 @@
   window.addEventListener('message', event => {
     if (event.source !== parent || event.data?.protocol !== protocol) return;
     const message = event.data;
-    if (message.type === 'init' && !nonce) { nonce=message.nonce; context=message.context; view=message.view; resolveReady({context,view}); send({type:'initialized'}); return; }
+    if (message.type === 'init' && !nonce) { nonce=message.nonce; context=message.context; view=message.view; applyUiTheme(message.uiTheme);resolveReady({context,view}); send({type:'initialized'}); return; }
     if (!nonce || message.nonce !== nonce) return;
     if (message.type === 'context') { context=message.context; listeners.forEach(listener => listener(context)); }
+    if (message.type === 'ui-theme') { applyUiTheme(message.uiTheme); }
     if (message.type === 'event') { emitEvent(message.topic, message.payload); }
     if (message.type === 'response') { const request=pending.get(message.id); if (!request) return; clearTimeout(request.timer); pending.delete(message.id); message.ok ? request.resolve(message.data) : request.reject(new Error(message.error || 'Extension request failed')); }
   });

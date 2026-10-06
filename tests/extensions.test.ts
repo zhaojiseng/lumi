@@ -16,7 +16,7 @@ const id='extension.lumi.notes';
 async function fixture(t:test.TestContext,read:()=>Promise<unknown>=async()=>({balance:'12'})){
   await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/extensions-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
   const directory=path.join(root,'packages'),pkg=path.join(directory,id);await cp('extensions/packages/'+id,pkg,{recursive:true});let scope='site-a';
-  const options={directory,settingsDirectory:root,cipher,sdk:await readFile('public/lumi-extension-sdk.js'),context:()=>({theme:'light' as const,locale:'zh-CN' as const,site:{id:'a',name:'Fixture',url:'https://fixture.invalid'}}),scope:()=>scope,read};
+  const options={directory,settingsDirectory:root,cipher,sdk:await readFile('public/lumi-extension-sdk.js'),uiCss:Buffer.from('.button{color:green}'),context:()=>({theme:'light' as const,locale:'zh-CN' as const,site:{id:'a',name:'Fixture',url:'https://fixture.invalid'}}),scope:()=>scope,read};
   const host=new ExtensionHost(options);await host.start();t.after(()=>host.dispose());
   return {root,pkg,host,options,scope:(value:string)=>{scope=value;},request:(method:any,input?:unknown)=>host.request({id,generation:host.statuses()[0].generation!,view:'card',method,input})};
 }
@@ -40,8 +40,9 @@ test('independent flags, settings, encrypted secrets and permission checks survi
 });
 test('disable, reload, account changes and child withdrawal reject old results and assets',async t=>{
   let resolve!:(value:unknown)=>void;const f=await fixture(t,()=>new Promise(r=>{resolve=r;})),raw=JSON.parse(await readFile(path.join(f.pkg,'plugin.json'),'utf8'));raw.permissions.push('workbench.read');await writeFile(path.join(f.pkg,'plugin.json'),JSON.stringify(raw));await f.host.reload();await f.host.setEnabled(id,true);
-  const generation=f.host.statuses()[0].generation!,url=`lumi-extension://${id}/${generation}/index.html`;assert.ok(f.host.asset(url));assert.match(f.host.asset(url)!.csp,/connect-src 'none'/);assert.ok(!f.host.asset(`lumi-extension://${id}/${generation}/%2e%2e/secrets.json`));
-  const old=f.request('workbench.read'),rejected=assert.rejects(old,/停用/);await f.host.setEnabled(id,false);resolve({balance:'old'});await rejected;assert.equal(f.host.asset(url),undefined);
+  const generation=f.host.statuses()[0].generation!,url=`lumi-extension://${id}/${generation}/index.html`,uiUrl=`lumi-extension://${id}/${generation}/lumi-ui.css`;assert.ok(f.host.asset(url));assert.match(f.host.asset(url)!.csp,/connect-src 'none'/);assert.ok(!f.host.asset(`lumi-extension://${id}/${generation}/%2e%2e/secrets.json`));
+  assert.equal(f.host.asset(uiUrl)!.body.toString(),'.button{color:green}');assert.equal(f.host.asset(uiUrl)!.type,'text/css; charset=utf-8');
+  const old=f.request('workbench.read'),rejected=assert.rejects(old,/停用/);await f.host.setEnabled(id,false);resolve({balance:'old'});await rejected;assert.equal(f.host.asset(url),undefined);assert.equal(f.host.asset(uiUrl),undefined);
   await f.host.setEnabled(id,true);assert.equal(f.host.asset(url),undefined);const next=f.request('workbench.read'),changed=assert.rejects(next,/上下文/);f.scope('site-b');resolve({balance:'stale'});await changed;
   await f.host.reload();assert.equal(f.host.statuses()[0].state,'active');await writeFile(path.join(f.pkg,'app.js'),'// updated independent plugin');await f.host.reload();assert.equal(f.host.statuses()[0].state,'disabled');
 });

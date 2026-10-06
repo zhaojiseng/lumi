@@ -25,6 +25,7 @@ export async function readExtensionPackage(directory:string):Promise<ExtensionPa
   const manifest=parseExtensionManifest(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/,'')));
   if(!files.get('LICENSE')?.length)throw new Error('插件必须附带完整 LICENSE 文件。');
   if(files.has('lumi-sdk.js'))throw new Error('lumi-sdk.js 由宿主提供，请勿覆盖。');
+  if(files.has('lumi-ui.css'))throw new Error('lumi-ui.css 由宿主提供，请勿覆盖。');
   for(const view of manifest.contributions)if(!files.has(view.entry))throw new Error('缺少界面入口：'+view.entry);
   if(manifest.interface){const css=files.get(manifest.interface.stylesheet);if(!css || css.length>65536)throw new Error('缺少界面样式或超过 64 KiB 限制。');}
   if(manifest.interface?.preview){const preview=files.get(manifest.interface.preview);if(!preview || preview.length>32768)throw new Error('缺少外观预览模板或超过 32 KiB 限制。');}

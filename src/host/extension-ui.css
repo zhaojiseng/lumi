@@ -1,0 +1,9 @@
+/* The opt-in sandbox document uses host primitives, with its own layout. */
+html:has(body[data-lumi-ui]), body[data-lumi-ui] { min-width: 0; margin: 0; background: transparent; overflow: visible; }
+body[data-lumi-ui] { color: var(--text); isolation: isolate; }
+body[data-lumi-ui] :is(button,input,textarea,select) { max-width: 100%; }
+body[data-lumi-ui] button { cursor: default; }
+body[data-lumi-ui] .text-input { width: 100%; }
+body[data-lumi-ui] .select-wrap { min-width: 0; }
+body[data-lumi-ui] .select-wrap select { width: 100%; }
+body[data-lumi-ui] .surface { min-width: 0; }
