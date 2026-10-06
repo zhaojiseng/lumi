@@ -36,7 +36,7 @@ test('Chromium keeps donut totals on the actual pie center and trend selects ver
     </>);`,resolveDir:process.cwd(),sourcefile:'fixture.tsx',loader:'tsx'},bundle:true,platform:'browser',format:'iife',write:false,
     define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),renderer.outputFiles[0].contents);
-  const css=await Promise.all(['src/styles.css','src/workbench.css','src/select.css','src/theme.css','src/updates-trends.css','src/filters-tools-motion.css','src/platform-logs.css'].map(file=>readFile(file,'utf8')));
+  const css=await Promise.all(['src/components/segmented-switch.css','src/styles.css','src/workbench.css','src/select.css','src/theme.css','src/updates-trends.css','src/filters-tools-motion.css','src/platform-logs.css'].map(file=>readFile(file,'utf8')));
   await writeFile(path.join(root,'fixture.css'),css.join('\n')+'\n:root{--border:#ccc;--panel:#fff;--text:#222;--line:#eee}body{min-width:0;overflow:auto}');
   await writeFile(path.join(root,'fixture.html'),'<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"></head><body><div id="root"></div><script src="renderer.js"></script></body></html>');
   await writeFile(path.join(root,'audit.cjs'),String.raw`

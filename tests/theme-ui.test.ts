@@ -34,7 +34,7 @@ if(kind==='widget'){
   </main>);
 }`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(dir,'app.js'),bundle.outputFiles[0].contents);
-  for(const [kind,files] of Object.entries({charts:['styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css'],widget:['theme-tokens.css','widget.css'],tray:['theme-tokens.css','tray.css']})){
+  for(const [kind,files] of Object.entries({charts:['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css'],widget:['theme-tokens.css','widget.css'],tray:['theme-tokens.css','tray.css']})){
     await writeFile(path.join(dir,kind+'.css'),(await Promise.all(files.map(file=>readFile(path.join('src',file),'utf8')))).join('\n'));
     await writeFile(path.join(dir,kind+'.html'),`<html><head><meta charset="utf-8"><link rel="stylesheet" href="${kind}.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>`);
   }

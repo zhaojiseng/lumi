@@ -4,7 +4,7 @@ import {ArrowRight,Check,FileCode2,History,Info,Eye,RotateCcw,KeyRound,CircleAle
 import {useApp} from '../../../src/context';
 import {useSavedSelection} from '../../../src/selections';
 import {bridge} from '../../../src/bridge';
-import {Button,PageIntro,Pill,ToolIcon,Select,Modal} from '../../../src/components/ui';
+import {Button,PageIntro,Pill,ToolIcon,Select,Modal,SegmentedSwitch} from '../../../src/components/ui';
 import {ChannelSelect} from '../../../src/components/ChannelSelect';
 import {availableGroups,defaultModelGroup,sortModels} from '../../../shared/catalog';
 import {RouteDetails} from '../../../src/components/Pricing';
@@ -213,7 +213,7 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
       <div className="preview-token"><KeyRound size={16}/><span>{preview.token?.created ? '已创建' : '已复用'}专用令牌 <strong>{preview.token?.name}</strong> · {preview.token?.group}</span></div>
       <div className="preview-changes">{preview.changes.map((s,i)=><div key={i}><Check size={14}/><span>{s}</span></div>)}</div>
       {preview.tool==='codex' && <p className="muted small-text">相关历史对话会在应用时检查并同步。</p>}
-      <div className="preview-file-tabs">{preview.files.map((f,i)=><button key={f.path} className={fileIndex===i ? 'active' : ''} onClick={()=>setFileIndex(i)}><FileCode2 size={14}/>{f.path.split(/[\\/]/).at(-1)}</button>)}<div className="segmented"><button className={view==='before' ? 'active' : ''} onClick={()=>setView('before')}>修改前</button><button className={view==='after' ? 'active' : ''} onClick={()=>setView('after')}>修改后</button></div></div>
+      <div className="preview-file-tabs"><SegmentedSwitch label="配置文件" className="preview-file-selector">{preview.files.map((f,i)=><button key={f.path} aria-pressed={fileIndex===i} className={fileIndex===i ? 'active' : ''} onClick={()=>setFileIndex(i)}><FileCode2 size={14}/>{f.path.split(/[\\/]/).at(-1)}</button>)}</SegmentedSwitch><SegmentedSwitch label="修改前后" className="segmented"><button aria-pressed={view==='before'} className={view==='before' ? 'active' : ''} onClick={()=>setView('before')}>修改前</button><button aria-pressed={view==='after'} className={view==='after' ? 'active' : ''} onClick={()=>setView('after')}>修改后</button></SegmentedSwitch></div>
       {currentFile && <><p className="preview-path">{currentFile.path}</p><pre className="code-preview">{currentFile[view]}</pre></>}
       <ConfigFeedback pending={pending?.operation==='apply' ? pending : null} error={error?.operation==='apply' ? error.message : undefined}/>
       <div className="modal-actions"><span className="muted small-text">原配置会在写入前自动加密备份</span><Button onClick={()=>{if(!operation.current)setPreview(null);}} disabled={busy}>取消</Button><Button variant="primary" busy={busy} onClick={apply} disabled={busy || !bootstrap.desktop || !preview.files.length}><Check size={16}/>备份并应用</Button></div>

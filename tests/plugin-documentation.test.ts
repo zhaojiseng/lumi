@@ -37,7 +37,7 @@ async function documentExamples(t:test.TestContext){
 
 test('guide alone supplies complete valid plugin packages and independently typechecks its SDK examples',async t=>{
   const {directory,types}=await documentExamples(t),declaration=types.find(text=>text.includes('export interface LumiExtensionSdk'))!;
-  assert.doesNotMatch(declaration,/\bimport\b/);assert.equal(declaration.trim(),(await readFile('extensions/sdk/lumi-extension.d.ts','utf8')).trim());
+  assert.doesNotMatch(declaration,/\bimport\b/);assert.equal(declaration.replace(/\r\n/g,'\n').trim(),(await readFile('extensions/sdk/lumi-extension.d.ts','utf8')).replace(/\r\n/g,'\n').trim());
   await writeFile(path.join(directory,'lumi-extension.d.ts'),declaration);
   await writeFile(path.join(directory,'example.ts'),types.find(text=>text.includes('async function inspectTypes'))!);
   await writeFile(path.join(directory,'tsconfig.json'),JSON.stringify({compilerOptions:{target:'ES2022',module:'ESNext',moduleResolution:'Bundler',strict:true,noEmit:true,types:[],lib:['ES2022','DOM']},files:['lumi-extension.d.ts','example.ts']}));

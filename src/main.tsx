@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import './components/segmented-switch.css';
 import './styles.css';
 import './workbench.css';
 import './select.css';

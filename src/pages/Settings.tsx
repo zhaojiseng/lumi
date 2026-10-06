@@ -1,5 +1,5 @@
 import {useState,useEffect,useRef,Suspense} from 'react';
-import {PageIntro,Skeleton} from '../components/ui';
+import {PageIntro,Skeleton,SegmentedSwitch} from '../components/ui';
 import {MotionSwap} from '../components/MotionSwap';
 import {useSettingsContributions} from '../host/settings';
 export default function Settings(){
@@ -11,7 +11,7 @@ export default function Settings(){
   useEffect(()=>{root.current?.closest('.content-scroll')?.scrollTo({top:0});},[view]);
   const Page=active.component;
   return <div className="page settings-page" ref={root}><PageIntro title="属于你的工作台" description="管理连接、插件和显示偏好。"/>
-    <nav className="settings-subnav" aria-label="设置二级菜单">{tabs.map(tab=><button key={tab.id} className={view===tab.id ? 'active' : ''} aria-current={view===tab.id ? 'page' : undefined} onClick={()=>setChosen(tab.id)}>{tab.label}</button>)}</nav>
+    <SegmentedSwitch label="设置二级菜单" size="regular" className="settings-subnav">{tabs.map(tab=><button key={tab.id} aria-pressed={view===tab.id} className={view===tab.id ? 'active' : ''} aria-current={view===tab.id ? 'page' : undefined} onClick={()=>setChosen(tab.id)}>{tab.label}</button>)}</SegmentedSwitch>
     <MotionSwap identity={view} canRetain={id=>tabs.some(tab=>tab.id===id)}><Suspense fallback={<Skeleton/>}><Page/></Suspense></MotionSwap>
   </div>;
 }

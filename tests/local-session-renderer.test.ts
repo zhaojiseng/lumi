@@ -30,7 +30,7 @@ test('Chromium browses the complete fixed snapshot, isolates late requests, esca
     createRoot(document.getElementById('root')).render(<Fixture/>);
   `,resolveDir:process.cwd(),sourcefile:'local-session-fixture.tsx',loader:'tsx'},bundle:true,platform:'browser',format:'iife',write:false,loader:{'.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),renderer.outputFiles[0].contents);
-  const css=await Promise.all(['src/styles.css','src/workbench.css','src/theme.css','src/local-usage.css'].map(file=>readFile(file,'utf8')));
+  const css=await Promise.all(['src/components/segmented-switch.css','src/styles.css','src/workbench.css','src/theme.css','src/local-usage.css'].map(file=>readFile(file,'utf8')));
   await writeFile(path.join(root,'fixture.css'),css.join('\n')+'\nbody{min-width:0;overflow:auto}main{padding:20px;min-width:0}');
   await writeFile(path.join(root,'fixture.html'),`<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="fixture.css"></head><body><div id="root"></div><script>
     // Every session, event and response is synthetic. No real session directory or preload is used.

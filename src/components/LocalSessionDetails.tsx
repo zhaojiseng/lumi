@@ -3,7 +3,7 @@ import {Loader2} from 'lucide-react';
 import {bridge} from '../bridge';
 import {compact} from '../../shared/utils';
 import type {DashboardQuery,LocalSessionContentPage,LocalSessionEvent,LocalSessionProgress,LocalSessionRawPage,LocalSessionRecord,LocalSessionRecordsPage,LocalSessionSnapshot,LocalSessionSummary} from '../../shared/types';
-import {Button,Empty,Modal} from './ui';
+import {Button,Empty,Modal,SegmentedSwitch} from './ui';
 import {localUsageBytes} from './LocalUsageProgress';
 import {localSessionDateTime,localSessionProject,localSessionTime,localSessionTitle} from './LocalSessions';
 
@@ -173,7 +173,7 @@ export function LocalSessionDetails({session,query,accountKey,onClose}:{session:
     {detail.canceled && <Button onClick={detail.retryLoad}>重新载入</Button>}
     {detail.snapshot && <>
       {!!detail.snapshot.warnings.length && <ul className="local-session-warnings" aria-label="会话载入提示">{detail.snapshot.warnings.map((warning,i)=><li key={i}>{warning}</li>)}</ul>}
-      <nav className="local-session-tabs" aria-label="会话详情视图"><button type="button" aria-pressed={detail.tab==='records'} onClick={detail.showRecords}>调用记录</button><button type="button" aria-pressed={detail.tab==='content'} onClick={detail.showContent}>完整会话内容</button></nav>
+      <SegmentedSwitch label="会话详情视图" size="regular" className="local-session-tabs"><button type="button" aria-pressed={detail.tab==='records'} onClick={detail.showRecords}>调用记录</button><button type="button" aria-pressed={detail.tab==='content'} onClick={detail.showContent}>完整会话内容</button></SegmentedSwitch>
       {detail.tab==='records' ? <section aria-label="调用记录">
         <p className="field-help">调用记录按当前时间与模型筛选显示。可查看每条调用的相关内容。</p>
         {records.pending && <p className="local-session-loading" role="status"><Loader2 size={14} className="spin"/>正在读取调用分页…</p>}

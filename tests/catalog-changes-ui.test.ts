@@ -33,7 +33,7 @@ function App(){const [preferences,setPreferences]=useState({...structuredClone(D
 createRoot(document.getElementById('root')).render(<App/>);
 `},bundle:true,platform:'browser',format:'esm',target:'chrome140',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(directory,'app.js'),output.outputFiles[0].contents);
-  const css=await Promise.all(['styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css','models-market.css','components/billing.css'].map(file=>readFile(path.join('src',file),'utf8')));
+  const css=await Promise.all(['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css','models-market.css','components/billing.css'].map(file=>readFile(path.join('src',file),'utf8')));
   await writeFile(path.join(directory,'style.css'),css.join('\n'));
   await writeFile(path.join(directory,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>');
   await writeFile(path.join(directory,'main.cjs'),String.raw`

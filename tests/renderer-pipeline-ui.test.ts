@@ -35,7 +35,7 @@ addEventListener('error',event=>fixture.errors.push(event.message));addEventList
 const {default:App}=await import('./src/App');createRoot(document.getElementById('root')).render(<App/>);
 `},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.svg':'text','.css':'empty'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),output.outputFiles[0].contents);
-  const css=await Promise.all(['styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css'].map(file=>readFile(path.join('src',file),'utf8')));
+  const css=await Promise.all(['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css'].map(file=>readFile(path.join('src',file),'utf8')));
   await writeFile(path.join(root,'style.css'),css.join('\n'));
   await writeFile(path.join(root,'index.html'),'<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="renderer.js"></script></body></html>');
   await writeFile(path.join(root,'audit.cjs'),String.raw`

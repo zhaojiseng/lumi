@@ -32,7 +32,7 @@ function Host(){
 }
 createRoot(document.getElementById('root')).render(<AppContext.Provider value={{preferences:DEFAULT_PREFERENCES,updatePreferences:async()=>{},toast:()=>{}}}><Host/></AppContext.Provider>);`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),built.outputFiles[0].contents);
-  const css=await Promise.all(['styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css','app-cache.css'].map(file=>readFile(path.resolve('src',file),'utf8')));
+  const css=await Promise.all(['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css','app-cache.css'].map(file=>readFile(path.resolve('src',file),'utf8')));
   await writeFile(path.join(root,'style.css'),css.join('\n')+'\nbody{padding:24px;background:var(--background)}#root{max-width:1040px;margin:auto}.content-scroll{height:calc(100vh - 48px);overflow:auto;padding:0}.settings-page{gap:16px;padding:0 0 200px}*{animation:none!important;transition:none!important}');
   await writeFile(path.join(root,'index.html'),'<html data-theme="light"><head><meta charset="UTF-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="renderer.js"></script></body></html>');
   await writeFile(path.join(root,'audit.cjs'),String.raw`

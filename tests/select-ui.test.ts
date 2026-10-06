@@ -28,7 +28,7 @@ return <main className="desktop-shell" data-interface="extension.fixture.glass" 
 createRoot(document.getElementById('root')).render(<App/>);
 `},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(directory,'app.js'),output.outputFiles[0].contents);
-  const css=await Promise.all(['styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css'].map(file=>readFile(path.join('src',file),'utf8')));
+  const css=await Promise.all(['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css'].map(file=>readFile(path.join('src',file),'utf8')));
   await writeFile(path.join(directory,'style.css'),css.join('\n')+'\nbody{margin:0;min-width:0;padding:20px}main{display:block}.fixture-control{position:fixed;width:260px;left:20px;top:55px}.fixture-control>.select-wrap{width:100%}.fixture-control.edge,.fixture-control.multi{width:160px;left:auto;top:auto;right:12px;bottom:12px}.fixture-control.site{width:180px;top:auto;bottom:20px;display:grid;grid-template-columns:0 1fr;gap:0}.fixture-control.plain{width:76px}.desktop-shell[data-fixture-theme=glass] .fixture-control.normal{width:144px}');
   await writeFile(path.join(directory,'index.html'),'<html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="app.js"></script></body></html>');
   await writeFile(path.join(directory,'main.cjs'),String.raw`

@@ -1,0 +1,25 @@
+.segmented-switch { position: relative; display: flex; flex-wrap: wrap; gap: 0; width: fit-content; max-width: 100%; margin: 7px 0; padding: 3px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-soft); box-shadow: inset 0 1px 3px rgba(15,18,35,.09); }
+.segmented-switch button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; min-width: 0; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: 11px; line-height: 1.3; cursor: default; }
+.segmented-switch button > span { overflow-wrap: anywhere; text-align: left; }
+.segmented-switch small { flex: none; color: var(--text-muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.segmented-switch button:not([aria-pressed="true"]):not([aria-checked="true"]):hover { background: var(--hover-strong); color: var(--text); }
+.segmented-switch button[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.segmented-switch button[aria-pressed="true"] small { color: inherit; }
+.segmented-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Raised knob that slides along the continuous track; JS measures the pressed stop. */
+.segmented-switch .segmented-thumb { position: absolute; z-index: 0; left: 0; top: 0; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 7px; background: var(--panel-strong); box-shadow: 0 1px 4px rgba(15,18,35,.2), inset 0 1px 0 rgba(255,255,255,.22); pointer-events: none; transition: transform .24s cubic-bezier(.2,.8,.2,1), width .24s cubic-bezier(.2,.8,.2,1), height .24s cubic-bezier(.2,.8,.2,1); }
+.segmented-switch :is(button[aria-pressed="true"],button[aria-checked="true"]) { touch-action: none; user-select: none; }
+.segmented-switch[data-dragging] button { user-select: none; }
+.segmented-switch[data-dragging] .segmented-thumb { transition: none !important; }
+.segmented-switch.segmented-switch { position: relative; gap: 0; padding: 3px; border: 1px solid var(--border); border-radius: 10px; margin: 7px 0; }
+.segmented-switch.segmented-switch > button { cursor: default; border: 0; background: transparent; }
+.segmented-switch.segmented-switch > button.active { background: transparent; }
+.segmented-switch.segmented-switch > button:is([aria-pressed="true"],[aria-checked="true"]) { color: var(--accent); font-weight: 600; }
+.segmented-switch--regular.segmented-switch > button { min-height: 34px; padding: 7px 14px; font-size: 13px; }
+.segmented-switch--large.segmented-switch { padding: 5px; border-radius: 13px; }
+.segmented-switch--large.segmented-switch > button { min-height: 40px; padding: 9px 18px; gap: 8px; font-size: 14px; border-radius: 9px; }
+.segmented-switch--large .segmented-thumb { border-radius: 10px; }
+.preview-file-tabs { flex-wrap: wrap; }
+.preview-file-tabs > .segmented-switch { min-width: 0; }
+.preview-file-tabs > .segmented { margin-left: auto; }
+@media(prefers-reduced-motion:reduce) { .segmented-switch .segmented-thumb { transition: none !important; } }
