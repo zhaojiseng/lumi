@@ -4,7 +4,7 @@ import {builtinManifests} from '../../plugins/manifests';
 import {normalizeLogColumns,migrateLogColumns} from '../../shared/logs';
 import {applyPreferencePatch, normalizeSelections,normalizeSourceSelections} from '../../shared/selections';
 import {normalizeInterfaceSelections,validInterfaceSelection} from '../../shared/interface-appearance';
-import {normalizeInterfacePriorities,normalizeBackground,validBackgroundImage,BACKGROUND_FITS} from '../../shared/interface-styles';
+import {normalizeInterfacePriorities,normalizeBackground,validBackgroundImage,BACKGROUND_FITS,validInterfaceOrder} from '../../shared/interface-styles';
 import {normalizeMenuBarContents} from '../../shared/menu-bar';
 import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
@@ -128,6 +128,7 @@ export class SettingsStore {
     await this.persist(); return structuredClone(this.preferences);
   }
   async update(patch: PreferencePatch) {
+    if(patch.interfaceOrder && !validInterfaceOrder(patch.interfaceOrder))throw new Error('界面风格排序无效。');
     if(patch.interfacePriority && Object.keys(normalizeInterfacePriorities({[patch.interfacePriority.id]:patch.interfacePriority.priority})).length!==1)throw new Error('界面优先级无效。');
     if(patch.background && (!validBackgroundImage(patch.background.image) || !BACKGROUND_FITS.includes(patch.background.fit) || typeof patch.background.name!=='string' || patch.background.name.length>120))throw new Error('背景图片设置无效。');
     if(patch.interfaceSelection && !validInterfaceSelection(patch.interfaceSelection))throw new Error('外观选择设置无效。');

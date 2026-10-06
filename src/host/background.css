@@ -4,8 +4,11 @@
 .background-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
 .background-actions > span { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
 .background-preview { height: 180px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--panel-soft); margin-top: 12px; }
-.interface-priority { display: flex; align-items: center; gap: 6px; color: var(--text-muted); font-size: 11px; }
-.interface-priority input { width: 68px; min-height: 30px; padding: 4px 6px; }
 .interface-style-node .plugin-group-heading { flex-wrap: wrap; }
 .interface-style-node .plugin-row-button { min-width: 150px; }
-.interface-style-detail { padding: 12px 16px 12px 28px; border-top: 1px solid var(--border); }
+.interface-style-node .interface-sort-handle { touch-action: none; cursor: default; flex: 0 0 auto; }
+.interface-sort-handle[aria-disabled="true"] { opacity: .5; }
+.interface-sort-position { font-size: 11px; color: var(--text-muted); width: 14px; text-align: center; }
+.interface-style-node.sorting { outline: 1px solid var(--accent); background: var(--panel-soft); }
+.interface-sort-tree { user-select: none; }
+.interface-sort-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

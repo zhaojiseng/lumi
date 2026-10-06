@@ -12,9 +12,10 @@ export function normalizeBackground(input:unknown):UserBackground{
 }
 export function normalizeInterfacePriorities(input:unknown):Record<string,number>{
   if(!input || typeof input!=='object' || Array.isArray(input))return {};
-  return Object.fromEntries(Object.entries(input).filter(([id,value])=>styleId.test(id) && Number.isSafeInteger(value) && Math.abs(value as number)<=1000).slice(0,64)) as Record<string,number>;
+  return Object.fromEntries(Object.entries(input).filter(([id,value])=>styleId.test(id) && Number.isSafeInteger(value) && Math.abs(value as number)<=1000).slice(0,66)) as Record<string,number>;
 }
 export interface StyleCandidate {id:string;enabled:boolean;priority:number;}
+export function validInterfaceOrder(value:unknown):value is string[]{return Array.isArray(value) && value.length>=2 && value.length<=66 && new Set(value).size===value.length && value.every(id=>typeof id==='string' && styleId.test(id));}
 /** A deterministic winner preserves enabled alternatives for automatic fallback. */
 export function preferredInterface(candidates:readonly StyleCandidate[],priorities:Record<string,number>={}){
   return candidates.filter(style=>style.enabled).sort((a,b)=>(priorities[b.id] ?? b.priority)-(priorities[a.id] ?? a.priority) || a.id.localeCompare(b.id))[0]?.id || 'interface.default';

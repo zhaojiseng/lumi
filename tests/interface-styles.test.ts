@@ -22,9 +22,12 @@ test('background, priorities and default switch survive restart, migration and f
   await store.update({background,defaultInterfaceEnabled:false,interfacePriority:{id:'interface.background',priority:500}});
   await store.update({interfacePriority:{id:'extension.lumi.compact',priority:600}});
   const reload=new SettingsStore(root,cipher);await reload.load();assert.deepEqual(reload.preferences.background,background);assert.equal(reload.preferences.defaultInterfaceEnabled,false);assert.deepEqual(reload.preferences.interfacePriorities,{'interface.background':500,'extension.lumi.compact':600});
+  await reload.update({interfaceOrder:['interface.default','extension.lumi.compact','interface.background']});
+  const ordered=new SettingsStore(root,cipher);await ordered.load();assert.deepEqual(ordered.preferences.interfacePriorities,{'interface.default':3,'extension.lumi.compact':2,'interface.background':1});
+  for(const interfaceOrder of [[],['interface.default','interface.default'],['interface.default','../bad']])await assert.rejects(reload.update({interfaceOrder}));
   await assert.rejects(reload.update({background:{...background,image:'file:///private'}}));
   await writeFile(path.join(root,'settings.json'),JSON.stringify({preferences:{theme:'dark'}}));await reload.load();assert.equal(reload.preferences.defaultInterfaceEnabled,true);assert.deepEqual(reload.preferences.interfacePriorities,{});assert.equal(reload.preferences.background.image,'');
   await rm(root,{recursive:true});await writeFile(root,'blocked');
-  await assert.rejects(reload.update({background,defaultInterfaceEnabled:false,interfacePriority:{id:'interface.background',priority:500}}));
+  await assert.rejects(reload.update({background,defaultInterfaceEnabled:false,interfaceOrder:['interface.background','interface.default']}));
   assert.equal(reload.preferences.defaultInterfaceEnabled,true);assert.deepEqual(reload.preferences.interfacePriorities,{});assert.equal(reload.preferences.background.image,'');
 });
