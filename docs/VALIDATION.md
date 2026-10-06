@@ -2,6 +2,8 @@
 
 ## 0.5.20 · 整体发布前验证（2026-10-07）
 
+- 首次标签工作流的 Linux 全量回归有 2 项新夹具失败：前景精确字形检测为 0 像素、窗口缩放读取到过渡布局；macOS 全量检查通过。未公开 Release。修订前景检测为不依赖 CJK 字库的拉丁文本及实际文字边界，缩放等待目标内容尺寸、触底、宽度与无外层滚动同时收敛；不降低断言或跳过 Linux。未发布的标签将在修订提交上重新构建，最终三平台结果以新工作流为准。
+- 修订后这两项画面回归在 Windows 定向复验全部通过，真实前景清晰度、折射／模糊像素和完整尺寸断言保留；日志 `.test-data/project-release-cross-platform-ui.log`。本次只修订夹具与验证记录，运行代码和本地安装包未变化。
 - 本次重新执行严格类型检查、内置插件校验和全量测试：751 项，748 通过、3 项平台跳过，0 失败／取消；`npm audit` 为 0 漏洞。新 Electron 画面夹具在 macOS 使用可见窗口以确保真实绘制，Windows 保持隐藏窗口；三平台结果另由标签工作流确认。
 - 调整画面夹具的 macOS 窗口策略后，四项新增真实 Electron 回归在 Windows 定向复验全部通过：生产 CSP 下的 iframe 折射、设置前景清晰度、连续窗口缩放填充布局和折射资源／退出生命周期。日志：`.test-data/project-release-ui-tests.log`。
 - 本次 `npm run dist` 完成 Windows x64 安装包；隔离 `test:desktop` 通过，真实 F12 开关检查为 `debugShortcutValid=true`。`verify:release` 匹配 77 个构建文件，完整第三方许可、本地数据排除及生产 SDK／折射 bundle 检查通过。

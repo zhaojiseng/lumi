@@ -34,7 +34,9 @@ const win=new BrowserWindow({show:process.platform==='darwin',width:1600,height:
 const run=code=>win.webContents.executeJavaScript(code),until=async fn=>{const end=Date.now()+6000;while(!await fn()){if(Date.now()>end)throw Error('timeout '+fn+'; '+await run('JSON.stringify({layout:document.querySelector(".extension-view")?.dataset.layout,height:document.querySelector("iframe")?.clientHeight})'));await new Promise(r=>setTimeout(r,20));}},check=async(code,label)=>{if(!await run(code))throw Error(label)};
 await until(()=>run('document.querySelector(".extension-view")?.dataset.layout==="fill"'));const child=()=>win.webContents.mainFrame.frames[0];
 for(const [width,height] of [[2100,1200],[900,540],[1200,800],[1000,420],[1600,1000]]){
-win.setSize(width,height);await until(()=>run('Math.abs(document.querySelector("iframe").getBoundingClientRect().bottom-innerHeight)<=1'));
+// Wait for the native resize and React/ResizeObserver layout to converge in
+// the same observation; an old viewport can briefly satisfy only the bottom.
+win.setContentSize(width,height);await until(()=>run('innerWidth==='+width+' && innerHeight==='+height+' && Math.abs(document.querySelector("iframe").getBoundingClientRect().bottom-innerHeight)<=1 && document.querySelector(".content-scroll").scrollHeight<=document.querySelector(".content-scroll").clientHeight+1 && document.querySelector("iframe").clientWidth===document.querySelector(".content-scroll").clientWidth-40'));
 await check('document.querySelector(".content-scroll").scrollHeight<=document.querySelector(".content-scroll").clientHeight+1','outer scrollbar');
 await check('document.querySelector("iframe").clientWidth===document.querySelector(".content-scroll").clientWidth-40','workspace width capped');
 await until(()=>child().executeJavaScript('Math.abs(document.getElementById("chat").clientHeight-innerHeight)<1'));

@@ -20,7 +20,8 @@ test('host-owned SDK refraction renders in opaque frames with production CSP and
   await writeFile(path.join(packageDirectory,'setup.js'),setup);
   await writeFile(path.join(packageDirectory,'slow.js'),'// Hold parsing before the body so ready/init can arrive first.');
   await writeFile(path.join(packageDirectory,'late.js'),`addEventListener('DOMContentLoaded',()=>{const script=document.createElement('script');script.src='lumi-sdk.js';document.head.append(script)});`);
-  const markup='<main id="background"><h2>项目会话</h2><article><h3>更新文件改动摘要</h3><p>README.md · 新增 14 行 · 删除 3 行</p><p>模型已完成回复，继续查看上一轮用户输入。</p><pre>function updateMessage() {\n  return nextRevision;\n}</pre></article><article><h3>下一轮用户消息</h3><p>优化窗口尺寸下的对话布局与渲染管线。</p></article></main><aside id="preview" class="donut-tooltip"><strong id="foreground">用户消息预览</strong><p>显示对应位置的用户输入</p></aside>';
+  // Linux CI need not have CJK fonts; use Latin text for the exact ink mask.
+  const markup='<main id="background"><h2>项目会话</h2><article><h3>更新文件改动摘要</h3><p>README.md · 新增 14 行 · 删除 3 行</p><p>模型已完成回复，继续查看上一轮用户输入。</p><pre>function updateMessage() {\n  return nextRevision;\n}</pre></article><article><h3>下一轮用户消息</h3><p>优化窗口尺寸下的对话布局与渲染管线。</p></article></main><aside id="preview" class="donut-tooltip"><strong id="foreground">User message preview</strong><p>显示对应位置的用户输入</p></aside>';
   for(const name of ['normal','early','late']){
     const scripts=name==='early' ? '<script src="lumi-sdk.js"></script><script src="slow.js"></script>' : name==='late' ? '<script src="late.js" defer></script>' : '<script src="lumi-sdk.js" defer></script>';
     await writeFile(path.join(packageDirectory,name+'.html'),'<!doctype html><html><head><meta charset="UTF-8"><link rel="stylesheet" href="lumi-ui.css" data-lumi-ui><script src="setup.js"></script>'+scripts+'</head><body data-lumi-ui>'+markup+'</body></html>');
@@ -49,6 +50,7 @@ app.whenReady().then(async()=>{
  let changedPixels=0;
  for(const mode of ['light','dark']){
   await theme(mode);await until(()=>frame().executeJavaScript('document.body.dataset.theme==='+JSON.stringify(mode)+' && !!document.querySelector("[data-lumi-glass-defs] filter")'),'Theme did not reach frame');
+  const foreground=await frame().executeJavaScript('(()=>{const r=document.getElementById("foreground").getBoundingClientRect();return {left:r.left-130,top:r.top-65,right:r.right-130,bottom:r.bottom-65}})()');
   await frame().executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
   const warped=await win.webContents.capturePage({x:130,y:65,width:240,height:130});
   await frame().executeJavaScript('document.body.style.setProperty("--lumi-glass-distortion","0")');await until(()=>frame().executeJavaScript('!document.querySelector("[data-lumi-glass-defs] filter")'),'Disabled distortion retained filters');
@@ -59,7 +61,7 @@ app.whenReady().then(async()=>{
   // The foreground is a separate paint layer. Its exact ink pixels must remain
   // fixed even when the backdrop immediately behind them is displaced.
   const ink=mode==='dark' ? [252,246,244] : [39,24,17],size=warped.getSize(),sx=size.width/240,sy=size.height/130;let inkPixels=0,movedInk=0;
-  for(let y=Math.ceil(28*sy);y<Math.floor(53*sy);y++)for(let x=Math.ceil(24*sx);x<Math.floor(204*sx);x++){
+  for(let y=Math.max(0,Math.ceil(foreground.top*sy));y<Math.min(size.height,Math.floor(foreground.bottom*sy));y++)for(let x=Math.max(0,Math.ceil(foreground.left*sx));x<Math.min(size.width,Math.floor(foreground.right*sx));x++){
     const offset=(y*size.width+x)*4,first=ink.every((v,c)=>a[offset+c]===v),second=ink.every((v,c)=>b[offset+c]===v);if(first)inkPixels++;if(first!==second)movedInk++;
   }
   if(inkPixels<40 || movedInk>5)throw Error('Foreground '+mode+' moved or blurred: '+JSON.stringify({inkPixels,movedInk}));
