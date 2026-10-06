@@ -7,7 +7,9 @@ import {preferredInterface,normalizeBackground,normalizeInterfacePriorities} fro
 
 test('style priorities resolve deterministically and fall back across independent switches',()=>{
   const styles=[{id:'interface.default',priority:0,enabled:true},{id:'interface.background',priority:200,enabled:true},{id:'extension.lumi.compact',priority:100,enabled:true}];
-  assert.equal(preferredInterface(styles),'interface.background');
+  assert.equal(preferredInterface(styles),'extension.lumi.compact');
+  assert.equal(preferredInterface(styles,{'interface.background':1000}),'extension.lumi.compact');
+  assert.equal(preferredInterface(styles.filter(style=>style.id!=='extension.lumi.compact')),'interface.default');
   assert.equal(preferredInterface(styles,{'extension.lumi.compact':300}),'extension.lumi.compact');
   assert.equal(preferredInterface(styles.map(style=>({...style,enabled:false}))),'interface.default');
   assert.equal(preferredInterface([...styles].reverse(),{'interface.background':100}),'extension.lumi.compact');

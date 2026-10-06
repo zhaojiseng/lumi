@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {useApp} from '../context';
 import {usePluginSettings} from './plugins';
 import {Button,Select} from '../components/ui';
-import {BACKGROUND_INTERFACE_ID,preferredInterface,MAX_BACKGROUND_LENGTH,type BackgroundFit} from '../../shared/interface-styles';
+import {BACKGROUND_INTERFACE_ID,MAX_BACKGROUND_LENGTH,type BackgroundFit} from '../../shared/interface-styles';
 import {DEFAULT_INTERFACE_ID} from '../../shared/contracts/interface';
 import './background.css';
 
@@ -11,10 +11,10 @@ export function interfaceCandidates(preferences:{defaultInterfaceEnabled?:boolea
   return [{id:DEFAULT_INTERFACE_ID,enabled:preferences.defaultInterfaceEnabled!==false,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:statuses.some(status=>status.manifest.id===BACKGROUND_INTERFACE_ID && status.state==='active'),priority:200},...interfaces.map(plugin=>({id:plugin.manifest.id,enabled:statuses.some(status=>status.manifest.id===plugin.manifest.id && status.state==='active'),priority:100}))];
 }
 export function UserBackgroundLayer(){
-  const {preferences}=useApp(),{extensions,statuses=[]}=usePluginSettings();
-  const winner=preferredInterface(interfaceCandidates(preferences,statuses,extensions?.plugins.filter(plugin=>plugin.manifest.kind==='interface') || []),preferences.interfacePriorities);
+  const {preferences}=useApp(),{statuses=[]}=usePluginSettings();
+  const enabled=statuses.some(status=>status.manifest.id===BACKGROUND_INTERFACE_ID && status.state==='active');
   const background=preferences.background;
-  if(winner!==BACKGROUND_INTERFACE_ID || !background?.image)return null;
+  if(!enabled || !background?.image)return null;
   return <div className="user-background-layer" aria-hidden="true"><img src={background.image} alt="" draggable={false} style={{objectFit:backgroundFit[background.fit]}}/></div>;
 }
 export function BackgroundSettings(){
@@ -37,7 +37,7 @@ export function BackgroundSettings(){
   }
   const background=preferences.background;
   return <div className="background-settings">
-    <p className="muted">图片仅保存在本机。启用后按界面风格优先级生效。</p>
+    <p className="muted">图片仅保存在本机。启用后叠加到当前界面风格，保留其布局与外观设置，不参与风格替换。</p>
     <input ref={input} type="file" hidden accept="image/png,image/jpeg,image/webp" aria-label="选择背景图片" onChange={event=>{const file=event.target.files?.[0];event.target.value='';if(file)void choose(file);}}/>
     <div className="background-actions"><Button busy={busy} onClick={()=>input.current?.click()}>选择本地图片</Button><Button disabled={busy || !background.image} onClick={()=>{++version.current;void save({image:'',name:''});}}>移除背景</Button><span title={background.name}>{background.name || '尚未选择图片'}</span></div>
     <div className="setting-control"><strong>背景显示方式</strong><Select label="背景显示方式" value={background.fit} onChange={fit=>void save({fit:fit as BackgroundFit})}><option value="stretch">自动拉伸</option><option value="contain">自动缩放（完整显示）</option><option value="cover">自动裁切（填满窗口）</option><option value="natural">原始尺寸（居中）</option></Select></div>

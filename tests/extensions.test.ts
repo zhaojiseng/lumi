@@ -59,7 +59,7 @@ test('external manifest registers all interface slots and withdraws without alte
 test('interface packages retain independent switches, select priorities and persist atomically and fall back when updated or missing',async t=>{
   const f=await fixture(t),compact='extension.lumi.compact',other='extension.lumi.other';
   const priorities:Record<string,number>={[other]:200};
-  const options={...f.options,interfacePreferences:()=>({candidates:[],priorities})};
+  const options={...f.options,interfacePreferences:()=>({candidates:[{id:'interface.background',enabled:true,priority:1000}],priorities})};
   const host=new ExtensionHost(options);await host.start();t.after(()=>host.dispose());
   await cp('extensions/packages/'+compact,path.join(f.options.directory,compact),{recursive:true});
   await cp('extensions/packages/'+compact,path.join(f.options.directory,other),{recursive:true});

@@ -9,6 +9,8 @@
 .interface-style-node .interface-sort-handle { touch-action: none; cursor: default; flex: 0 0 auto; }
 .interface-sort-handle[aria-disabled="true"] { opacity: .5; }
 .interface-sort-position { font-size: 11px; color: var(--text-muted); width: 14px; text-align: center; }
-.interface-style-node.sorting { outline: 1px solid var(--accent); background: var(--panel-soft); }
-.interface-sort-tree { user-select: none; }
+.interface-style-node { transition: background-color .18s ease, box-shadow .18s ease; }
+.interface-style-node.sorting { position: relative; z-index: 1; outline: 1px solid var(--accent); background: var(--panel-soft); box-shadow: 0 6px 18px #0002; }
+.interface-sort-tree { position: relative; user-select: none; }
+@media (prefers-reduced-motion: reduce) { .interface-style-node { transition: none; } }
 .interface-sort-announcement { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }

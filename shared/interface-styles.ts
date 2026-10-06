@@ -16,7 +16,7 @@ export function normalizeInterfacePriorities(input:unknown):Record<string,number
 }
 export interface StyleCandidate {id:string;enabled:boolean;priority:number;}
 export function validInterfaceOrder(value:unknown):value is string[]{return Array.isArray(value) && value.length>=2 && value.length<=66 && new Set(value).size===value.length && value.every(id=>typeof id==='string' && styleId.test(id));}
-/** A deterministic winner preserves enabled alternatives for automatic fallback. */
+/** Background is an additive layer, never a replacement for the active interface. */
 export function preferredInterface(candidates:readonly StyleCandidate[],priorities:Record<string,number>={}){
-  return candidates.filter(style=>style.enabled).sort((a,b)=>(priorities[b.id] ?? b.priority)-(priorities[a.id] ?? a.priority) || a.id.localeCompare(b.id))[0]?.id || 'interface.default';
+  return candidates.filter(style=>style.enabled && style.id!==BACKGROUND_INTERFACE_ID).sort((a,b)=>(priorities[b.id] ?? b.priority)-(priorities[a.id] ?? a.priority) || a.id.localeCompare(b.id))[0]?.id || 'interface.default';
 }
