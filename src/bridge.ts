@@ -20,7 +20,7 @@ function browserPluginStatuses():PluginStatus[]{return builtinManifests.map(mani
 const browserBridge: LumiBridge = {
   syncSurfaceTheme:async()=>{},
   extensionMarket:desktopOnly,installExtension:desktopOnly,removeExtension:desktopOnly,
-  extensionInventory:async()=>({directory:'',plugins:[],diagnostics:[]}),reloadExtensions:desktopOnly,openExtensionsDirectory:desktopOnly,extensionRequest:desktopOnly,
+  extensionInventory:async()=>({directory:'',plugins:[],diagnostics:[]}),reloadExtensions:desktopOnly,openExtensionsDirectory:desktopOnly,extensionRequest:desktopOnly,onExtensionEvent:()=>()=>{},
   readCodexUsage:desktopOnly,
   readCatalog:desktopOnly,
   listPlugins:async()=>browserPluginStatuses(),

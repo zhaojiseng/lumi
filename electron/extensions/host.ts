@@ -1,7 +1,7 @@
 import {mkdir,mkdtemp,writeFile,rename,rm,lstat,realpath} from 'node:fs/promises';
 import {z} from 'zod';
 import type {Cipher} from '../services/store';
-import {extensionStatus,type ExtensionInventory,type ExtensionContext,type ExtensionPermission,type ExtensionRequest} from '../../shared/contracts/extensions';
+import {extensionStatus,type ExtensionInventory,type ExtensionContext,type ExtensionPermission,type ExtensionRequest,type ExtensionMethod} from '../../shared/contracts/extensions';
 import {safeExtensionPath,extensionId} from '../../shared/extension-manifest';
 import {ExtensionStore} from './store';
 import {readExtensionPackage,scanExtensionPackages,EXTENSION_MIME,type ExtensionPackage} from './packages';
@@ -15,6 +15,7 @@ export interface ExtensionHostOptions {
   context():ExtensionContext;scope():string;
   interfacePreferences?():{candidates:StyleCandidate[];priorities:Record<string,number>};
   read(method:'workbench.read'|'usage.read'|'codex.usage.read',input:unknown):Promise<unknown>;
+  codexBridge?(method:ExtensionMethod,input:unknown,owner:{id:string;generation:number;view:string;signal:AbortSignal}):Promise<unknown>;
 }
 const keySchema=z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/).refine(key=>!['constructor','prototype'].includes(key));
 const json=z.unknown().refine(value=>{try{return JSON.stringify(value)?.length<=65536;}catch{return false;}},'扩展设置超过大小限制。');
@@ -114,6 +115,9 @@ export class ExtensionHost {
         await this.serial(async()=>{this.active(input);await this.store.change(input.id,{}, {key,value});});result=null;
       }else if(input.method==='network.read'){
         requirePermission('network.read');result=await extensionNetworkRead(input.input,item.pkg.manifest.networkOrigins,AbortSignal.any([item.controller.signal,AbortSignal.timeout(15000)]),key=>{requirePermission('secrets');return this.store.secret(input.id,key);});
+      }else if(input.method.startsWith('codex.bridge.')){
+        requirePermission('codex.bridge');if(!this.options.codexBridge)throw new Error('Codex 桥接不可用。');
+        result=await this.options.codexBridge(input.method,input.input ?? {},{id:input.id,generation:input.generation,view:input.view,signal:item.controller.signal});
       }else if(['workbench.read','usage.read','codex.usage.read'].includes(input.method)){
         requirePermission(input.method as ExtensionPermission);result=await this.options.read(input.method as 'workbench.read'|'usage.read'|'codex.usage.read',z.object({force:z.boolean().optional()}).strict().parse(input.input || {}));
       }else throw new Error('无效扩展接口。');

@@ -5,6 +5,7 @@ import type {LocalSessionsCapability} from './local-sessions';
 import type {ToolConfigAdapter} from './tool-adapter';
 import type {WorkbenchPresentationCapability,UsagePresentationCapability} from './desktop-projection';
 import type {SubscriptionUsageCapability} from './subscription-usage';
+import type {CodexBridgeFactory} from './codex-bridge';
 import type {DesktopSurfaceControl} from './desktop-surface';
 
 /** Capabilities exposed by the statically registered, trusted builtins. */
@@ -20,11 +21,12 @@ export interface BuiltinCapabilityMap {
   'widget.project':UsagePresentationCapability;
   'tray.project':WorkbenchPresentationCapability;
   'subscriptionUsage.read':SubscriptionUsageCapability;
+  'codexBridge':CodexBridgeFactory;
   'workbench.present':WorkbenchPresentationCapability;
   'usage.present':UsagePresentationCapability;
   'surface.control':DesktopSurfaceControl;
 }
-export const BUILTIN_CAPABILITY_IDS:readonly (keyof BuiltinCapabilityMap)[]=['catalog.read','account.session','online.usage','tokens.manage','toolCredential.provision','desktopUsage.read','localSessions.read','toolConfig.build','widget.project','tray.project','subscriptionUsage.read','workbench.present','usage.present','surface.control'];
+export const BUILTIN_CAPABILITY_IDS:readonly (keyof BuiltinCapabilityMap)[]=['catalog.read','account.session','online.usage','tokens.manage','toolCredential.provision','desktopUsage.read','localSessions.read','toolConfig.build','widget.project','tray.project','subscriptionUsage.read','codexBridge','workbench.present','usage.present','surface.control'];
 
 export type PluginCapabilityId<Capabilities extends object = BuiltinCapabilityMap> = Extract<keyof Capabilities, string>;
 

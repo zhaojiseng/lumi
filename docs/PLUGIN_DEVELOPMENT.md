@@ -732,7 +732,7 @@ LUMI_TEST_HOME="$TMPDIR/lumi-plugin-development/home" \
 export type Json = null | boolean | number | string | Json[] | {[key:string]:Json};
 export interface Context {theme:'light'|'dark';locale:'zh-CN';site:{id:string;name:string;url:string};refreshEpoch?:number;}
 export type ExtensionSlot='workbench'|'usage'|'models'|'tokens'|'connection'|'settingsTab'|'sidebar';
-export type ExtensionPermission='workbench.read'|'usage.read'|'codex.usage.read'|'storage'|'network.read'|'secrets';
+export type ExtensionPermission='workbench.read'|'usage.read'|'codex.usage.read'|'codex.bridge'|'storage'|'network.read'|'secrets';
 export interface ExtensionManifest {
   schemaVersion:1;hostApiVersion:1;id:string;kind?:'feature'|'interface';
   name:string;version:string;description:string;author:string;license:string;
@@ -758,6 +758,15 @@ export interface WidgetState {
   animation?:'slide-up'|'slide-down'|'blur'|'fade'|'scale'|'none';source?:'api'|'local';
 }
 export interface SubscriptionWindow {usedPercent:number|null;remainingPercent:number|null;durationMinutes:number|null;resetsAt:number|null;}
+export interface CodexBridgeStatus {installed:boolean;state:'starting'|'ready'|'exited';detail?:string;}
+export interface CodexBridgeMessage {id?:number|string;method?:string;params?:unknown;result?:unknown;error?:{code?:number;message?:string;data?:unknown};}
+export interface CodexBridgeSdk {
+  status():Promise<CodexBridgeStatus>;
+  send(input:{method:string;params?:unknown;notify?:boolean}):Promise<{result?:unknown;error?:unknown}>;
+  respond(input:{id:number|string;result?:unknown;error?:unknown}):Promise<void>;
+  chooseDirectory():Promise<{path:string}|null>;
+  subscribe(listener:(message:CodexBridgeMessage)=>void):()=>void;
+}
 export interface SubscriptionCredits {remaining:number|null;unlimited:boolean|null;hasCredits:boolean|null;}
 export interface SubscriptionUsageSnapshot {
   sourceId:'provider.codex';account:{id:string;label:string;plan:string|null}|null;
@@ -771,9 +780,10 @@ export interface LumiExtensionSdk {
   readonly view:{id:string;slot:ExtensionSlot}|undefined;
   readonly ready:Promise<{context:Context;view:NonNullable<LumiExtensionSdk['view']>}>;
   onContext(listener:(context:Context)=>void):()=>void;
+  onEvent(topic:string,listener:(payload:unknown)=>void):()=>void;
   workbench:{read<T=NativeMenuBarState>(input?:{force?:boolean}):Promise<T>};
   usage:{read<T=WidgetState>(input?:{force?:boolean}):Promise<T>};
-  codex:{readUsage<T=SubscriptionUsageSnapshot>(input?:{force?:boolean}):Promise<T>};
+  codex:{readUsage<T=SubscriptionUsageSnapshot>(input?:{force?:boolean}):Promise<T>;bridge:CodexBridgeSdk};
   storage:{read<T extends Json=Json>(key:string):Promise<T|null>;write(key:string,value:Json):Promise<void>};
   secrets:{has(key:string):Promise<boolean>;set(key:string,value:string|null):Promise<void>};
   network:{read(input:{url:string;headers?:Record<string,string>;secret?:{key:string;header:'Authorization'|'X-Api-Key';prefix?:'Bearer '|''}}):Promise<{status:number;body:string}>};
@@ -806,3 +816,27 @@ async function inspectTypes() {
 发布包至少附上支持的 Lumi 构建说明、清单版本、安装方法及权限用途。SDK v1 只提供本文列出的操作；`apiVersion` 与清单声明是兼容标志，不应尝试读取任意宿主对象或追加未文档化方法。响应可能增加字段，作者应只消费需要的字段，并保留 null/未知状态。
 
 在不克隆程序源码的情况下，本文的便笺、外部服务和界面示例均可由列出的文件独立构成。开发、验证、更新和分发都通过目录包与已安装程序完成；向 GitHub 提交是独立的可选步骤。
+
+## 13. Codex 桥接：外部插件驱动本机 Codex（0.5.16 起）
+
+`codex.bridge` 权限让外部插件成为本机 `codex app-server` 的显示层。主程序只当**受白名单约束的 JSON-RPC 隧道**：不解释协议、不覆盖沙箱与审批、不自动审批、不记录正文。登录、模型与审批策略完全由 Codex 自身配置决定。
+
+清单声明 `"permissions": ["codex.bridge"]` 后可用：
+
+| 方法 | 行为 |
+| --- | --- |
+| `codex.bridge.status()` | `{installed, state, detail?}`，仅进程/CLI 状态 |
+| `codex.bridge.send({method, params, notify?})` | 转发一条方法白名单内的 JSON-RPC 请求（`notify:true` 为通知），返回 `{result?}` 或 `{error?}` |
+| `codex.bridge.respond({id, result?, error?})` | 回写服务端发起的请求（审批决策） |
+| `codex.bridge.chooseDirectory()` | 主进程磁盘选择器，返回 `{path}` 或 `null` |
+| `codex.bridge.subscribe(listener)` / `sdk.onEvent('codex.bridge', listener)` | 原样接收所有入站消息（通知与服务端请求）；返回取消函数 |
+
+允许的方法：`initialize`、`initialized`、`thread/start|resume|read|list|fork|unarchive|name/set|archive|delete|loaded/list|turns/list|items/list`、`turn/start|steer|interrupt`、`model/list`、`skills/list`、`account/read`、`account/rateLimits/read`。
+
+被拒绝（不暴露给插件）：`process/*`、`command/exec*`、`thread/shellCommand`、`thread/backgroundTerminals/*`、`fs/*`、`account/login/*`、`account/logout`、`config/*` 写入、`marketplace/*`、`plugin/*`、`windowsSandbox/*`、`mcpServer/tool/call`、`externalAgentConfig/*`。
+
+服务端发起的请求（`item/commandExecution/requestApproval`、`item/fileChange/requestApproval`、`item/permissions/requestApproval`、`tool/requestUserInput`、`mcpServer/elicitation/request`）会原样推送；插件必须用 `respond` 回写决策，否则该轮会挂起。主程序在超时（默认 10 分钟）后回写错误，进程退出、停用插件或重新扫描时终止子进程并撤销订阅。插件**不得自动审批**，必须由用户确认。
+
+`codex.bridge` 是 v1 的追加权限，`hostApiVersion` 仍为 `1`；不支持该权限的旧宿主会把声明该权限的包判为无效，插件应据此提示“需要更新 Lumi”。完整示例见插件仓库 `plugins/extension.lumi.codex`（v2 起为对话客户端）。
+
+每个插件视图和加载代次使用独立进程，消息仅推送到所属视图。关闭视图、停用或更新插件、重新扫描时终止该连接及在途任务；桥接停用后须重新连接。`lumi/bridge/exited` 是宿主连接关闭事件，插件应清空在途状态并提供重连。重复或过期审批响应会被拒绝。

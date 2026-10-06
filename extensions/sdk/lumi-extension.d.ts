@@ -2,7 +2,7 @@
 export type Json = null | boolean | number | string | Json[] | {[key:string]:Json};
 export interface Context {theme:'light'|'dark';locale:'zh-CN';site:{id:string;name:string;url:string};refreshEpoch?:number;}
 export type ExtensionSlot='workbench'|'usage'|'models'|'tokens'|'connection'|'settingsTab'|'sidebar';
-export type ExtensionPermission='workbench.read'|'usage.read'|'codex.usage.read'|'storage'|'network.read'|'secrets';
+export type ExtensionPermission='workbench.read'|'usage.read'|'codex.usage.read'|'codex.bridge'|'storage'|'network.read'|'secrets';
 export interface ExtensionManifest {
   schemaVersion:1;hostApiVersion:1;id:string;kind?:'feature'|'interface';
   name:string;version:string;description:string;author:string;license:string;
@@ -28,6 +28,15 @@ export interface WidgetState {
   animation?:'slide-up'|'slide-down'|'blur'|'fade'|'scale'|'none';source?:'api'|'local';
 }
 export interface SubscriptionWindow {usedPercent:number|null;remainingPercent:number|null;durationMinutes:number|null;resetsAt:number|null;}
+export interface CodexBridgeStatus {installed:boolean;state:'starting'|'ready'|'exited';detail?:string;}
+export interface CodexBridgeMessage {id?:number|string;method?:string;params?:unknown;result?:unknown;error?:{code?:number;message?:string;data?:unknown};}
+export interface CodexBridgeSdk {
+  status():Promise<CodexBridgeStatus>;
+  send(input:{method:string;params?:unknown;notify?:boolean}):Promise<{result?:unknown;error?:unknown}>;
+  respond(input:{id:number|string;result?:unknown;error?:unknown}):Promise<void>;
+  chooseDirectory():Promise<{path:string}|null>;
+  subscribe(listener:(message:CodexBridgeMessage)=>void):()=>void;
+}
 export interface SubscriptionCredits {remaining:number|null;unlimited:boolean|null;hasCredits:boolean|null;}
 export interface SubscriptionUsageSnapshot {
   sourceId:'provider.codex';account:{id:string;label:string;plan:string|null}|null;
@@ -41,9 +50,10 @@ export interface LumiExtensionSdk {
   readonly view:{id:string;slot:ExtensionSlot}|undefined;
   readonly ready:Promise<{context:Context;view:NonNullable<LumiExtensionSdk['view']>}>;
   onContext(listener:(context:Context)=>void):()=>void;
+  onEvent(topic:string,listener:(payload:unknown)=>void):()=>void;
   workbench:{read<T=NativeMenuBarState>(input?:{force?:boolean}):Promise<T>};
   usage:{read<T=WidgetState>(input?:{force?:boolean}):Promise<T>};
-  codex:{readUsage<T=SubscriptionUsageSnapshot>(input?:{force?:boolean}):Promise<T>};
+  codex:{readUsage<T=SubscriptionUsageSnapshot>(input?:{force?:boolean}):Promise<T>;bridge:CodexBridgeSdk};
   storage:{read<T extends Json=Json>(key:string):Promise<T|null>;write(key:string,value:Json):Promise<void>};
   secrets:{has(key:string):Promise<boolean>;set(key:string,value:string|null):Promise<void>};
   network:{read(input:{url:string;headers?:Record<string,string>;secret?:{key:string;header:'Authorization'|'X-Api-Key';prefix?:'Bearer '|''}}):Promise<{status:number;body:string}>};

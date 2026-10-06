@@ -9,6 +9,7 @@ const bridge: LumiBridge = {
   syncSurfaceTheme:input=>call('syncSurfaceTheme',input),
   extensionMarket:input=>call('extensionMarket',input),installExtension:input=>call('installExtension',input),removeExtension:id=>call('removeExtension',id),
   extensionInventory:()=>call('extensionInventory'),reloadExtensions:()=>call('reloadExtensions'),openExtensionsDirectory:()=>call('openExtensionsDirectory'),extensionRequest:input=>call('extensionRequest',input),
+  onExtensionEvent:listener=>{const receive=(_event:Electron.IpcRendererEvent,event:Parameters<typeof listener>[0])=>listener(event);ipcRenderer.on('lumi:extensionEvent',receive);return()=>ipcRenderer.removeListener('lumi:extensionEvent',receive);},
   readCodexUsage:input=>call('readCodexUsage',input),
   readCatalog:input=>call('readCatalog',input),listPlugins:()=>call('listPlugins'),setPluginEnabled:(id,enabled)=>call('setPluginEnabled',{id,enabled}),
   setPluginView:(id,view,enabled)=>call('setPluginView',{id,view,enabled}),

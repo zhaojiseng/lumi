@@ -4,7 +4,7 @@ import {useApp} from '../context';
 import {usePluginStatuses} from './plugins';
 import type {ExtensionView,ExtensionContext,ExtensionMethod} from '../../shared/contracts/extensions';
 const protocol='lumi-extension/1';
-const methods=new Set<ExtensionMethod>(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read']);
+const methods=new Set<ExtensionMethod>(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read','codex.bridge.status','codex.bridge.send','codex.bridge.respond','codex.bridge.subscribe','codex.bridge.unsubscribe','codex.bridge.chooseDirectory']);
 /** Opaque sandbox origin: extension scripts cannot reach Lumi's DOM, preload or credentials. */
 export function ExtensionFrame({pluginId,view,refreshEpoch=0}:{pluginId:string;view:ExtensionView;refreshEpoch?:number}){
   const status=usePluginStatuses().find(s=>s.manifest.id===pluginId),generation=status?.generation ?? 0;
@@ -30,8 +30,9 @@ export function ExtensionFrame({pluginId,view,refreshEpoch=0}:{pluginId:string;v
       seen.add(message.id);++inflight;
       void bridge.extensionRequest({id:pluginId,generation,view:view.id,method:message.method,input:message.input}).then(data=>{if(active)send({type:'response',id:message.id,ok:true,data});},e=>{if(active)send({type:'response',id:message.id,ok:false,error:e instanceof Error ? e.message : '扩展请求失败。'});}).finally(()=>--inflight);
     };
-    window.addEventListener('message',receive);return()=>{active=false;clearTimeout(timer);window.removeEventListener('message',receive);};
+    window.addEventListener('message',receive);return()=>{active=false;clearTimeout(timer);window.removeEventListener('message',receive);void bridge.extensionRequest({id:pluginId,generation,view:view.id,method:'codex.bridge.unsubscribe',input:{}}).catch(()=>{});};
   },[pluginId,generation,view.id]);
+  useEffect(()=>{const stop=bridge.onExtensionEvent(event=>{if(event.id!==pluginId || event.generation!==generation || event.view!==view.id || !session.current.initialized)return;const frameWindow=frame.current?.contentWindow;if(!frameWindow)return;frameWindow.postMessage({protocol,nonce:session.current.nonce,type:'event',topic:event.topic,payload:event.payload},'*');});return stop;},[pluginId,generation,view.id]);
   useEffect(()=>{const {nonce,initialized}=session.current;if(initialized)frame.current?.contentWindow?.postMessage({protocol,nonce,type:'context',context},'*');},[context.theme,site.id,site.url,refreshEpoch]);
   if(status?.state!=='active')return null;
   return <section className="extension-view" data-extension={pluginId}><iframe key={generation} ref={frame} title={view.title} sandbox="allow-scripts" referrerPolicy="no-referrer" src={`lumi-extension://${pluginId}/${generation}/${view.entry}`} style={{width:'100%',height,border:0,display:'block'}}/>{error && <p role="alert" className="warning-banner">{error}</p>}</section>;

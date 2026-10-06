@@ -64,7 +64,7 @@ app.whenReady().then(async()=>{
  await resize(1120,900);
  const result=await win.webContents.executeJavaScript('('+async function(){
   const check=(value,message)=>{if(!value)throw new Error(message);},until=async fn=>{const end=performance.now()+4000;while(!fn()){if(performance.now()>end)throw new Error('Tree timeout: '+fn.toString());await new Promise(resolve=>setTimeout(resolve,10));}};
-  await until(()=>document.querySelectorAll('.plugin-settings-group[data-plugin]').length===7);
+  await until(()=>document.querySelectorAll('.plugin-settings-group[data-plugin]').length===8);
   const branches=Array.from(document.querySelectorAll('.plugin-branch-toggle'));check(branches.map(button=>button.querySelector('strong').textContent).join(',')==='内置插件,工具配置,界面风格,额外插件','Settings branches');
   const tools=document.querySelector('[data-plugin-group=tools]'),toolNodes=Array.from(tools.querySelectorAll('.plugin-settings-group'));check(toolNodes.map(node=>node.dataset.plugin).join(',')==='adapter.tool.codex,adapter.tool.claude','Independent tools in own branch');
   const provider=document.querySelector('[data-plugin="provider.newapi"]'),row=provider.querySelector('.plugin-row-button'),overview=document.querySelector('.plugin-settings-overview'),scroll=document.querySelector('.content-scroll'),dialog=()=>Array.from(document.querySelectorAll('.plugin-details-modal')).find(element=>!element.closest('[hidden],[inert]')),close=()=>dialog().querySelector('[aria-label="关闭弹窗"]').click();

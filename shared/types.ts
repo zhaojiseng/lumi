@@ -272,7 +272,9 @@ export interface LumiBridge {
   exportLogs(query: LogQuery): Promise<{ path?: string; count: number }>;
   openExternal(url: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): Promise<void>;
+  onExtensionEvent(listener:(event:ExtensionEventMessage)=>void):()=>void;
 }
+export interface ExtensionEventMessage {id:string;generation:number;view:string;topic:string;payload:unknown;}
 export const DEFAULT_SITE_ID = 'cyg-default';
 export const DEFAULT_SITE_URL = 'https://api.example.com';
 export const DEFAULT_PREFERENCES: Preferences = {

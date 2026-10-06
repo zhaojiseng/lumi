@@ -69,6 +69,17 @@ export class ToolRuntimeService {
     }
     return {...invocation(file,args,this.platform),env:{...this.env}};
   }
+  /** Interactive app-server for the extension bridge; no sandbox/approval overrides so Codex's own settings apply. */
+  async resolveCodexAppServerCommand():Promise<Command|undefined>{
+    const dirs=await this.searchDirs(),file=await this.find('codex',dirs);
+    if(!file)return undefined;
+    const args=['app-server'];
+    if(this.platform==='win32' && /\.(?:cmd|bat|ps1)$/i.test(file)){
+      const script=path.join(path.dirname(file),'node_modules','@openai','codex','bin','codex.js');
+      try{await access(script);const node=await this.find('node',dirs);if(node)return {file:node,args:[script,...args],env:{...this.env}};}catch{}
+    }
+    return {...invocation(file,args,this.platform),env:{...this.env}};
+  }
   private emit(state:ToolRuntimeState){const latest=this.latestCache.get(state.tool);if(latest && state.latestCheckedAt===undefined)state={...state,latestVersion:latest.version,latestCheckedAt:latest.checkedAt};this.states.set(state.tool,state);for(const listener of this.listeners)listener(structuredClone(state));return state;}
   private async execute(command:Command):Promise<CommandResult> {
     if(this.abort.signal.aborted)throw new Error('操作已取消。');

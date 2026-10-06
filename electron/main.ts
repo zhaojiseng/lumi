@@ -1,3 +1,4 @@
+import {createExtensionCodexBridge} from './extensions/codex-bridge';
 import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
 import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol,systemPreferences } from 'electron';
 import path from 'node:path';
@@ -120,7 +121,7 @@ async function start() {
   const surfaceTheme=new SurfaceThemeState(()=>({interfaceId:readInterfaceId(),mode:resolvedTheme(),appearanceKey:readAppearanceKey()})),surfaceThemeListeners=new Set<()=>void>();
   const notifySurfaceTheme=()=>surfaceThemeListeners.forEach(listener=>listener());
   let plugins:Awaited<ReturnType<typeof createBuiltinPlugins>>;
-  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),beforeDisable:id=>{if(id==='provider.newapi')configs.invalidatePreviews();if(id==='adapter.tool.codex')configs.invalidatePreviews('codex');if(id==='adapter.tool.claude')configs.invalidatePreviews('claude');},desktop:{
+  plugins=await createBuiltinPlugins(store,{resolveCodex:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexUsageCommand(),resolveCodexAppServer:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexAppServerCommand(),chooseDirectory:async()=>{const picked=await dialog.showOpenDialog(win,{title:'选择 Codex 工作目录',properties:['openDirectory','createDirectory']});return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];},beforeDisable:id=>{if(id==='provider.codex-bridge')dropAllBridgeSubscribers();if(id==='provider.newapi')configs.invalidatePreviews();if(id==='adapter.tool.codex')configs.invalidatePreviews('codex');if(id==='adapter.tool.claude')configs.invalidatePreviews('claude');},desktop:{
     root,preloadDirectory:__dirname,devUrl:process.env.LUMI_DEV_URL,platform:process.platform,packaged:app.isPackaged,resourcesPath:process.resourcesPath,smoke:process.env.LUMI_SMOKE==='1',
     preferences:()=>store.preferences,identity:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return createHash('sha256').update(JSON.stringify([site.id,site.url,secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');},
     theme:resolvedTheme,palette:()=>surfaceTheme.palette(),
@@ -132,6 +133,9 @@ async function start() {
   const accountApi=plugins.port('provider.newapi','account.session'),onlineApi=plugins.port('provider.newapi','online.usage'),tokensApi=plugins.port('provider.newapi','tokens.manage');
   const usage=plugins.require('source.local-sessions','localSessions.read');
   const configs = new ConfigService(store, data, undefined, req => plugins.require('provider.newapi','toolCredential.provision').provision(req),tool=>plugins.require('adapter.tool.'+tool,'toolConfig.build'));
+  const codexBridge=createExtensionCodexBridge(()=>plugins.require('provider.codex-bridge','codexBridge'),event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
+  const dropBridgeSubscriber=(id:string)=>codexBridge.drop(id);
+  const dropAllBridgeSubscribers=()=>codexBridge.drop();
   const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,sdk:await readFile(path.join(root,process.env.LUMI_DEV_URL && !app.isPackaged ? 'public/lumi-extension-sdk.js' : 'dist/lumi-extension-sdk.js')),
     interfacePreferences:()=>({candidates:[{id:DEFAULT_INTERFACE_ID,enabled:store.preferences.defaultInterfaceEnabled,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:pluginEnabled(backgroundInterfaceManifest,store.preferences),priority:200}],priorities:store.preferences.interfacePriorities}),
     context:()=>{const site=store.activeSite();return {theme:resolvedTheme(),locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
@@ -141,6 +145,7 @@ async function start() {
       if(method==='usage.read'){const usage=await plugins.require('feature.usage','usage.present').loadWidget();return formattedWidget('ready',usage,{enabled:true,viewKey:'extension',theme:resolvedTheme()});}
       const usage=await plugins.require('feature.workbench','workbench.present').loadMenu((input as {force?:boolean}).force);return nativeMenuBarState({phase:'ready',usage},menuBarSelection(store.preferences.viewSelections[store.preferences.activeSiteId]),store.preferences.menuBarContents);
     },
+    codexBridge:codexBridge.call,
   });
   await extensions.start();
   const extensionMarket=new ExtensionMarket(extensions);
@@ -153,6 +158,7 @@ async function start() {
     try{const current=new URL(source),target=new URL(details.url);done({cancel:target.protocol!=='data:' && (target.protocol!=='lumi-extension:' || current.host!==target.host)});}catch{done({cancel:true});}
   });
   app.on('before-quit',()=>extensions.dispose());
+  app.on('before-quit',dropAllBridgeSubscribers);
   const allPluginStatuses=()=>[...plugins.list().map(s=>({...s,origin:'builtin' as const})),...extensions.statuses()];
   const updateSurfaceInterface=(previous:ReturnType<typeof extensions.inventory>['interfaceStyle'])=>{const next=extensions.inventory().interfaceStyle;if(previous?.id!==next?.id || previous?.css!==next?.css){surfaceTheme.clear();notifySurfaceTheme();}};
   app.on('before-quit',()=>{void plugins.dispose().catch(error=>appLogs.write('error','插件',error instanceof Error ? error.message : '插件清理失败。'));});
@@ -184,12 +190,12 @@ async function start() {
   handle('extensionInventory',noPayload,()=>extensions.inventory());
   handle('extensionMarket',z.object({force:z.boolean().optional()}).strict(),input=>extensionMarket.read(input));
   handle('installExtension',z.object({id:z.string().regex(extensionId),revision:z.string().regex(/^[a-f0-9]{40}$/)}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensionMarket.install(input);updateSurfaceInterface(previous);return inventory;});
-  handle('removeExtension',z.string().regex(extensionId),async id=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensions.remove(id);updateSurfaceInterface(previous);return inventory;});
-  handle('reloadExtensions',noPayload,async()=>{const previous=extensions.inventory().interfaceStyle,inventory=await extensions.reload();updateSurfaceInterface(previous);return inventory;});
+  handle('removeExtension',z.string().regex(extensionId),async id=>{dropBridgeSubscriber(id);const previous=extensions.inventory().interfaceStyle,inventory=await extensions.remove(id);updateSurfaceInterface(previous);return inventory;});
+  handle('reloadExtensions',noPayload,async()=>{dropAllBridgeSubscribers();const previous=extensions.inventory().interfaceStyle,inventory=await extensions.reload();updateSurfaceInterface(previous);return inventory;});
   handle('openExtensionsDirectory',noPayload,async()=>{const error=await shell.openPath(extensions.inventory().directory);if(error)throw new Error('扩展目录暂未能打开。');});
-  handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read']),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
+  handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read','codex.bridge.status','codex.bridge.send','codex.bridge.respond','codex.bridge.subscribe','codex.bridge.unsubscribe','codex.bridge.chooseDirectory']),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
   handle('readCodexUsage',z.object({force:z.boolean().optional()}).strict(),input=>plugins.require('provider.codex','subscriptionUsage.read').read(input));
-  handle('setPluginEnabled',z.object({id:z.string().min(1).max(100),enabled:z.boolean()}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle;if(extensions.has(input.id))await extensions.setEnabled(input.id,input.enabled);else await plugins.setEnabled(input.id,input.enabled);updateSurfaceInterface(previous);if(input.id==='surface.widget')win.webContents.send('lumi:widgetVisibility',input.enabled);return allPluginStatuses();});
+  handle('setPluginEnabled',z.object({id:z.string().min(1).max(100),enabled:z.boolean()}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle;if(extensions.has(input.id))await extensions.setEnabled(input.id,input.enabled);else await plugins.setEnabled(input.id,input.enabled);if(!input.enabled && extensions.has(input.id))dropBridgeSubscriber(input.id);updateSurfaceInterface(previous);if(input.id==='surface.widget')win.webContents.send('lumi:widgetVisibility',input.enabled);return allPluginStatuses();});
   handle('setPluginView',z.object({id:z.string().min(1).max(100),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),enabled:z.boolean()}).strict(),async input=>{if(extensions.has(input.id))await extensions.setView(input.id,input.view,input.enabled);else await plugins.setView(input.id,input.view,input.enabled);return allPluginStatuses();});
   handle('readCatalog',z.object({siteId:z.string().min(1).max(100),siteUrl:z.string().min(1).max(2000),force:z.boolean().optional()}).strict(),input=>plugins.readCatalog(input));
   handle('appLogs',noPayload,()=>appLogs.snapshot());

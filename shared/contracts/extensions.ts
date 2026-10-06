@@ -2,7 +2,7 @@ import type {PluginManifest,PluginStatus} from './plugins';
 import type {InterfaceStyle,InterfaceDefinition} from './interface';
 
 export const EXTENSION_API_VERSION=1;
-export const EXTENSION_PERMISSIONS=['workbench.read','usage.read','codex.usage.read','storage','network.read','secrets'] as const;
+export const EXTENSION_PERMISSIONS=['workbench.read','usage.read','codex.usage.read','codex.bridge','storage','network.read','secrets'] as const;
 export type ExtensionPermission=typeof EXTENSION_PERMISSIONS[number];
 export const EXTENSION_SLOTS=['workbench','usage','models','tokens','connection','settingsTab','sidebar'] as const;
 export type ExtensionSlot=typeof EXTENSION_SLOTS[number];
@@ -21,8 +21,10 @@ export interface ExtensionManifest {
 }
 export interface ExtensionDescriptor {manifest:ExtensionManifest;digest:string;removable?:boolean;}
 export interface ExtensionInventory {directory:string;plugins:ExtensionDescriptor[];diagnostics:{package:string;error:string}[];interfaceStyle?:InterfaceStyle;}
-export type ExtensionMethod='context.read'|'storage.read'|'storage.write'|'secret.set'|'secret.has'|'network.read'|'workbench.read'|'usage.read'|'codex.usage.read';
+export type ExtensionMethod='context.read'|'storage.read'|'storage.write'|'secret.set'|'secret.has'|'network.read'|'workbench.read'|'usage.read'|'codex.usage.read'|'codex.bridge.status'|'codex.bridge.send'|'codex.bridge.respond'|'codex.bridge.subscribe'|'codex.bridge.unsubscribe'|'codex.bridge.chooseDirectory';
 export interface ExtensionRequest {id:string;generation:number;view:string;method:ExtensionMethod;input?:unknown;}
+/** Host-initiated push to one extension view; the only stream channel besides context updates. */
+export interface ExtensionEvent {id:string;topic:string;payload:unknown;}
 export interface ExtensionContext {theme:'light'|'dark';locale:'zh-CN';site:{id:string;name:string;url:string};refreshEpoch?:number;}
 export function extensionPluginManifest(manifest:ExtensionManifest):PluginManifest {
   return {id:manifest.id,version:manifest.version,hostApiVersion:1,configurable:true,requires:[],optional:[],provides:[],settings:{title:manifest.name,description:manifest.description,order:200,views:manifest.switches}};
