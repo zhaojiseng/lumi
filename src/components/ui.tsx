@@ -4,7 +4,7 @@ import {BrandGlyph} from './BrandIcon';
 import {PopupLayer,type PopupLayerProps} from './Popup';
 import {usePopupVisible} from './PopupPresence';
 /** Multi-state slider switch: a raised knob slides along a continuous track to the pressed stop. */
-export function SegmentedSwitch({label,className,children}:{label:string;className?:string;children:ReactNode}) {
+export function SegmentedSwitch({label,className,role='group',children}:{label:string;className?:string;role?:'group'|'radiogroup';children:ReactNode}) {
   const ref=useRef<HTMLDivElement>(null),[thumb,setThumb]=useState<{x:number;y:number;w:number;h:number}|null>(null);
   const knob=useRef<HTMLSpanElement>(null),align=useRef(()=>{}),suppressClick=useRef(false),clickTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   const drag=useRef<{id:number;button:HTMLButtonElement;x:number;y:number;left:number;top:number;w:number;h:number;moved:boolean}|null>(null);
@@ -14,7 +14,7 @@ export function SegmentedSwitch({label,className,children}:{label:string;classNa
     if(!node)return;
     const update=()=>{
       if(drag.current?.moved)return;
-      const active=node.querySelector<HTMLElement>(':scope > button[aria-pressed="true"]');
+      const active=node.querySelector<HTMLElement>(':scope > button[aria-pressed="true"], :scope > button[aria-checked="true"]');
       if(!active){setThumb(null);return;}
       const next={x:active.offsetLeft,y:active.offsetTop,w:active.offsetWidth,h:active.offsetHeight};
       if(knob.current)knob.current.style.transform='translate('+next.x+'px,'+next.y+'px)';
@@ -27,7 +27,7 @@ export function SegmentedSwitch({label,className,children}:{label:string;classNa
     node.querySelectorAll(':scope > button').forEach(button=>observer.observe(button));
     return()=>observer.disconnect();
   });
-  function finish(event:PointerEvent<HTMLDivElement>,cancel=false){
+  function finish(event:Pick<PointerEvent<HTMLDivElement>,'pointerId'|'clientX'|'clientY'>,cancel=false){
     const current=drag.current,node=ref.current;
     if(!current || current.id!==event.pointerId || !node)return;
     drag.current=null;delete node.dataset.dragging;
@@ -43,10 +43,17 @@ export function SegmentedSwitch({label,className,children}:{label:string;classNa
     }
     align.current();
   }
-  return <div ref={ref} role="group" aria-label={label} className={'model-mode-selector segmented-switch '+(className || '')}
+  return <div ref={ref} role={role} aria-label={label} className={'model-mode-selector segmented-switch '+(className || '')}
+    onKeyDown={event=>{
+      if(event.key==='Escape' && drag.current){event.preventDefault();finish({pointerId:drag.current.id,clientX:0,clientY:0},true);return;}
+      if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
+      const buttons=[...event.currentTarget.querySelectorAll<HTMLButtonElement>(':scope > button:not(:disabled)')],index=buttons.indexOf(event.target as HTMLButtonElement);if(index<0)return;
+      event.preventDefault();const target=event.key==='Home' ? 0 : event.key==='End' ? buttons.length-1 : (index+(['ArrowLeft','ArrowUp'].includes(event.key) ? -1 : 1)+buttons.length)%buttons.length;
+      buttons[target].focus({preventScroll:true});buttons[target].click();
+    }}
     onPointerDown={event=>{
       const button=(event.target as Element).closest<HTMLButtonElement>('button');
-      if(event.button!==0 || !event.isPrimary || !button || button.parentElement!==event.currentTarget || button.disabled || button.getAttribute('aria-pressed')!=='true')return;
+      if(event.button!==0 || !event.isPrimary || !button || button.parentElement!==event.currentTarget || button.disabled || !(button.getAttribute('aria-pressed')==='true' || button.getAttribute('aria-checked')==='true'))return;
       drag.current={id:event.pointerId,button,x:event.clientX,y:event.clientY,left:button.offsetLeft,top:button.offsetTop,w:button.offsetWidth,h:button.offsetHeight,moved:false};
       button.setPointerCapture(event.pointerId);
     }}

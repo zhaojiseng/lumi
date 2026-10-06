@@ -3,7 +3,8 @@
  * No page capture, network resource, plugin script or arbitrary filter URL. */
 const NS='http://www.w3.org/2000/svg';
 const PROPERTY='--lumi-glass-filter';
-const TARGETS='.sidebar, .segmented-thumb, .vendor-tabs > button.active, .favorite-filter.active, .modal, .toast, [data-popup-kind="popover"], .multi-popover, .recharts-default-tooltip, .donut-tooltip, .select-wrap select';
+const CONTAINERS='.surface.panel:not(.modal), .stat-card, .tool-config-card, .model-card, .token-overview-card, .model-toolbar, .statistics-filter, .welcome-hero';
+const TARGETS='.sidebar, .segmented-thumb, .vendor-tabs > button.active, .favorite-filter.active, .modal, .toast, [data-popup-kind="popover"], .multi-popover, .recharts-default-tooltip, .donut-tooltip, .select-wrap select, '+CONTAINERS;
 let sequence=0;
 
 export function glassDisplacement(width:number,height:number,radius:number,maxSize=384,lens=false){
@@ -63,7 +64,8 @@ export function installGlassRefraction(shell:HTMLElement){
     };
     const targets=[...shell.querySelectorAll<HTMLElement>(TARGETS)]
       .filter(visible)
-      .sort((a,b)=>Number(b.matches('.multi-popover, .recharts-default-tooltip, .donut-tooltip, select'))-Number(a.matches('.multi-popover, .recharts-default-tooltip, .donut-tooltip, select')))
+      .filter(element=>!element.matches(CONTAINERS) || view.getComputedStyle(element).getPropertyValue('--lumi-glass-surface').trim()==='1')
+      .sort((a,b)=>Number(b.matches('.segmented-thumb, .modal, .multi-popover, .recharts-default-tooltip, .donut-tooltip, select'))-Number(a.matches('.segmented-thumb, .modal, .multi-popover, .recharts-default-tooltip, .donut-tooltip, select')))
       .slice(0,96),live=new Set(targets);
     for(const element of [...entries.keys()])if(!live.has(element))remove(element);
     for(const element of targets){

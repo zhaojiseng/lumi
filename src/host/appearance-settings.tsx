@@ -1,6 +1,6 @@
 import {useContext,type KeyboardEvent} from 'react';
 import {Check,Sun,Moon,Laptop} from 'lucide-react';
-import {SectionHeading} from '../components/ui';
+import {SectionHeading,SegmentedSwitch} from '../components/ui';
 import {useApp} from '../context';
 import {usePluginSettings} from './plugins';
 import {InterfaceErrorContext} from './interface-settings';
@@ -21,6 +21,6 @@ export function AppearanceSettings(){
   const save=(patch:Parameters<typeof updatePreferences>[0])=>{void updatePreferences(patch).catch(error=>toast(error.message,'error'));};
   return <section className="surface panel appearance-settings"><SectionHeading title="外观" sub={style ? extensions?.plugins.find(plugin=>plugin.manifest.id===style.id)?.manifest.name : '默认界面'}/>
     <div className="theme-options" role="radiogroup" aria-label="颜色模式" onKeyDown={radioKey}>{([['light',Sun,'浅色'],['dark',Moon,'深色'],['system',Laptop,'跟随系统']] as const).map(([theme,Icon,label])=><button type="button" role="radio" aria-checked={preferences.theme===theme} tabIndex={preferences.theme===theme ? 0 : -1} key={theme} className={preferences.theme===theme ? 'active' : ''} onClick={()=>save({theme})}><AppearancePreview style={style} mode={theme==='system' ? system : theme} values={values} platform={bootstrap.platform || 'browser'}/><span><Icon size={14}/>{label}{preferences.theme===theme && <Check size={13}/>}</span></button>)}</div>
-    {groups.map(group=><fieldset className="appearance-group" key={style!.id+':'+group.id}><legend>{group.title}</legend><div className="segmented" role="radiogroup" aria-label={group.title} onKeyDown={radioKey}>{group.options.map(option=><button type="button" role="radio" aria-checked={values[group.id]===option.id} tabIndex={values[group.id]===option.id ? 0 : -1} className={values[group.id]===option.id ? 'active' : ''} key={option.id} onClick={()=>save({interfaceSelection:{interfaceId:style!.id,values:{[group.id]:option.id}}})}>{option.title}</button>)}</div></fieldset>)}
+    {groups.map(group=><fieldset className="appearance-group" key={style!.id+':'+group.id}><legend>{group.title}</legend><SegmentedSwitch label={group.title} role="radiogroup" className="appearance-selector">{group.options.map(option=><button type="button" role="radio" aria-checked={values[group.id]===option.id} tabIndex={values[group.id]===option.id ? 0 : -1} className={values[group.id]===option.id ? 'active' : ''} key={option.id} onClick={()=>save({interfaceSelection:{interfaceId:style!.id,values:{[group.id]:option.id}}})}>{option.title}</button>)}</SegmentedSwitch></fieldset>)}
   </section>;
 }
