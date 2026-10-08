@@ -12,6 +12,7 @@ import {syncSurfaceTheme} from './surface-theme';
 import {interfaceAppearanceKey,resolveInterfaceAppearance} from '../../shared/interface-appearance';
 import {PopupScope} from '../components/PopupPresence';
 import {installGlassRefraction} from './glass-refraction';
+import {applyDocumentTypography,disposeDocumentTypography} from './typography';
 
 export interface InterfaceShellProps {
   appearancePending?:boolean;
@@ -57,6 +58,8 @@ export function InterfaceHost(props:InterfaceShellProps){
     const ours=[base,...extra ? [extra] : []];document.adoptedStyleSheets=[...document.adoptedStyleSheets,...ours];
     return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>!ours.includes(sheet));};
   },[style?.id,style?.css]);
+  useLayoutEffect(()=>{applyDocumentTypography(document,props.preferences);},[props.preferences.fontSize,props.preferences.fontFamily,style?.id,style?.css]);
+  useLayoutEffect(()=>()=>disposeDocumentTypography(document),[]);
   const Shell=defaultInterfacePlugin.component,active=style && !failure ? style.id : DEFAULT_INTERFACE_ID;
   const groups=active===style?.id ? style.appearanceGroups : undefined,saved=props.preferences.interfaceSelections?.[active];
   const appearance=resolveInterfaceAppearance(groups,saved),appearanceKey=interfaceAppearanceKey(groups,saved);

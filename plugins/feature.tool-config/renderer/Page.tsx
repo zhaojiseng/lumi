@@ -209,14 +209,18 @@ function ToolsPage({definitions}:{definitions:readonly ToolConfigView[]}) {
     {!definitions.length && <p className="muted" role="status">暂无启用的工具配置插件，请在设置的“工具配置”分组中启用。</p>}
     {syncNote && <p className="muted small-text" role="status">{syncNote}</p>}
     <div className="info-note"><Info size={15}/><span>设置中的环境变量只写入工具配置文件。系统或项目级环境变量可能覆盖这些设置；应用后请重启 Codex / Claude Code。与 CC Switch 同时切换配置时，请重新检查预览。</span></div>
-    <PopupPresence>{preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} wide onClose={()=>{if(!operation.current)setPreview(null);}}>
+    <PopupPresence>{preview && <Modal title="确认配置变更" subtitle={preview.tool==='codex' ? 'Codex · Responses API' : 'Claude Code · Anthropic API'} className="tool-config-preview" wide onClose={()=>{if(!operation.current)setPreview(null);}}>
+      <div className="tool-config-preview-content">
       <div className="preview-token"><KeyRound size={16}/><span>{preview.token?.created ? '已创建' : '已复用'}专用令牌 <strong>{preview.token?.name}</strong> · {preview.token?.group}</span></div>
       <div className="preview-changes">{preview.changes.map((s,i)=><div key={i}><Check size={14}/><span>{s}</span></div>)}</div>
       {preview.tool==='codex' && <p className="muted small-text">相关历史对话会在应用时检查并同步。</p>}
       <div className="preview-file-tabs"><SegmentedSwitch label="配置文件" className="preview-file-selector">{preview.files.map((f,i)=><button key={f.path} aria-pressed={fileIndex===i} className={fileIndex===i ? 'active' : ''} onClick={()=>setFileIndex(i)}><FileCode2 size={14}/>{f.path.split(/[\\/]/).at(-1)}</button>)}</SegmentedSwitch><SegmentedSwitch label="修改前后" className="segmented"><button aria-pressed={view==='before'} className={view==='before' ? 'active' : ''} onClick={()=>setView('before')}>修改前</button><button aria-pressed={view==='after'} className={view==='after' ? 'active' : ''} onClick={()=>setView('after')}>修改后</button></SegmentedSwitch></div>
       {currentFile && <><p className="preview-path">{currentFile.path}</p><pre className="code-preview">{currentFile[view]}</pre></>}
+      </div>
+      <div className="tool-config-preview-footer">
       <ConfigFeedback pending={pending?.operation==='apply' ? pending : null} error={error?.operation==='apply' ? error.message : undefined}/>
       <div className="modal-actions"><span className="muted small-text">原配置会在写入前自动加密备份</span><Button onClick={()=>{if(!operation.current)setPreview(null);}} disabled={busy}>取消</Button><Button variant="primary" busy={busy} onClick={apply} disabled={busy || !bootstrap.desktop || !preview.files.length}><Check size={16}/>备份并应用</Button></div>
+      </div>
     </Modal>}</PopupPresence>
     <PopupPresence>{history && <Modal title="配置备份" subtitle="备份包含原始配置与认证，保存在本机系统加密存储中。" onClose={()=>setHistory(false)}><div className="backup-list">{backups.length ? backups.map(b=><div key={b.id}><ToolIcon tool={b.tool} size={33}/><div><strong>{toolName(b.tool)}</strong><span>{new Date(b.createdAt).toLocaleString()}</span></div><Button disabled={busy || !bootstrap.desktop || !enabledTools.current.includes(b.tool)} title={!enabledTools.current.includes(b.tool) ? '请先在设置中启用此工具配置插件' : undefined} onClick={()=>{if(operation.current || !enabledTools.current.includes(b.tool))return;setHistory(false);setError(null);setRestore(b);}}><RotateCcw size={14}/>恢复</Button></div>) : <div className="empty-state"><History size={28}/><h3>暂无备份</h3><p>首次应用工具配置后，备份会显示在这里。</p></div>}</div></Modal>}</PopupPresence>
     <PopupPresence>{restore && <Modal title="恢复配置" subtitle={`恢复 ${new Date(restore.createdAt).toLocaleString()} 修改前的文件`} onClose={()=>{if(!operation.current)setRestore(null);}}>

@@ -10,6 +10,7 @@ import {normalizeMenuBarRange} from '../../shared/menu-bar-periods';
 import {refreshSeconds} from '../../shared/refresh';
 import {refreshAnimation} from '../../shared/motion';
 import {normalizeWidgetPeriod} from '../../shared/widget-period';
+import {normalizeTypography,validFontSize,validFontFamily} from '../../shared/typography';
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -42,6 +43,7 @@ export class SettingsStore {
     try { data = JSON.parse(await readFile(path.join(this.directory, 'settings.json'), 'utf8')); }
     catch (e: any) { if (e.code === 'ENOENT') return; throw new Error('设置文件无法读取。请检查应用数据目录。'); }
     this.preferences = { ...structuredClone(DEFAULT_PREFERENCES), ...data.preferences };
+    Object.assign(this.preferences,normalizeTypography(this.preferences));
     this.preferences.pluginViews=normalizePluginViews(this.preferences.pluginViews,this.preferences.pluginEnabled);
     this.preferences.pluginEnabled=normalizePluginEnabled(this.preferences.pluginEnabled);
     this.preferences.interfaceSelections=normalizeInterfaceSelections(this.preferences.interfaceSelections);
@@ -128,6 +130,7 @@ export class SettingsStore {
     await this.persist(); return structuredClone(this.preferences);
   }
   async update(patch: PreferencePatch) {
+    if(patch.fontSize!==undefined && !validFontSize(patch.fontSize) || patch.fontFamily!==undefined && !validFontFamily(patch.fontFamily))throw new Error('字体设置无效。');
     if(patch.interfaceOrder && !validInterfaceOrder(patch.interfaceOrder))throw new Error('界面风格排序无效。');
     if(patch.interfacePriority && Object.keys(normalizeInterfacePriorities({[patch.interfacePriority.id]:patch.interfacePriority.priority})).length!==1)throw new Error('界面优先级无效。');
     if(patch.background && (!validBackgroundImage(patch.background.image) || !BACKGROUND_FITS.includes(patch.background.fit) || typeof patch.background.name!=='string' || patch.background.name.length>120))throw new Error('背景图片设置无效。');
@@ -137,9 +140,11 @@ export class SettingsStore {
     if (patch.selection && Object.keys(normalizeSelections({[patch.selection.siteId]: patch.selection.values})[patch.selection.siteId] || {}).length !== Object.keys(patch.selection.values).length) throw new Error('选择设置无效。');
     if(patch.sourceSelection && (!['source.local-sessions','feature.usage'].includes(patch.sourceSelection.sourceId) || Object.keys(normalizeSelections({[patch.sourceSelection.sourceId]:patch.sourceSelection.values})[patch.sourceSelection.sourceId] || {}).length!==Object.keys(patch.sourceSelection.values).length))throw new Error('来源选择设置无效。');
     const previousAppearance=this.preferences.interfaceSelections;
+    const previousTypography=normalizeTypography(this.preferences);
     const previousStyles={interfacePriorities:this.preferences.interfacePriorities,background:this.preferences.background,defaultInterfaceEnabled:this.preferences.defaultInterfaceEnabled};
     this.preferences = applyPreferencePatch(this.preferences, patch);
     const updatedAppearance=this.preferences.interfaceSelections;
+    const updatedTypography=normalizeTypography(this.preferences);
     const updatedStyles={interfacePriorities:this.preferences.interfacePriorities,background:this.preferences.background,defaultInterfaceEnabled:this.preferences.defaultInterfaceEnabled};
     this.preferences.dataRefreshAnimation=refreshAnimation(this.preferences.dataRefreshAnimation);
     this.preferences.menuBarContents=normalizeMenuBarContents(this.preferences.menuBarContents);
@@ -151,7 +156,7 @@ export class SettingsStore {
     this.preferences.widgetPeriod=normalizeWidgetPeriod(this.preferences.widgetPeriod);
     this.preferences.widgetInputMode=this.preferences.widgetInputMode==='uncached' ? 'uncached' : 'total';
     this.preferences.logColumns = normalizeLogColumns(this.preferences.logColumns);
-    try{await this.persist();}catch(error){if(patch.interfaceSelection && this.preferences.interfaceSelections===updatedAppearance)this.preferences.interfaceSelections=previousAppearance;for(const key of ['interfacePriorities','background','defaultInterfaceEnabled'] as const){if(this.preferences[key]===updatedStyles[key])Object.assign(this.preferences,{[key]:previousStyles[key]});}throw error;}
+    try{await this.persist();}catch(error){for(const key of ['fontSize','fontFamily'] as const)if(patch[key]!==undefined && this.preferences[key]===updatedTypography[key])Object.assign(this.preferences,{[key]:previousTypography[key]});if(patch.interfaceSelection && this.preferences.interfaceSelections===updatedAppearance)this.preferences.interfaceSelections=previousAppearance;for(const key of ['interfacePriorities','background','defaultInterfaceEnabled'] as const){if(this.preferences[key]===updatedStyles[key])Object.assign(this.preferences,{[key]:previousStyles[key]});}throw error;}
     return structuredClone(this.preferences);
   }
   async setPluginEnabled(id:string,enabled:boolean) {

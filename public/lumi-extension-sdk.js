@@ -18,9 +18,10 @@
     if(sheet.textContent!==css){disposeGlass?.();disposeGlass=undefined;sheet.textContent=css;}
     if (!value.css) {disposeGlass?.();disposeGlass=undefined;}
     else if (!disposeGlass && typeof LumiGlassRuntime !== 'undefined') disposeGlass=LumiGlassRuntime.installGlassRefraction(root);
+    if(typeof LumiGlassRuntime !== 'undefined')LumiGlassRuntime.applyDocumentTypography(document,value.typography);
   }
   const eventListeners = new Map();
-  window.addEventListener('pagehide',()=>{activePage=false;disposeGlass?.();disposeGlass=undefined;bodyResize?.disconnect();bodyResize=undefined;layoutObserver?.disconnect();layoutObserver=undefined;});
+  window.addEventListener('pagehide',()=>{activePage=false;disposeGlass?.();disposeGlass=undefined;if(typeof LumiGlassRuntime !== 'undefined')LumiGlassRuntime.disposeDocumentTypography(document);bodyResize?.disconnect();bodyResize=undefined;layoutObserver?.disconnect();layoutObserver=undefined;});
   window.addEventListener('pageshow',()=>{activePage=true;setupDocument();});
   function onEvent(topic, listener) { let set = eventListeners.get(topic); if (!set) { set = new Set(); eventListeners.set(topic, set); if (topic === 'codex.bridge') call('codex.bridge.subscribe', {}).catch(error => emitEvent(topic, {method:'lumi/bridge/exited',params:{detail:error.message}})); } set.add(listener); let active=true; return () => { if (!active) return; active=false; set.delete(listener); if (!set.size && eventListeners.get(topic) === set) { eventListeners.delete(topic); if (topic === 'codex.bridge') call('codex.bridge.unsubscribe', {}).catch(()=>{}); } }; }
   function emitEvent(topic, payload) { const set = eventListeners.get(topic); if (set) for (const listener of [...set]) listener(payload); }

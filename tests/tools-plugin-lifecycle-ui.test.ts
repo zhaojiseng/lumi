@@ -7,9 +7,13 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 
-test('real tool page withdraws prepared and late previews without remounting the other adapter, and preserves disabled backups',{timeout:30000},async t=>{
+test('real tool page withdraws prepared and late previews, preserves disabled backups and pins preview actions',{timeout:45000},async t=>{
   let electron:string;try{electron=createRequire(import.meta.url)('electron');}catch{return t.skip('Electron runtime unavailable');}if(!existsSync(electron))return t.skip('Electron runtime unavailable');
   const base=path.resolve('.test-data');await mkdir(base,{recursive:true});const root=await mkdtemp(path.join(base,'tools-plugin-ui-'));t.after(()=>rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}));
+  // Optional matching external skin exercises the same real tool page without
+  // making this repository's test suite depend on a sibling checkout.
+  const skin=process.env.LUMI_TOOL_PREVIEW_SKIN ? await readFile(process.env.LUMI_TOOL_PREVIEW_SKIN,'utf8') : '';
+  await writeFile(path.join(root,'skin.json'),JSON.stringify(skin));
   const built=await build({stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
 import {AppContext} from './src/context';import {DEFAULT_PREFERENCES} from './shared/types';import {applyPreferencePatch} from './shared/selections';
@@ -17,12 +21,14 @@ import {builtinManifests} from './plugins/manifests';import {settingsGroups} fro
 const prefs=structuredClone(DEFAULT_PREFERENCES);prefs.sites[0]={...prefs.sites[0],url:'https://fixture.invalid',userId:1,accessTokenConfigured:true};prefs.bindings=prefs.bindings.map(binding=>({...binding,model:'fixture-'+binding.tool,group:'standard'}));
 const dashboard={status:{system_name:'Fixture',quota_per_unit:500000},user:{id:1,username:'fixture',display_name:'Fixture',quota:0,used_quota:0,request_count:0,group:'standard'},logs:{items:[],total:0,page:1,pageSize:15},series:[],stat:null,tokens:[],warnings:[],fetchedAt:1,days:7,catalog:{models:['codex','claude'].map(tool=>({model_name:'fixture-'+tool,quota_type:0,model_ratio:1,model_price:0,completion_ratio:1,enable_groups:['standard'],supported_endpoint_types:[]})),groupRatio:{standard:1},usableGroups:{standard:'标准渠道'},autoGroups:[],vendors:[]}};
 window.fixture={requests:[],runtimeRequests:[],runtimeListeners:new Set(),restores:[],backupReads:0,notices:[],errors:[],progressListeners:new Set()};
-fixture.preview=index=>{const request=fixture.requests[index];request.resolve({id:'preview-'+index,tool:request.input.tool,files:[{path:'C:/fixture/'+request.input.tool+'/config',before:'original',after:'fixture model'}],changes:['测试变更'],expiresAt:Date.now()+600000,token:{id:1,name:'FixtureToken',group:'standard',created:false}});};
+fixture.preview=index=>{const request=fixture.requests[index];request.resolve({id:'preview-'+index,tool:request.input.tool,files:[{path:'C:/fixture/'+request.input.tool+'/config',before:'original',after:index===3 ? Array.from({length:200},(_,i)=>'setting_'+i+' = "fixture value"').join('\\n') : 'fixture model'},...(index===3 ? [{path:'C:/fixture/auth.json',before:'original auth',after:'fixture auth'}] : [])],changes:index===3 ? Array.from({length:24},(_,i)=>'测试变更 '+i) : ['测试变更'],expiresAt:Date.now()+600000,token:{id:1,name:'FixtureToken',group:'standard',created:false}});};
 fixture.runtime=(index,version)=>{const request=fixture.runtimeRequests[index];request.resolve([...request.tools,...(request.tools.includes('codex') ? ['chatgpt'] : [])].map(tool=>({tool,installed:true,version,checkedAt:Date.now(),npmAvailable:true,nodeVersion:'24.18.0',phase:'idle'})));};
 window.addEventListener('error',event=>fixture.errors.push(event.message));window.addEventListener('unhandledrejection',event=>fixture.errors.push(String(event.reason)));
 const matchMedia=window.matchMedia.bind(window);window.matchMedia=query=>query.includes('prefers-reduced-motion') ? {...matchMedia(query),matches:true} : matchMedia(query);
 window.lumi={toolRuntimes:force=>new Promise(resolve=>fixture.runtimeRequests.push({resolve,force,tools:[...fixture.enabledTools]})),onToolRuntime:listener=>{fixture.runtimeListeners.add(listener);return()=>fixture.runtimeListeners.delete(listener);},onConfigProgress:listener=>{fixture.progressListeners.add(listener);return()=>fixture.progressListeners.delete(listener);},previewConfig:input=>new Promise(resolve=>fixture.requests.push({input,resolve})),backups:async()=>{fixture.backupReads++;return ['codex','claude'].map(tool=>({id:'backup-'+tool,tool,createdAt:1,paths:['C:/fixture/'+tool+'/config']}));},restoreBackup:async id=>{fixture.restores.push(id);return[];}};
 const {default:Tools}=await import('./src/pages/Tools'),{PluginSettingsProvider,PluginSettingsSection}=await import('./src/host/plugins'),{ToolConfigViewsProvider}=await import('./src/host/tool-config'),{toolConfigContributions}=await import('./src/host/renderer-registry');
+const {scopedInterfaceSheet}=await import('./src/host/interface'),{installGlassRefraction}=await import('./src/host/glass-refraction');
+fixture.applySkin=(css,mode)=>{const shell=document.querySelector('.desktop-shell');shell.dataset.theme=mode;document.documentElement.dataset.theme=mode;shell.dataset.interface=css ? 'extension.fixture.preview' : 'interface.default';shell.dataset.appearanceBlur='soft';shell.dataset.appearanceTransparency='clear';shell.dataset.appearanceDistortion='strong';document.adoptedStyleSheets=css ? [scopedInterfaceSheet({id:shell.dataset.interface,css})] : [];fixture.disposeGlass?.();fixture.disposeGlass=css ? installGlassRefraction(shell) : undefined;};
 function Host(){
  const [preferences,setPreferences]=useState(prefs),[statuses,setStatuses]=useState(()=>builtinManifests.map(manifest=>({manifest,state:'active',generation:1}))),[page,setPage]=useState('tools');
  fixture.showPage=setPage;fixture.preferences=preferences;
@@ -36,13 +42,13 @@ function Host(){
 createRoot(document.getElementById('root')).render(<Host/>);`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),built.outputFiles[0].contents);
   const css=await Promise.all(['components/segmented-switch.css','styles.css','workbench.css','select.css','theme-tokens.css','theme.css','updates-trends.css','filters-tools-motion.css','platform-logs.css','tools-progress.css','models-market.css'].map(file=>readFile(path.resolve('src',file),'utf8')));
-  await writeFile(path.join(root,'style.css'),css.join('\n')+'\nbody{overflow:auto;padding:24px;background:var(--background)}*{animation:none!important;transition:none!important}');
-  await writeFile(path.join(root,'index.html'),'<html data-theme="light"><head><meta charset="UTF-8"><link rel="stylesheet" href="style.css"></head><body><div id="root"></div><script type="module" src="renderer.js"></script></body></html>');
+  await writeFile(path.join(root,'style.css'),css.join('\n')+'\nbody{overflow:auto;background:var(--background)}.desktop-shell{display:block;min-width:0;padding:24px;height:100vh;overflow:auto}*{animation:none!important;transition:none!important}');
+  await writeFile(path.join(root,'index.html'),'<html data-theme="light"><head><meta charset="UTF-8"><link rel="stylesheet" href="style.css"></head><body><div class="desktop-shell" data-theme="light"><div id="root"></div></div><script type="module" src="renderer.js"></script></body></html>');
   await writeFile(path.join(root,'audit.cjs'),String.raw`
 const {app,BrowserWindow}=require('electron'),path=require('node:path'),fs=require('node:fs');
 for(const name of ['userData','sessionData','logs','crashDumps']){const directory=path.join(__dirname,name);fs.mkdirSync(directory,{recursive:true});app.setPath(name,directory);}
-app.disableHardwareAcceleration();app.whenReady().then(async()=>{
- const win=new BrowserWindow({show:false,width:1180,height:900,webPreferences:{offscreen:true,sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});win.webContents.on('console-message',event=>console.log('RENDERER '+event.message));await win.loadFile(path.join(__dirname,'index.html'));
+if(process.env.LUMI_TOOL_PREVIEW_HARDWARE!=='1')app.disableHardwareAcceleration();app.whenReady().then(async()=>{
+ const win=new BrowserWindow({show:process.platform==='darwin',frame:process.platform!=='darwin',width:1180,height:900,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});win.webContents.on('console-message',event=>console.log('RENDERER '+event.message));await win.loadFile(path.join(__dirname,'index.html'));
  const result=await win.webContents.executeJavaScript('('+async function(){
   const check=(value,message)=>{if(!value)throw new Error(message);},until=async fn=>{const end=performance.now()+4000;while(!fn()){if(performance.now()>end)throw new Error('Tool adapter UI timeout: '+fn.toString());await new Promise(resolve=>setTimeout(resolve,10));}},settle=()=>new Promise(resolve=>setTimeout(resolve,40));
   const toolCard=tool=>document.querySelector('[aria-label="'+tool+' 目标模型"]')?.closest('.tool-config-card'),submit=tool=>toolCard(tool).querySelector('form').requestSubmit(),dialog=title=>Array.from(document.querySelectorAll('[role=dialog]')).find(element=>element.querySelector('h2')?.textContent===title),button=(label,area=document)=>Array.from(area.querySelectorAll('button')).find(element=>element.textContent.trim()===label);
@@ -68,6 +74,29 @@ app.disableHardwareAcceleration();app.whenReady().then(async()=>{
   check(fixture.requests.length===4 && fixture.errors.length===0,fixture.errors.join(','));return {previews:fixture.requests.length,restores:fixture.restores.length,backupReads:fixture.backupReads};
  }.toString()+')()');
  await win.webContents.executeJavaScript('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');fs.writeFileSync(path.resolve(__dirname,'..','tool-plugin-settings-preview.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+ const previewSkin=JSON.parse(fs.readFileSync(path.join(__dirname,'skin.json'),'utf8'));
+ const paint=async()=>{await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');};
+ for(const mode of ['light','dark'])for(const [width,height] of [[1200,900],[760,540],[420,360]]){
+  win.setContentSize(width,height);await win.webContents.executeJavaScript('fixture.applySkin('+JSON.stringify(previewSkin)+','+JSON.stringify(mode)+')');
+  const resizeDeadline=Date.now()+6000;while(true){await paint();const [w,h]=win.getContentSize();if(await win.webContents.executeJavaScript('innerWidth==='+w+' && innerHeight==='+h))break;if(Date.now()>resizeDeadline)throw Error('Native content resize did not reach the renderer');}
+  const geometry=await win.webContents.executeJavaScript('('+function(){
+   const m=document.querySelector('.tool-config-preview'),body=m.querySelector('.tool-config-preview-content'),footer=m.querySelector('.tool-config-preview-footer'),heading=m.querySelector('.modal-heading'),actions=footer.querySelector('.modal-actions');
+   const initial={heading:heading.getBoundingClientRect().top,footer:footer.getBoundingClientRect().top};
+   m.scrollTop=100000;body.scrollTop=100000;
+   const box=m.getBoundingClientRect(),bottom=actions.getBoundingClientRect(),rim=getComputedStyle(m,'::after');
+   const buttons=[...actions.querySelectorAll('button')];
+   if(m.scrollTop!==0 || body.scrollTop<=0 || Math.abs(initial.heading-heading.getBoundingClientRect().top)>1 || Math.abs(initial.footer-footer.getBoundingClientRect().top)>1 || body.getBoundingClientRect().bottom>footer.getBoundingClientRect().top+1 || bottom.bottom>box.bottom || box.bottom>innerHeight || box.left<0 || box.right>innerWidth || buttons.some(button=>{const r=button.getBoundingClientRect();return r.bottom>box.bottom || r.left<box.left || r.right>box.right || document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest('button')!==button}))throw Error('Preview footer/scroll geometry failed '+JSON.stringify({initial,box,bottom,bodyScroll:body.scrollTop,modalScroll:m.scrollTop}));
+   const rimHeight=parseFloat(rim.height)+(rim.boxSizing==='content-box' ? parseFloat(rim.paddingTop)+parseFloat(rim.paddingBottom)+parseFloat(rim.borderTopWidth)+parseFloat(rim.borderBottomWidth) : 0);
+   if(rim.content!=='none' && Math.abs(rimHeight-m.clientHeight)>2)throw Error('Glass rim does not cover the fixed dialog '+JSON.stringify({rimHeight,modalHeight:m.clientHeight,scrollHeight:m.scrollHeight,box}));
+   buttons[0].focus();if(document.activeElement!==buttons[0])throw Error('Cancel cannot focus');
+   body.scrollTop=0;const tabs=[...body.querySelectorAll('.preview-file-tabs button')];tabs.find(b=>b.textContent==='auth.json').click();tabs.find(b=>b.textContent==='修改前').click();
+   return {viewport:[innerWidth,innerHeight],footerBottom:bottom.bottom,scroll:body.scrollHeight,modalScroll:m.scrollTop};
+  }.toString()+')()');
+  await paint();await win.webContents.executeJavaScript('(()=>{const m=document.querySelector(".tool-config-preview");if(!m.querySelector(".preview-path").textContent.endsWith("auth.json") || m.querySelector(".code-preview").textContent!=="original auth")throw Error("File/before switching broken");const b=[...m.querySelectorAll(".preview-file-tabs button")];b.find(x=>x.textContent==="config").click();b.find(x=>x.textContent==="修改后").click()})()');await paint();
+  await win.webContents.executeJavaScript('document.querySelector(".tool-config-preview-content").scrollTop=100000');await paint();
+  fs.writeFileSync(path.resolve(__dirname,'..','tool-preview-fixed-'+mode+'-'+width+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());console.log('TOOL_PREVIEW_LAYOUT '+JSON.stringify({mode,skin:!!previewSkin,...geometry}));
+ }
+ await win.webContents.executeJavaScript('fixture.applySkin("","light")');win.setContentSize(1280,900);await paint();
  await win.webContents.executeJavaScript('fixture.showPage("settings");new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
  await win.webContents.executeJavaScript('('+async function(){const end=performance.now()+2000;while(!document.querySelector('[data-plugin="adapter.tool.codex"] .plugin-settings-button')){if(performance.now()>end)throw new Error('Codex settings unavailable');await new Promise(r=>setTimeout(r,10));}document.querySelector('[data-plugin="adapter.tool.codex"] .plugin-settings-button').click();while(!document.querySelector('.plugin-details-modal:not([aria-hidden]) select')){if(performance.now()>end)throw new Error('Codex settings select unavailable');await new Promise(r=>setTimeout(r,10));}fixture.codexDialog=document.querySelector('.plugin-details-modal:not([aria-hidden])');fixture.codexSelect=fixture.codexDialog.querySelector('select');fixture.codexSelect.focus();}.toString()+')()');
  await win.webContents.executeJavaScript('fixture.codexSelect.showPicker();if(!fixture.codexSelect.matches(":open"))throw new Error("Codex picker did not open");',true);
@@ -85,4 +114,5 @@ app.disableHardwareAcceleration();app.whenReady().then(async()=>{
   const child=spawn(electron,[path.join(root,'audit.cjs')],{env,windowsHide:true,stdio:['ignore','pipe','pipe'],signal:t.signal});let stdout='',stderr='';child.stdout.on('data',chunk=>stdout+=chunk);child.stderr.on('data',chunk=>stderr+=chunk);
   const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});assert.equal(code,0,stderr+stdout);
   const result=stdout.split(/\r?\n/).find(line=>line.startsWith('TOOLS_PLUGIN_UI '));assert.ok(result,stdout);assert.deepEqual(JSON.parse(result.slice('TOOLS_PLUGIN_UI '.length)),{previews:4,restores:0,backupReads:2});
+  for(const line of stdout.split(/\r?\n/).filter(line=>line.startsWith('TOOL_PREVIEW_LAYOUT ')))t.diagnostic(line);
 });

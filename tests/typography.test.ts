@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdir,mkdtemp,rm,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import {SettingsStore} from '../electron/services/store';
+import {DEFAULT_TYPOGRAPHY,normalizeTypography} from '../shared/typography';
+import {applyPreferencePatch} from '../shared/selections';
+import {DEFAULT_PREFERENCES} from '../shared/types';
+
+test('typography is bounded, merges independently, persists and migrates legacy settings',async t=>{
+  assert.deepEqual(normalizeTypography({fontSize:NaN,fontFamily:'__proto__'}),DEFAULT_TYPOGRAPHY);
+  assert.deepEqual(normalizeTypography({fontSize:99,fontFamily:'url(https://fixture.invalid/font)'}),DEFAULT_TYPOGRAPHY);
+  const updated=applyPreferencePatch(DEFAULT_PREFERENCES,{fontSize:18});
+  assert.equal(applyPreferencePatch(updated,{fontFamily:'serif'}).fontSize,18);
+  await mkdir('.test-data',{recursive:true});const root=await mkdtemp(path.resolve('.test-data/typography-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  const cipher={available:()=>true,encrypt:(value:string)=>value,decrypt:(value:string)=>value};
+  const store=new SettingsStore(root,cipher);await store.load();
+  await store.update({fontSize:24});await store.update({fontFamily:'mono'});
+  const reload=new SettingsStore(root,cipher);await reload.load();
+  assert.deepEqual(normalizeTypography(reload.preferences),{fontSize:24,fontFamily:'mono'});
+  for(const fontSize of [0,25,100,13.5,NaN,'15'])await assert.rejects(reload.update({fontSize:fontSize as number}),/字体设置无效/);
+  await assert.rejects(reload.update({fontFamily:'arbitrary CSS' as 'system'}),/字体设置无效/);
+  await writeFile(path.join(root,'settings.json'),JSON.stringify({preferences:{theme:'dark',fontSize:40,fontFamily:'unknown'}}));await reload.load();
+  assert.deepEqual(normalizeTypography(reload.preferences),DEFAULT_TYPOGRAPHY);
+  await writeFile(path.join(root,'settings.json'),JSON.stringify({preferences:{theme:'dark'}}));await reload.load();
+  assert.deepEqual(normalizeTypography(reload.preferences),DEFAULT_TYPOGRAPHY);
+  await rm(root,{recursive:true,force:true});await writeFile(root,'blocked fixture directory');
+  await assert.rejects(reload.update({fontSize:18,fontFamily:'serif'}));
+  assert.deepEqual(normalizeTypography(reload.preferences),DEFAULT_TYPOGRAPHY);
+});

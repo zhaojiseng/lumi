@@ -1,4 +1,5 @@
 import type {PreferencePatch, Preferences, SelectionValue} from './types';
+import {normalizeTypography} from './typography';
 const forbidden = new Set(['__proto__', 'prototype', 'constructor']);
 export function validSelectionValue(value: unknown): value is SelectionValue {
   if (typeof value === 'string') return value.length <= 4000;
@@ -30,6 +31,7 @@ export function normalizeSourceSelections(value:unknown,legacy:Preferences['view
 export function applyPreferencePatch(preferences: Preferences, patch: PreferencePatch): Preferences {
   const {selection,sourceSelection,interfaceSelection,interfacePriority,interfaceOrder, ...fields} = patch;
   const next = {...preferences, ...fields};
+  Object.assign(next,normalizeTypography(next));
   if (selection) next.viewSelections = {...preferences.viewSelections, [selection.siteId]: {...preferences.viewSelections[selection.siteId], ...selection.values}};
   if(sourceSelection)next.sourceSelections={...preferences.sourceSelections,[sourceSelection.sourceId]:{...preferences.sourceSelections?.[sourceSelection.sourceId],...sourceSelection.values}};
   if(interfaceSelection)next.interfaceSelections={...preferences.interfaceSelections,[interfaceSelection.interfaceId]:{...preferences.interfaceSelections?.[interfaceSelection.interfaceId],...interfaceSelection.values}};

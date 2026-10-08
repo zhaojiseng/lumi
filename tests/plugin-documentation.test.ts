@@ -53,12 +53,12 @@ import {app,BrowserWindow,protocol,ipcMain} from 'electron';
 import {mkdirSync} from 'node:fs';import path from 'node:path';
 import {ExtensionHost} from './electron/extensions/host';
 for(const name of ['userData','sessionData','logs','crashDumps'] as const){const dir=path.join(__dirname,name);mkdirSync(dir,{recursive:true});app.setPath(name,dir);}
-protocol.registerSchemesAsPrivileged([{scheme:'lumi-extension',privileges:{standard:true,secure:true}}]);app.disableHardwareAcceleration();
+protocol.registerSchemesAsPrivileged([{scheme:'lumi-extension',privileges:{standard:true,secure:true,corsEnabled:true}}]);app.disableHardwareAcceleration();
 const context={theme:'light' as const,locale:'zh-CN' as const,site:{id:'fixture',name:'Fixture',url:'https://fixture.invalid'}};
 app.whenReady().then(async()=>{
  const host=new ExtensionHost({directory:${JSON.stringify(packages)},settingsDirectory:path.join(__dirname,'store'),cipher:{available:()=>true,encrypt:value=>Buffer.from(value).toString('base64'),decrypt:value=>Buffer.from(value,'base64').toString()},sdk:Buffer.from(${JSON.stringify(sdk)}),context:()=>context,scope:()=>context.site.id,read:async()=>({siteName:'Fixture',balance:'¥ 12.00',message:'mock display'})});
  await host.start();for(const item of host.statuses())await host.setEnabled(item.manifest.id,true);
- protocol.handle('lumi-extension',request=>{const asset=host.asset(request.url);return asset ? new Response(new Uint8Array(asset.body),{headers:{'Content-Type':asset.type,'Content-Security-Policy':asset.csp,'X-Content-Type-Options':'nosniff'}}) : new Response('',{status:404});});
+ protocol.handle('lumi-extension',request=>{const asset=host.asset(request.url);return asset ? new Response(new Uint8Array(asset.body),{headers:{'Content-Type':asset.type,'Content-Security-Policy':asset.csp,'Access-Control-Allow-Origin':'*','X-Content-Type-Options':'nosniff'}}) : new Response('',{status:404});});
  ipcMain.handle('doc-read',()=>host.statuses().map(status=>({id:status.manifest.id,generation:status.generation})));
  ipcMain.handle('doc-request',(_event,input)=>host.request(input));
  const win=new BrowserWindow({show:false,width:900,height:650,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false,preload:path.join(__dirname,'preload.cjs')}});

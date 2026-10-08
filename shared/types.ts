@@ -7,6 +7,7 @@ import type {DataRefreshAnimation} from './motion';
 import type {InterfaceSelection} from './contracts/interface';
 import type {UserBackground} from './interface-styles';
 import type {WidgetPeriod} from './widget-period';
+import type {FontFamily} from './typography';
 export type Tool = 'codex' | 'claude';
 export type PluginPageId = `plugin:${string}`;
 export type Page = 'overview' | 'usage' | 'models' | 'tools' | 'tokens' | 'settings' | PluginPageId;
@@ -35,7 +36,7 @@ export interface Preferences {
   defaultInterfaceEnabled:boolean;
   background:UserBackground;
   widgetEnabled:boolean; widgetPosition:{x:number;y:number}|null; widgetDataSource:WidgetDataSource; widgetPeriod:WidgetPeriod; widgetInputMode:WidgetInputMode; dataRefreshAnimation:DataRefreshAnimation;
-  sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme;
+  sites: SiteProfile[]; activeSiteId: string; tokenPrefix: string; theme: Theme; fontSize:number; fontFamily:FontFamily;
   refreshInterval: number; menuBarRefreshInterval: number; menuBarContents: MenuBarSectionId[]; menuBarTotalsRange:MenuBarRange; menuBarChartRange:MenuBarRange; lowBalanceThreshold: number; favoriteModels: string[];
   bindings: ToolBinding[]; managedTokens: ManagedToken[]; logColumns: LogColumnId[];
   viewSelections: Record<string, Record<string, SelectionValue>>;
@@ -45,7 +46,7 @@ export interface Preferences {
 }
 export type SelectionValue = string | number | boolean | DateRange | string[];
 export interface SelectionPatch { siteId: string; values: Record<string, SelectionValue>; }
-export type PreferencePatch = Partial<Pick<Preferences, 'background' | 'defaultInterfaceEnabled' | 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { interfaceOrder?:string[];interfacePriority?:{id:string;priority:number};interfaceSelection?:InterfaceSelection;selection?: SelectionPatch;sourceSelection?:{sourceId:'source.local-sessions'|'feature.usage';values:Record<string,SelectionValue>} };
+export type PreferencePatch = Partial<Pick<Preferences, 'fontSize' | 'fontFamily' | 'background' | 'defaultInterfaceEnabled' | 'dataRefreshAnimation' | 'widgetEnabled' | 'widgetPosition' | 'widgetDataSource' | 'widgetPeriod' | 'widgetInputMode' | 'activeSiteId' | 'tokenPrefix' | 'theme' | 'refreshInterval' | 'menuBarRefreshInterval' | 'menuBarContents' | 'menuBarTotalsRange' | 'menuBarChartRange' | 'lowBalanceThreshold' | 'favoriteModels' | 'logColumns' | 'dismissedUpdateVersion' | 'skippedUpdateVersion'>> & { interfaceOrder?:string[];interfacePriority?:{id:string;priority:number};interfaceSelection?:InterfaceSelection;selection?: SelectionPatch;sourceSelection?:{sourceId:'source.local-sessions'|'feature.usage';values:Record<string,SelectionValue>} };
 export interface SiteInput {
   id?: string; name: string; url: string; userId?: number; allowHttp: boolean;
   accessToken?: string; apiKey?: string; clearAccessToken?: boolean; clearApiKey?: boolean;
@@ -284,7 +285,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   interfacePriorities:{},defaultInterfaceEnabled:true,background:{image:'',name:'',fit:'cover'},
   widgetEnabled:false,widgetPosition:null,widgetDataSource:'api',widgetPeriod:60,widgetInputMode:'total',dataRefreshAnimation:'slide-up',
   sites: [{ id: DEFAULT_SITE_ID, name: 'New API', url: DEFAULT_SITE_URL, allowHttp: false, accessTokenConfigured: false, apiKeyConfigured: false }],
-  activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
+  activeSiteId: DEFAULT_SITE_ID, tokenPrefix: 'Lumi-', theme: 'light', fontSize:13, fontFamily:'system', refreshInterval: 60, menuBarRefreshInterval:60, menuBarContents:[...MENU_BAR_SECTION_IDS], menuBarTotalsRange:'follow', menuBarChartRange:'follow', dismissedUpdateVersion: '', skippedUpdateVersion: '',
   logColumns: [...DEFAULT_LOG_COLUMNS], lowBalanceThreshold: 10, favoriteModels: [], managedTokens: [], viewSelections: {}, sourceSelections:{}, bindings: [
     { tool: 'codex', model: '', group: '', tokenName: 'Lumi-Codex', siteId: DEFAULT_SITE_ID },
     { tool: 'claude', model: '', group: '', tokenName: 'Lumi-Claude', siteId: DEFAULT_SITE_ID },

@@ -39,8 +39,9 @@ for(const [width,height] of [[2100,1200],[900,540],[1200,800],[1000,420],[1600,1
 win.setSize(width,height);await until(()=>{const [contentWidth,contentHeight]=win.getContentSize();return run('innerWidth==='+contentWidth+' && innerHeight==='+contentHeight+' && Math.abs(document.querySelector("iframe").getBoundingClientRect().bottom-innerHeight)<=1 && document.querySelector(".content-scroll").scrollHeight<=document.querySelector(".content-scroll").clientHeight+1 && document.querySelector("iframe").clientWidth===document.querySelector(".content-scroll").clientWidth-40')});
 await check('document.querySelector(".content-scroll").scrollHeight<=document.querySelector(".content-scroll").clientHeight+1','outer scrollbar');
 await check('document.querySelector("iframe").clientWidth===document.querySelector(".content-scroll").clientWidth-40','workspace width capped');
-await until(()=>child().executeJavaScript('Math.abs(document.getElementById("chat").clientHeight-innerHeight)<1'));
-if(!await child().executeJavaScript('document.querySelector("textarea").value==="retained draft" && document.querySelector("textarea").getBoundingClientRect().bottom<=innerHeight+1'))throw Error('draft/input lost '+await child().executeJavaScript('JSON.stringify({height:innerHeight,chat:document.getElementById("chat").clientHeight,bottom:document.querySelector("textarea").getBoundingClientRect().bottom})'));
+// The iframe's native resize and SDK height message can arrive between reads.
+// Require its full geometry and retained draft in one settled renderer snapshot.
+await until(()=>child().executeJavaScript('Math.abs(document.getElementById("chat").clientHeight-innerHeight)<1 && document.querySelector("textarea").value==="retained draft" && document.querySelector("textarea").getBoundingClientRect().bottom<=innerHeight+1'));
 }
 await child().executeJavaScript('delete document.body.dataset.lumiLayout;document.getElementById("chat").style.height="300px"');
 await until(()=>run('document.querySelector(".extension-view").dataset.layout==="content" && document.querySelector("iframe").clientHeight===320'));

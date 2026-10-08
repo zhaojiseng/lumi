@@ -29,7 +29,7 @@ export function ExtensionFrame({pluginId,view,refreshEpoch=0}:{pluginId:string;v
   const site=preferences.sites.find(s=>s.id===preferences.activeSiteId) || preferences.sites[0];
   const context:ExtensionContext={theme:preferences.theme==='system' ? systemDark ? 'dark' : 'light' : preferences.theme,locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url},refreshEpoch};
   const appearance=resolveInterfaceAppearance(style?.appearanceGroups,style && preferences.interfaceSelections?.[style.id]);
-  const uiTheme={id:style?.id || 'interface.default',css:style?.css || '',appearance,theme:context.theme};
+  const uiTheme={id:style?.id || 'interface.default',css:style?.css || '',appearance,theme:context.theme,typography:{fontSize:preferences.fontSize,fontFamily:preferences.fontFamily}};
   const latestTheme=useRef(uiTheme);latestTheme.current=uiTheme;
   const latest=useRef(context);latest.current=context;
   const session=useRef({nonce:'',initialized:false});
@@ -54,7 +54,7 @@ export function ExtensionFrame({pluginId,view,refreshEpoch=0}:{pluginId:string;v
   },[pluginId,generation,view.id]);
   useEffect(()=>{const stop=bridge.onExtensionEvent(event=>{if(event.id!==pluginId || event.generation!==generation || event.view!==view.id || !session.current.initialized)return;const frameWindow=frame.current?.contentWindow;if(!frameWindow)return;frameWindow.postMessage({protocol,nonce:session.current.nonce,type:'event',topic:event.topic,payload:event.payload},'*');});return stop;},[pluginId,generation,view.id]);
   useEffect(()=>{const {nonce,initialized}=session.current;if(initialized)frame.current?.contentWindow?.postMessage({protocol,nonce,type:'context',context},'*');},[context.theme,site.id,site.url,refreshEpoch]);
-  useEffect(()=>{const {nonce,initialized}=session.current;if(initialized)frame.current?.contentWindow?.postMessage({protocol,nonce,type:'ui-theme',uiTheme},'*');},[style?.id,style?.css,JSON.stringify(appearance),context.theme]);
+  useEffect(()=>{const {nonce,initialized}=session.current;if(initialized)frame.current?.contentWindow?.postMessage({protocol,nonce,type:'ui-theme',uiTheme},'*');},[style?.id,style?.css,JSON.stringify(appearance),context.theme,preferences.fontSize,preferences.fontFamily]);
   if(status?.state!=='active')return null;
   return <section ref={container} className="extension-view" data-layout={fillViewport ? 'fill' : 'content'} data-extension={pluginId}><iframe key={generation} ref={frame} title={view.title} sandbox="allow-scripts" referrerPolicy="no-referrer" src={`lumi-extension://${pluginId}/${generation}/${view.entry}`} style={{width:'100%',height,border:0,display:'block'}}/>{error && <p role="alert" className="warning-banner">{error}</p>}</section>;
 }

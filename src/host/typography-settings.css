@@ -1,0 +1,9 @@
+.typography-controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.typography-controls label { display: grid; gap: 8px; min-width: 120px; flex: 1 1 180px; }
+.typography-controls label > .select-wrap { width: 100%; }
+.typography-controls .button { flex: none; }
+.typography-preview { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel-soft); overflow-wrap: anywhere; }
+.typography-preview strong { font-size: 16px; }
+.typography-preview p { font-size: 13px; line-height: 1.7; margin: 8px 0; }
+.typography-preview code { font-family: 'Cascadia Code',Consolas,monospace; font-size: 12px; }
+.typography-help { margin-top: 10px; font-size: 12px; line-height: 1.7; }

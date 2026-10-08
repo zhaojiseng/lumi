@@ -33,7 +33,7 @@ import {app,BrowserWindow,protocol} from 'electron';
 import {mkdirSync,writeFileSync} from 'node:fs';import path from 'node:path';
 import {ExtensionHost} from './electron/extensions/host';
 for(const name of ['userData','sessionData','logs','crashDumps']){const target=path.join(__dirname,name);mkdirSync(target,{recursive:true});app.setPath(name,target)}
-protocol.registerSchemesAsPrivileged([{scheme:'lumi-extension',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);if(process.env.LUMI_GLASS_HARDWARE!=='1')app.disableHardwareAcceleration();app.commandLine.appendSwitch('force-device-scale-factor','1');
+protocol.registerSchemesAsPrivileged([{scheme:'lumi-extension',privileges:{standard:true,secure:true,supportFetchAPI:true,corsEnabled:true}}]);if(process.env.LUMI_GLASS_HARDWARE!=='1')app.disableHardwareAcceleration();app.commandLine.appendSwitch('force-device-scale-factor','1');
 app.whenReady().then(async()=>{
  const host=new ExtensionHost({directory:${JSON.stringify(path.join(directory,'packages'))},settingsDirectory:path.join(__dirname,'store'),cipher:{available:()=>true,encrypt:value=>value,decrypt:value=>value},sdk:Buffer.from(${JSON.stringify(sdk)}),uiCss:Buffer.from(${JSON.stringify(uiCss)}),context:()=>({theme:'light',locale:'zh-CN',site:{id:'fixture',name:'Fixture',url:'https://fixture.invalid'}}),scope:()=>'',read:async()=>null});
  await host.start();await host.setEnabled(${JSON.stringify(id)},true);const generation=host.statuses()[0].generation;

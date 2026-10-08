@@ -25,6 +25,31 @@
 .tool-config-progress strong { font-weight: 600; }
 .tool-config-progress span { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .tool-config-error { margin: 10px 0 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+/* Keep the optical shell still: only preview content scrolls, while the
+   heading, feedback and confirmation controls remain in the visible dialog. */
+.modal.surface.tool-config-preview {
+  display: flex;
+  flex-direction: column;
+  width: min(790px, 100%);
+  max-height: min(90dvh, calc(100dvh - 68px));
+  overflow: hidden;
+}
+.tool-config-preview > .modal-heading,
+.tool-config-preview > .tool-config-preview-footer { flex: none; min-width: 0; }
+.tool-config-preview > .tool-config-preview-content {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.tool-config-preview-content .code-preview { max-height: none; overflow: visible; }
+.tool-config-preview-footer .modal-actions { margin-top: 16px; flex-wrap: wrap; }
+@media (max-width: 600px) {
+  .modal.surface.tool-config-preview { padding: 16px; }
+  .tool-config-preview > .modal-heading { margin-bottom: 14px; }
+  .tool-config-preview-footer .modal-actions > span { flex-basis: 100%; }
+}
 @media (prefers-reduced-motion: reduce) {
   .tool-config-progress > .spin { animation: none; }
 }
