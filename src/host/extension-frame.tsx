@@ -34,15 +34,15 @@ export function ExtensionFrame({pluginId,view,refreshEpoch=0}:{pluginId:string;v
   const latest=useRef(context);latest.current=context;
   const session=useRef({nonce:'',initialized:false});
   useEffect(()=>{
-    let active=true,inflight=0;const nonce=crypto.randomUUID(),seen=new Set<number>();session.current={nonce,initialized:false};setError('');setFillViewport(false);
+    let active=true,inflight=0,initialContext:ExtensionContext|undefined;const nonce=crypto.randomUUID(),seen=new Set<number>();session.current={nonce,initialized:false};setError('');setFillViewport(false);
     const send=(message:object)=>frame.current?.contentWindow?.postMessage({protocol,nonce,...message},'*');
     const timer=setTimeout(()=>{if(active && !session.current.initialized)setError('扩展界面未连接 SDK，请检查入口文件。');},10000);
     const receive=(event:MessageEvent)=>{
       if(!active || event.source!==frame.current?.contentWindow || event.data?.protocol!==protocol)return;
       const message=event.data;
-      if(message.type==='ready'){send({type:'init',view:{id:view.id,slot:view.slot},context:latest.current,uiTheme:latestTheme.current,uiFeatures:{fillViewport:view.slot==='sidebar'}});return;}
+      if(message.type==='ready'){initialContext ??= latest.current;send({type:'init',view:{id:view.id,slot:view.slot},context:initialContext,uiTheme:latestTheme.current,uiFeatures:{fillViewport:view.slot==='sidebar'}});return;}
       if(message.nonce!==nonce)return;
-      if(message.type==='initialized'){session.current.initialized=true;clearTimeout(timer);return;}
+      if(message.type==='initialized'){session.current.initialized=true;clearTimeout(timer);setError('');if(JSON.stringify(initialContext)!==JSON.stringify(latest.current))send({type:'context',context:latest.current});send({type:'ui-theme',uiTheme:latestTheme.current});return;}
       if(message.type==='resize'){if(message.layout==='fill' && view.slot==='sidebar'){setFillViewport(true);return;}setFillViewport(false);if(Number.isFinite(message.height))setHeight(Math.max(120,Math.min(3000,message.height)));return;}
       if(message.type!=='request' || !Number.isSafeInteger(message.id) || message.id<=0 || seen.has(message.id))return;
       if(!methods.has(message.method) || inflight>=8 || seen.size>=10000){send({type:'response',id:message.id,ok:false,error:'扩展接口无效或请求过于频繁。'});return;}

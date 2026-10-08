@@ -1,7 +1,7 @@
 /* Lumi external-extension SDK v1. MIT. Served by the host inside isolated extension views. */
 (() => {
   const protocol = 'lumi-extension/1', pending = new Map();
-  let nonce = '', next = 0, context, view, canFillViewport=false;
+  let nonce = '', next = 0, context, view, canFillViewport=false,handshakeTimer,handshakeAttempts=0;
   let resolveReady;
   const ready = new Promise(resolve => { resolveReady = resolve; });
   const listeners = new Set();
@@ -21,11 +21,17 @@
     if(typeof LumiGlassRuntime !== 'undefined')LumiGlassRuntime.applyDocumentTypography(document,value.typography);
   }
   const eventListeners = new Map();
-  window.addEventListener('pagehide',()=>{activePage=false;disposeGlass?.();disposeGlass=undefined;if(typeof LumiGlassRuntime !== 'undefined')LumiGlassRuntime.disposeDocumentTypography(document);bodyResize?.disconnect();bodyResize=undefined;layoutObserver?.disconnect();layoutObserver=undefined;});
-  window.addEventListener('pageshow',()=>{activePage=true;setupDocument();});
+  window.addEventListener('pagehide',()=>{activePage=false;clearTimeout(handshakeTimer);disposeGlass?.();disposeGlass=undefined;if(typeof LumiGlassRuntime !== 'undefined')LumiGlassRuntime.disposeDocumentTypography(document);bodyResize?.disconnect();bodyResize=undefined;layoutObserver?.disconnect();layoutObserver=undefined;});
+  window.addEventListener('pageshow',()=>{activePage=true;setupDocument();if(!nonce){handshakeAttempts=0;announceReady();}});
   function onEvent(topic, listener) { let set = eventListeners.get(topic); if (!set) { set = new Set(); eventListeners.set(topic, set); if (topic === 'codex.bridge') call('codex.bridge.subscribe', {}).catch(error => emitEvent(topic, {method:'lumi/bridge/exited',params:{detail:error.message}})); } set.add(listener); let active=true; return () => { if (!active) return; active=false; set.delete(listener); if (!set.size && eventListeners.get(topic) === set) { eventListeners.delete(topic); if (topic === 'codex.bridge') call('codex.bridge.unsubscribe', {}).catch(()=>{}); } }; }
   function emitEvent(topic, payload) { const set = eventListeners.get(topic); if (set) for (const listener of [...set]) listener(payload); }
   function send(message) { parent.postMessage({protocol, nonce, ...message}, '*'); }
+  // A fast iframe can load before React installs its host listener. Retry only
+  // during the initial handshake, with bounded backoff and no connected polling.
+  function announceReady(){
+    clearTimeout(handshakeTimer);if(nonce || !activePage || handshakeAttempts>=15)return;
+    send({type:'ready'});handshakeTimer=setTimeout(announceReady,Math.min(1000,50*2**Math.min(5,handshakeAttempts++)));
+  }
   function call(method, input) {
     return ready.then(() => new Promise((resolve, reject) => {
       if (pending.size >= 8) { reject(new Error('Too many extension requests')); return; }
@@ -36,7 +42,7 @@
   window.addEventListener('message', event => {
     if (event.source !== parent || event.data?.protocol !== protocol) return;
     const message = event.data;
-    if (message.type === 'init' && !nonce) { nonce=message.nonce; context=message.context; view=message.view;canFillViewport=message.uiFeatures?.fillViewport===true && view?.slot==='sidebar'; applyUiTheme(message.uiTheme);resolveReady({context,view}); send({type:'initialized'}); return; }
+    if (message.type === 'init' && !nonce) { nonce=message.nonce;clearTimeout(handshakeTimer);context=message.context; view=message.view;canFillViewport=message.uiFeatures?.fillViewport===true && view?.slot==='sidebar'; applyUiTheme(message.uiTheme);resolveReady({context,view}); send({type:'initialized'}); return; }
     if (!nonce || message.nonce !== nonce) return;
     if (message.type === 'context') { context=message.context; listeners.forEach(listener => listener(context)); }
     if (message.type === 'ui-theme') { applyUiTheme(message.uiTheme); }
@@ -85,5 +91,5 @@
   }
   window.addEventListener('DOMContentLoaded',setupDocument);
   if(typeof document!=='undefined' && document.readyState!=='loading')setupDocument();
-  send({type:'ready'});
+  announceReady();
 })();

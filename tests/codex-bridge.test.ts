@@ -134,3 +134,19 @@ test('SDK keeps a host subscription until its final listener is removed, includi
   respond(posted.find(m=>m.type==='request').id);offA();offA();await new Promise(r=>setTimeout(r,0));assert.ok(!posted.some(m=>m.method==='codex.bridge.unsubscribe'));
   offB();await new Promise(r=>setTimeout(r,0));const unsub=posted.filter(m=>m.method==='codex.bridge.unsubscribe');assert.equal(unsub.length,1);respond(unsub[0].id);
 });
+
+test('SDK retries a missed initial handshake, stops when connected and releases retry timers on page exit',async()=>{
+  const source=await readFile('public/lumi-extension-sdk.js','utf8');
+  const fixture=()=>{
+    const posted:any[]=[],handlers:Record<string,(event:any)=>void>={},timers=new Map<number,()=>void>();let nextTimer=0;
+    const parent={postMessage(message:any){posted.push(message);}},window:any={addEventListener(name:string,handler:(event:any)=>void){handlers[name]=handler;}};
+    runInNewContext(source,{window,parent,document:{body:null,readyState:'loading'},setTimeout:(fn:()=>void)=>{timers.set(++nextTimer,fn);return nextTimer;},clearTimeout:(id:number)=>timers.delete(id)});
+    return {posted,handlers,parent,timers,tick:()=>{const timer=timers.entries().next().value;if(timer){timers.delete(timer[0]);timer[1]();}}};
+  };
+  const delayed=fixture();assert.equal(delayed.posted.length,1);delayed.tick();delayed.tick();assert.equal(delayed.posted.length,3);
+  delayed.handlers.message({source:delayed.parent,data:{protocol:'lumi-extension/1',type:'init',nonce:'late-host',context:{},view:{}}});
+  assert.equal(delayed.posted.at(-1).type,'initialized');assert.equal(delayed.timers.size,0);delayed.tick();assert.equal(delayed.posted.length,4);
+  const absent=fixture();for(let i=0;i<20;i++)absent.tick();assert.equal(absent.posted.length,15);assert.equal(absent.timers.size,0);
+  const exiting=fixture();exiting.handlers.pagehide({});assert.equal(exiting.timers.size,0);exiting.tick();assert.equal(exiting.posted.length,1);
+  exiting.handlers.pageshow({});assert.equal(exiting.posted.length,2);assert.equal(exiting.timers.size,1);exiting.handlers.pagehide({});
+});
