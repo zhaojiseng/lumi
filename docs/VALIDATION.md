@@ -2,6 +2,9 @@
 
 ## 0.5.23 · 全局字体与 SDK 握手发布修订（2026-10-08）
 
+- 最终标签流程 [37713099707](https://github.com/zhaojiseng/lumi/actions/runs/37713099707) 成功，Windows／Linux／macOS 检查、两平台完整打包、隔离启动、包内校验及公开发布全部通过。首次标签 Windows 字体夹具遇到无诊断 Chromium 异常，同一提交的主分支三平台与两平台包已成功；重跑标签失败任务通过，未修改或移动标签。
+- [Lumi 0.5.23](https://github.com/zhaojiseng/lumi/releases/tag/v0.5.23) 已公开，六项附件完整；下载 SHA256SUMS，五项记录与 GitHub 附件 digest 一致。公开 EXE SHA-256 为 `e5f6e7eac3a005b0add4f1de703f66c3a2b2b42e080351a1757098e800071e29`；DMG 为 `5e1592ebc04ef5521ab229f5a496c13073ef666960b3a62482cb60addbef9a29`。公开包由 CI 独立构建，与本机包分别记录。
+- [Codex 对话 2.2.11](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.lumi.codex-v2.2.11) 已公开，ZIP／校验文件完整；草稿下载 ZIP 与本地打包、公布 digest 均为 `69736e590d222f1c61f41c6864fd866f48640cfec6a87f313f5a2b7328ddf968`。实际 0.5.23 宿主的 24px 回归通过，包含状态性能和真实玻璃进退像素；日志位于插件仓库 `.cache/release-2211-host-0523-font.log`。梦幻插件资源未修改，保持 1.1.8。
 - 0.5.22 三平台检查中 macOS 已通过，Windows／Linux 的真实字体夹具发现首次 SDK 握手可能先于宿主监听，并且初始化确认前的字体变化可能未投递。新增有限退避重试，连接和页面退出均清理定时器；首次握手固定上下文，连接完成同步期间变化的上下文与最新 UI 主题。确认连接后不继续握手轮询，保留 nonce、消息来源校验与 opaque sandbox。
 - 新回归验证丢失首次握手、迟到宿主、重试上限、连接后停止重试、页面退出／恢复；13 项桥接与真实玻璃／视口／字体定向回归通过。字体夹具等待实际宿主主题标记，避免把 SDK 对象存在误认作已连接。最终上下文同步修订的两项真实 UI 回归通过。
 - 本机完整测试 755 项：752 通过、3 项平台跳过、0 失败／取消；类型检查、内置插件校验、依赖审计（0 漏洞）、完整 Windows 编译、隔离桌面启动和包内校验通过。最终包 `release/final-0523/Lumi-0.5.23-x64.exe`，SHA-256 `18d8825c06e7cc6aa2265a2abc2775abc80d1fdac8416d85483661752ab1132f`，匹配 77 个构建文件并保留完整许可。
