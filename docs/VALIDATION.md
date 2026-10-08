@@ -3,11 +3,12 @@
 ## 0.5.21 · 字体设置与配置预览发布前验证（2026-10-08）
 
 - 字号上限扩展为 24px，保持默认 13px；共享范围约束生成选项并校验桌面 IPC、存储与浏览器偏好。真实外观控件回归覆盖 11／13／15／18／24px、四种字体、隔离插件 CSP、列表字体变量、换肤、草稿／焦点与 420×480 窄窗口；已查看 24px 衬线截图。
-- 严格类型检查、内置插件校验和最终全量测试通过：753 项，750 通过、3 项平台跳过、0 失败／取消；`npm audit` 为 0 漏洞。首次全量视口夹具在原生 resize 与 SDK 消息之间读取两个不同布局，改为在同一 renderer 快照等待几何、草稿和输入位置同时满足，保留原有覆盖，定向与完整复跑均通过。
-- `npm run dist` 生成 Windows x64 安装包，隔离桌面启动通过，`typographyIpcValid=true`、F12 与插件宿主检查通过；`verify:release` 匹配 78 个构建文件，完整第三方许可、本地数据排除与安装包版本检查通过。
-- 本机安装包 `release/local-0521/Lumi-0.5.21-x64.exe`，SHA-256 `db1be6785f85c9a235db8042a399b9cfb209265a436f434e286cec95314d0501`。本机编译结果不替代 macOS ARM64 CI，公开附件由标签工作流独立构建。
+- 按全软件范围补齐图表 SVG／提示、独立托盘／悬浮窗及 macOS 原生用量卡。真实 Chromium 覆盖托盘 11／13／24px、浅深主题、四种字体切换、控制器与焦点保留、内容滚动和底部操作；悬浮窗 24px 对应扩大窗口，文字与关闭按钮均在边界内；图表五档字号刻度按字体预留空间、不越界。已查看 24px 托盘浅深截图。新增原生 Swift 布局和字体检查由 macOS CI 验证，Windows 不替代 AppKit 编译。
+- 严格类型检查、内置插件校验和最终全量测试通过：754 项，751 通过、3 项平台跳过、0 失败／取消；`npm audit` 为 0 漏洞。原生隐藏行结构断言同步为字号缩放后的横坐标，仍验证隐藏行停在 y=0、布局无隐式动画。托盘截图额外等待进入与颜色过渡完成，定向复跑通过。
+- `npm run dist` 重新生成 Windows x64 安装包，隔离桌面启动通过；默认和 24px 衬线独立表面均验证字号、布局与插件重启，`typographyIpcValid=true`、F12 与插件宿主检查通过；`verify:release` 匹配 77 个构建文件，完整第三方许可、本地数据排除与安装包版本检查通过。
+- 当前本机安装包 `release/global-0521/Lumi-0.5.21-x64.exe`，SHA-256 `d658a90997acddc4126982e3f2d866f19e4f30be1620c12b69298451c57fac6d`。早先 `local-0521` 包仅为补齐前构建；重打包时旧目录被占用，改用新忽略目录，不停止用户进程。本机结果不替代 macOS ARM64 CI，公开附件由标签工作流独立构建。
 - 实际 Codex 2.2.11／梦幻 1.1.8 默认字号、24px 软件合成、24px 硬件合成回归与插件校验全部通过。24px 在 420×300 窗口原先只有 20px 消息区，按标题与换行控件实测预算调整输入高度后保留 40px 消息区；七档宽度、短窗口、草稿／焦点、状态性能、浮窗玻璃和进退动画均通过。采用现有独立插件发布，梦幻资源未修改。
-- 主程序日志 `.test-data/release-0521-{typecheck,extensions,tests-final,dist,desktop,verify}.log`、审计 `.json`；插件日志 `.cache/release-2211-{check,default-ui,font-ui,font-hardware-ui}.log`。三平台标签检查、两平台打包及公开 Release 状态另行跟进。
+- 全局补齐日志 `.test-data/global-font-{typecheck-final,extensions,full-tests-final,surfaces,tray-final,dist-final,desktop-final,verify}.log`、审计 `.test-data/global-font-audit.json`；插件日志 `.cache/release-2211-{check,default-ui,font-ui,font-hardware-ui}.log`。三平台标签检查、两平台打包及公开 Release 状态另行跟进。
 
 ## 外观字体设置（2026-10-08，本地修订）
 

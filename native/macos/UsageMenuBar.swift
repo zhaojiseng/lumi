@@ -9,6 +9,17 @@ import QuartzCore
 // NSMenu owns the system material; no web window or simulated glass background is used.
 struct ChartPoint: Decodable { let label: String; let value: Double; let cost: String; let tokens: String; let requests: String }
 struct ModelRow: Decodable { let name: String; let cost: String; let share: Double }
+struct Typography: Decodable {
+    let fontSize: Int; let fontFamily: String
+    var valid: Bool { (11...24).contains(fontSize) && ["system", "sans", "serif", "mono"].contains(fontFamily) }
+    var scale: CGFloat { CGFloat(fontSize) / 13 }
+}
+func appFont(_ size: CGFloat, family: String, weight: NSFont.Weight = .regular) -> NSFont {
+    if family == "mono" { return NSFont.monospacedSystemFont(ofSize: size, weight: weight) }
+    let names = family == "serif" ? ["Songti SC", "Noto Serif CJK SC", "Georgia"] : family == "sans" ? ["PingFang SC", "Helvetica Neue"] : []
+    let font = names.compactMap { NSFont(name: $0, size: size) }.first ?? NSFont.systemFont(ofSize: size, weight: weight)
+    return weight.rawValue >= NSFont.Weight.semibold.rawValue ? NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) : font
+}
 enum MenuBarSection: String, Decodable, CaseIterable { case balance, totals, tokenDetail, efficiency, chart, models }
 final class CardMenuItem: NSMenuItem { override var isHighlighted: Bool { false } }
 struct UsageState: Decodable {
@@ -16,6 +27,7 @@ struct UsageState: Decodable {
     let viewKey: String?
     let theme: String?
     let palette: [String: [Double]]?
+    let typography: Typography?
     let contents: [MenuBarSection]?
     let days: Int; let tool: String; let balance: String; let cost: String; let tokens: String; let requests: String
     let tokenDetail: String; let cacheDetail: String; let cacheHitRate: String; let tokenSpeed: String
@@ -29,6 +41,7 @@ func emit(_ data: [String: Any]) {
 }
 
 final class SpendChart: NSView {
+    var captionFont = NSFont.systemFont(ofSize: 11) { didSet { needsDisplay = true } }
     var accent = NSColor.controlAccentColor { didSet { needsDisplay = true } }
     var muted = NSColor.secondaryLabelColor { didSet { needsDisplay = true } }
     var border = NSColor.separatorColor { didSet { needsDisplay = true } }
@@ -80,7 +93,7 @@ final class SpendChart: NSView {
         super.draw(dirtyRect)
         guard let points else {
             let caption = "消费曲线暂不可用" as NSString
-            caption.draw(at: NSPoint(x: 0, y: 20), withAttributes: [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: muted]); return
+            caption.draw(at: NSPoint(x: 0, y: 20), withAttributes: [.font: captionFont, .foregroundColor: muted]); return
         }
         let maximum = max(points.map(\.value).max() ?? 0, 0.001)
         border.setFill(); NSRect(x: 0, y: bounds.height - 1, width: bounds.width, height: 1).fill()
@@ -123,6 +136,9 @@ final class UsageCard: NSView {
     private var suppressValueAnimations = false
     private var accessibilityObserver: NSObjectProtocol?
     private var fieldTones: [NSTextField: Bool] = [:]
+    private var fieldFonts: [NSTextField: (CGFloat, NSFont.Weight)] = [:]
+    private var originalFrames: [NSView: NSRect] = [:]
+    private var typography = Typography(fontSize: 13, fontFamily: "system")
     var selected: ((Int, String) -> Void)?
     override var isFlipped: Bool { true }
     override var allowsVibrancy: Bool { true }
@@ -176,6 +192,7 @@ final class UsageCard: NSView {
         }
         buildingSection = nil
         field(footer, x: 18, y: 434, width: 344, size: 9, muted: true)
+        for view in subviews { originalFrames[view] = view.frame }
         reflow(MenuBarSection.allCases, modelCount: 0)
         setAccessibilityLabel("Lumi 用量面板")
         accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -198,6 +215,7 @@ final class UsageCard: NSView {
         field.wantsLayer = true
         field.frame = NSRect(x: x, y: y, width: width, height: size + 7)
         field.font = NSFont.systemFont(ofSize: size, weight: weight)
+        fieldFonts[field] = (size, weight)
         field.textColor = muted ? .secondaryLabelColor : .labelColor
         fieldTones[field] = muted
         field.lineBreakMode = .byTruncatingTail; field.maximumNumberOfLines = 1
@@ -208,6 +226,9 @@ final class UsageCard: NSView {
         withoutAnimations { reflowImmediately(contents, modelCount: modelCount); layoutSubtreeIfNeeded() }
     }
     private func reflowImmediately(_ contents: [MenuBarSection], modelCount: Int) {
+        let scale = typography.scale, widthScale = max(1, scale)
+        func scaled(_ rect: NSRect) -> NSRect { NSRect(x: rect.minX * widthScale, y: rect.minY * scale, width: rect.width * widthScale, height: rect.height * scale) }
+        for (view, original) in originalFrames { view.frame = scaled(original) }
         let visible = Set(contents)
         let rows = max(1, min(3, modelCount))
         var y: CGFloat = 122
@@ -217,17 +238,17 @@ final class UsageCard: NSView {
             for (view, original) in sectionViews[id] ?? [] {
                 view.isHidden = !visible.contains(id)
                 // Hidden views also stay inside the compact card's bounds.
-                view.frame = NSRect(x: original.minX, y: visible.contains(id) ? y + original.minY - origin : 0, width: original.width, height: original.height)
+                view.frame = scaled(NSRect(x: original.minX, y: visible.contains(id) ? y + original.minY - origin : 0, width: original.width, height: original.height))
             }
             if visible.contains(id) { y += height }
         }
         for (index, fields) in modelFields.enumerated() {
             let hidden = !visible.contains(.models) || index >= rows
             fields.0.isHidden = hidden; fields.1.isHidden = hidden || modelCount == 0
-            if hidden { fields.0.setFrameOrigin(NSPoint(x: 18, y: 0)); fields.1.setFrameOrigin(NSPoint(x: 275, y: 0)) }
+            if hidden { fields.0.setFrameOrigin(NSPoint(x: 18 * widthScale, y: 0)); fields.1.setFrameOrigin(NSPoint(x: 275 * widthScale, y: 0)) }
         }
-        footer.setFrameOrigin(NSPoint(x: 18, y: y))
-        setFrameSize(NSSize(width: 380, height: y + footer.frame.height))
+        footer.setFrameOrigin(NSPoint(x: 18 * widthScale, y: y * scale))
+        setFrameSize(NSSize(width: 380 * widthScale, height: y * scale + footer.frame.height))
     }
     func apply(_ state: UsageState) {
         let previous = self.state
@@ -251,6 +272,10 @@ final class UsageCard: NSView {
         suppressValueAnimations = !pendingSelectionSections.isEmpty
         defer { suppressValueAnimations = false }
         self.state = state
+        typography = state.typography ?? Typography(fontSize: 13, fontFamily: "system")
+        for (field, original) in fieldFonts { field.font = appFont(original.0 * typography.scale, family: typography.fontFamily, weight: original.1) }
+        for control in [tools, days] { control.font = appFont(13 * typography.scale, family: typography.fontFamily) }
+        chart.captionFont = appFont(11 * typography.scale, family: typography.fontFamily)
         func color(_ key: String, fallback: NSColor) -> NSColor {
             guard let channels = state.palette?[key], channels.count == 4 else { return fallback }
             return NSColor(srgbRed: CGFloat(channels[0] / 255), green: CGFloat(channels[1] / 255), blue: CGFloat(channels[2] / 255), alpha: CGFloat(channels[3]))
@@ -362,6 +387,7 @@ final class UsageCard: NSView {
 final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let menu = NSMenu()
     let card = UsageCard()
+    private let cardContainer = NSScrollView()
     private var statusItem: NSStatusItem?
     private var refreshItem: NSMenuItem!
     private var inputSource: DispatchSourceRead?
@@ -383,7 +409,10 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         menu.autoenablesItems = false; menu.delegate = self
-        let cardItem = CardMenuItem(); cardItem.view = card; menu.addItem(cardItem)
+        cardContainer.documentView = card; cardContainer.drawsBackground = false
+        cardContainer.hasVerticalScroller = true; cardContainer.hasHorizontalScroller = true; cardContainer.autohidesScrollers = true
+        cardContainer.scrollerStyle = .overlay; resizeCardContainer()
+        let cardItem = CardMenuItem(); cardItem.view = cardContainer; menu.addItem(cardItem)
         menu.addItem(.separator())
         refreshItem = item("刷新用量", action: "refresh", key: "r")
         _ = item("打开工作台", action: "overview", key: "1")
@@ -407,6 +436,10 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let item = NSMenuItem(title: title, action: #selector(performMenuAction(_:)), keyEquivalent: key)
         item.target = self; item.representedObject = action; menu.addItem(item); return item
     }
+    private func resizeCardContainer() {
+        let area = card.window?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
+        cardContainer.setFrameSize(NSSize(width: min(card.frame.width, area.width - 40), height: min(card.frame.height, max(160, area.height - 220))))
+    }
     @objc private func performMenuAction(_ sender: NSMenuItem) {
         guard let action = sender.representedObject as? String else { return }
         if ["overview", "usage", "settings"].contains(action) { emit(["type": "navigate", "page": action]) }
@@ -424,15 +457,19 @@ final class MenuController: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let line = Data(pending[..<end]); pending.removeSubrange(...end)
             guard let state = try? JSONDecoder().decode(UsageState.self, from: line), state.type == "state", state.schemaVersion == 1, [1, 7, 30].contains(state.days), ["all", "codex", "claude"].contains(state.tool), (state.contents?.count ?? 0) <= MenuBarSection.allCases.count, (state.chart?.count ?? 0) <= 60, state.models.count <= 3 else { continue }
             guard state.theme == nil || state.theme == "light" || state.theme == "dark" else { continue }
+            guard state.typography == nil || state.typography!.valid else { continue }
             if let palette = state.palette {
                 let keys: Set<String> = ["panel", "panel-strong", "panel-soft", "text", "text-secondary", "text-muted", "accent", "accent-hover", "accent-soft", "border", "line", "hover", "hover-strong", "blue", "blue-soft", "purple", "purple-soft", "orange", "orange-soft", "red", "red-soft"]
                 guard Set(palette.keys) == keys, palette.values.allSatisfy({ values in values.count == 4 && values.enumerated().allSatisfy { index, value in value.isFinite && value >= 0 && value <= (index == 3 ? 1 : 255) && (index == 3 || value.rounded() == value) } }) else { continue }
             }
             let appearance = state.theme.flatMap { NSAppearance(named: $0 == "dark" ? .darkAqua : .aqua) }
             menu.appearance = appearance; card.appearance = appearance; card.chart.needsDisplay = true
-            card.apply(state); refreshItem.isEnabled = state.canRefresh; menu.update()
+            card.apply(state); resizeCardContainer()
+            let typography = state.typography ?? Typography(fontSize: 13, fontFamily: "system")
+            menu.font = appFont(CGFloat(typography.fontSize), family: typography.fontFamily)
+            refreshItem.isEnabled = state.canRefresh; menu.update()
             statusItem?.button?.toolTip = "Lumi · 余额 " + state.balance + " · 本期 " + state.cost
-            if smoke { emit(["type": "applied", "schemaVersion": 1, "contents": (state.contents ?? MenuBarSection.allCases).map(\.rawValue), "cardHeight": card.frame.height, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }]) }
+            if smoke { emit(["type": "applied", "schemaVersion": 1, "contents": (state.contents ?? MenuBarSection.allCases).map(\.rawValue), "cardHeight": card.frame.height, "layoutValid": card.subviews.allSatisfy { card.bounds.contains($0.frame) }, "typographyValid": abs((card.chart.captionFont.pointSize) - 11 * typography.scale) < 0.02 && abs((menu.font?.pointSize ?? 0) - CGFloat(typography.fontSize)) < 0.02]) }
         }
     }
 }

@@ -100,7 +100,9 @@ export class TrayPanel {
       const switches=[...document.querySelectorAll('[role="radiogroup"]')];
       const sections=document.querySelector('.tray-sections');
       const element=document.querySelector('.tray-card'),card=element.getBoundingClientRect(),offset=new DOMMatrix(getComputedStyle(element).transform).m42;
-      return {isolated:typeof require==='undefined' && typeof window.lumi==='undefined',state:!!state.usage.balance,rejected,equalHeight:switches.length===2 && switches[0].getBoundingClientRect().height===switches[1].getBoundingClientRect().height,layout:Math.abs(card.bottom-offset-innerHeight)<=1 && document.documentElement.scrollWidth<=innerWidth && (!sections || sections.scrollHeight<=sections.clientHeight+1)};
+      const footer=document.querySelector('.tray-footer').getBoundingClientRect(),size=state.typography?.fontSize || 13;
+      const typography=Math.abs(parseFloat(getComputedStyle(document.querySelector('.tray-header strong')).fontSize)-15*size/13)<.02 && (state.typography?.fontFamily!=='serif' || getComputedStyle(document.body).fontFamily.includes('serif'));
+      return {isolated:typeof require==='undefined' && typeof window.lumi==='undefined',state:!!state.usage.balance,rejected,typography,equalHeight:switches.length===2 && switches[0].getBoundingClientRect().height===switches[1].getBoundingClientRect().height,layout:Math.abs(card.bottom-offset-innerHeight)<=1 && document.documentElement.scrollWidth<=innerWidth && footer.top>=card.top && footer.bottom<=card.bottom+1 && (!sections || sections.clientHeight>0 || !sections.children.length)};
     })()`);
   }
   hide(reason='action'){

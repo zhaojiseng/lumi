@@ -19,6 +19,7 @@ test('real appearance controls scale host and SDK text, retain drafts and restor
 import React,{useState,useLayoutEffect} from 'react';import {createRoot} from 'react-dom/client';
 import {DEFAULT_PREFERENCES} from './shared/types';import {applyPreferencePatch} from './shared/selections';import {AppContext} from './src/context';
 import {applyDocumentTypography} from './src/host/typography';
+import {TrendChart} from './src/components/charts';
 window.fixture={patches:[],errors:[]};addEventListener('error',e=>fixture.errors.push(e.message));
 window.lumi={extensionRequest:async()=>({}),onExtensionEvent:()=>()=>{}};
 const {PluginSettingsProvider}=await import('./src/host/plugins');
@@ -31,13 +32,14 @@ return <AppContext.Provider value={{preferences,bootstrap:{platform:'win32'},upd
   <PluginSettingsProvider value={{statuses:[{manifest:{id:'extension.fixture.typography'},generation:1,state:'active'}],items:[]}}>
     <AppearanceSettings/><h2 id="host-heading">Host heading</h2>
     <div id="fixed-box"><p id="host-text">Host text · 本机文字</p><code id="host-code">local code</code><p className="skin-text">Skin typography</p></div>
+    <div id="chart-fixture"><TrendChart metric="speed" data={[{label:'08:00',cost:1,tokens:10,requests:1,speed:12},{label:'09:00',cost:2,tokens:20,requests:2,speed:25}]}/></div>
     <ExtensionFrame pluginId="extension.fixture.typography" view={{id:'chat',slot:'sidebar',entry:'plugin.html',title:'Font fixture'}}/>
   </PluginSettingsProvider>
 </AppContext.Provider>}
 createRoot(document.getElementById('root')).render(<Host/>);`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(root,'renderer.js'),source.outputFiles[0].contents);
   const files=['theme-tokens.css','styles.css','workbench.css','select.css','theme.css','filters-tools-motion.css','platform-logs.css','components/segmented-switch.css','host/typography-settings.css'];
-  await writeFile(path.join(root,'style.css'),(await Promise.all(files.map(file=>readFile(path.join('src',file),'utf8')))).join('\n')+'\nbody{min-width:0;overflow:auto;padding:20px}h2#host-heading{font-size:18px}#host-text{font-size:13px}#fixed-box{width:300px}#host-code{font:12px monospace}.theme-options{display:none}');
+  await writeFile(path.join(root,'style.css'),(await Promise.all(files.map(file=>readFile(path.join('src',file),'utf8')))).join('\n')+'\nbody{min-width:0;overflow:auto;padding:20px}h2#host-heading{font-size:18px}#host-text{font-size:13px}#fixed-box{width:300px}#host-code{font:12px monospace}.theme-options{display:none}#chart-fixture{width:360px;height:220px}.trend-chart{height:100%}');
   await writeFile(path.join(root,'index.html'),'<meta charset="utf-8"><link rel="stylesheet" href="style.css"><div id="root"></div><script type="module" src="renderer.js"></script>');
   await writeFile(path.join(root,'main.cjs'),String.raw`
 const {app,BrowserWindow,protocol}=require('electron'),fs=require('node:fs'),path=require('node:path');
@@ -57,6 +59,8 @@ await run('selectFont("字体大小",'+JSON.stringify(String(size))+');selectFon
 await until(()=>frame().executeJavaScript('Math.abs(parseFloat(getComputedStyle(document.getElementById("message")).fontSize)-'+(14*size/13)+')<.02'),'Plugin size did not update');
 const host=await run('({heading:parseFloat(getComputedStyle(document.getElementById("host-heading")).fontSize),text:parseFloat(getComputedStyle(document.getElementById("host-text")).fontSize),family:getComputedStyle(document.body).fontFamily,code:getComputedStyle(document.getElementById("host-code")).fontFamily,width:document.getElementById("fixed-box").offsetWidth,saved:fixture.preferences})');
 if(Math.abs(host.heading-18*size/13)>.02 || Math.abs(host.text-size)>.02 || host.width!==300 || !host.code.includes('monospace') || host.saved.fontSize!==size || host.saved.fontFamily!==family)throw Error('Host text/geometry contract '+JSON.stringify(host));
+await until(()=>run('(()=>{const ticks=[...document.querySelectorAll("#chart-fixture text.recharts-cartesian-axis-tick-value")];return ticks.length>0 && ticks.every(t=>Math.abs(parseFloat(getComputedStyle(t).fontSize)-11*'+size+'/13)<.02)})()'),'SVG chart text did not scale at '+size);
+if(!await run('(()=>{const chart=document.querySelector("#chart-fixture").getBoundingClientRect();return [...document.querySelectorAll("#chart-fixture text.recharts-cartesian-axis-tick-value")].every(t=>{const r=t.getBoundingClientRect();return r.left>=chart.left-.5 && r.right<=chart.right+.5 && r.top>=chart.top-.5 && r.bottom<=chart.bottom+.5})})()'))throw Error('Chart axis labels clipped at '+size+' '+JSON.stringify(await run('({chart:document.querySelector("#chart-fixture").getBoundingClientRect().toJSON(),ticks:[...document.querySelectorAll("#chart-fixture text")].map(t=>({text:t.textContent,...t.getBoundingClientRect().toJSON()}))})')));
 const listSize=await run('parseFloat(getComputedStyle(document.querySelector(".typography-controls select")).fontSize)');if(Math.abs(listSize-14*size/13)>.02)throw Error('List typography token did not scale');
 if(!await frame().executeJavaScript('document.getElementById("draft")===originalDraft && originalDraft.value==="retained draft" && document.activeElement===originalDraft && getComputedStyle(document.getElementById("code")).fontFamily.includes("monospace")'))throw Error('SDK typography remounted a draft, moved focus or changed code family');
 }

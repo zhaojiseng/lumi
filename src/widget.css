@@ -38,7 +38,7 @@ p, dl, dt, dd { margin: 0; padding: 0; }
 .widget-header { -webkit-app-region: drag; user-select: none; cursor: move; }
 .widget-data {
   display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
+  grid-template-columns: calc(100px * max(1, var(--lumi-font-scale, 1))) minmax(0, 1fr);
   gap: 7px;
   height: 100%;
   min-width: 0;
@@ -53,7 +53,7 @@ p, dl, dt, dd { margin: 0; padding: 0; }
 .widget-value { display: inline-block; max-width: 100%; vertical-align: bottom; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .widget-value, .widget-model-name>span, .widget-model-notice, .widget-empty>span, .widget-data dt { -webkit-app-region: no-drag; cursor: default; }
 .widget-data dt { width: fit-content; }
-.widget-details { display: grid; grid-template-rows: minmax(0, 1fr) 14px; min-width: 0; min-height: 0; }
+.widget-details { display: grid; grid-template-rows: minmax(0, 1fr) calc(14px * var(--lumi-font-scale, 1)); min-width: 0; min-height: 0; }
 .widget-model-slot { width: 100%; min-width: 0; min-height: 0; }
 .widget-model { min-width: 0; border-radius: 3px; }
 .widget-model-heading { display: flex; align-items: center; gap: 4px; min-width: 0; padding-right: 6px; font-size: 12px; line-height: 13px; }

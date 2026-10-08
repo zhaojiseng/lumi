@@ -28,7 +28,7 @@ export class NativeMenuBar {
         if(line.length>4096)return;
         let info:any;try{info=JSON.parse(line);}catch{return;}
         if(info.type==='ready' && info.schemaVersion===1 && info.nativeCard===true && info.nativeChart===true && info.nativeSelectors===true && info.equalSelectorHeight===true && info.lumiIcon===true && info.layoutValid===true){ready=true;this.update();if(!smoke)finish(true);return;}
-        if(smoke && ready && info.type==='applied' && info.schemaVersion===1){finish(true);return;}
+        if(smoke && ready && info.type==='applied' && info.schemaVersion===1){finish(info.layoutValid===true && info.typographyValid===true);return;}
         const event=parseNativeMenuEvent(line);if(ready && !this.closed && event)this.options.event(event);
       });
       child.once('error',()=>finish(false));child.once('exit',()=>{reader.close();if(this.child===child)this.child=undefined;if(!finished)finish(false);else if(!this.closed && !smoke)this.options.failed?.();});

@@ -1,10 +1,11 @@
 import type {SurfacePalette} from './surface-theme';
+import type {Typography} from './typography';
 import type {NativeMenuBarState} from './menu-bar';
 import type {MenuBarSelection,Page} from './types';
 export const TRAY_PANEL_WIDTH=396,TRAY_PANEL_MIN_HEIGHT=160,TRAY_PANEL_MAX_HEIGHT=648,TRAY_RESIZE_DURATION=230,TRAY_CLOSE_DURATION=150;
 export type TrayAction={type:'close'}|{type:'refresh'|'quit'}|{type:'navigate';page:Page}|{type:'select';selection:MenuBarSelection}
   |{type:'layout';height:number;reducedMotion:boolean}|{type:'closeComplete';id:number};
-export interface TrayPanelState {material?:'acrylic';palette?:SurfacePalette;usage:NativeMenuBarState;theme:'light'|'dark';motion?:{id:number;phase:'hidden'|'visible'|'closing'};}
+export interface TrayPanelState {typography?:Typography;material?:'acrylic';palette?:SurfacePalette;usage:NativeMenuBarState;theme:'light'|'dark';motion?:{id:number;phase:'hidden'|'visible'|'closing'};}
 export interface TrayPanelBridge {snapshot():Promise<TrayPanelState>;action(event:TrayAction):Promise<void>;onState(listener:(state:TrayPanelState)=>void):()=>void;}
 
 type Rectangle={x:number;y:number;width:number;height:number};

@@ -1,11 +1,12 @@
 import {BrowserWindow,ipcMain,nativeTheme,screen} from 'electron';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
-import {WIDGET_WIDTH,WIDGET_HEIGHT,parseWidgetAction,type WidgetAction,type WidgetState} from '../../shared/widget';
+import {widgetWindowSize,parseWidgetAction,type WidgetAction,type WidgetState} from '../../shared/widget';
+import type {Typography} from '../../shared/typography';
 import {widgetBackdrop} from './surface-backdrop';
 import {loadWidgetGlass,MacWidgetMaterial} from './mac-widget-material';
-export function widgetBounds(position:{x:number;y:number}|null,area:{x:number;y:number;width:number;height:number}){
-  const width=Math.min(WIDGET_WIDTH,area.width),height=Math.min(WIDGET_HEIGHT,area.height),clamp=(n:number,min:number,max:number)=>Math.round(Math.min(Math.max(n,min),Math.max(min,max)));
+export function widgetBounds(position:{x:number;y:number}|null,area:{x:number;y:number;width:number;height:number},typography?:Typography){
+  const size=widgetWindowSize(typography),width=Math.min(size.width,area.width),height=Math.min(size.height,area.height),clamp=(n:number,min:number,max:number)=>Math.round(Math.min(Math.max(n,min),Math.max(min,max)));
   return {x:clamp(position?.x ?? area.x+area.width-width-20,area.x,area.x+area.width-width),y:clamp(position?.y ?? area.y+area.height-height-20,area.y,area.y+area.height-height),width,height};
 }
 /** The persistent floating window gets only formatted statistics and three validated actions. */
@@ -28,7 +29,7 @@ export class WidgetPanel {
   private trusted(e:Electron.IpcMainInvokeEvent){return !!this.win && !this.win.isDestroyed() && e.sender===this.win.webContents && e.senderFrame===e.sender.mainFrame && e.senderFrame?.url.split('#')[0]===this.url();}
   private async ensure(){
     if(this.closed)throw new Error('Widget closed');if(this.loading)return this.loading;if(this.win && !this.win.isDestroyed())return;
-    const win=new BrowserWindow({width:WIDGET_WIDTH,height:WIDGET_HEIGHT,show:false,frame:false,hasShadow:false,...this.backdrop,resizable:false,maximizable:false,minimizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,title:'Lumi · 浮窗挂件',webPreferences:{preload:this.options.preload,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:false,backgroundThrottling:false}});this.win=win;
+    const win=new BrowserWindow({...widgetWindowSize(this.options.state().typography),show:false,frame:false,hasShadow:false,...this.backdrop,resizable:false,maximizable:false,minimizable:false,fullscreenable:false,skipTaskbar:true,alwaysOnTop:true,title:'Lumi · 浮窗挂件',webPreferences:{preload:this.options.preload,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true,devTools:false,backgroundThrottling:false}});this.win=win;
     win.setAlwaysOnTop(true,'floating');if(process.platform==='darwin')win.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});
     win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());win.webContents.session.setPermissionRequestHandler((_w,_p,done)=>done(false));win.webContents.session.setPermissionCheckHandler(()=>false);
     win.on('moved',()=>{clearTimeout(this.moveTimer);this.moveTimer=setTimeout(()=>{if(!win.isDestroyed() && this.wanted){const {x,y}=win.getBounds();this.options.moved?.({x,y});}},250);});
@@ -42,14 +43,18 @@ export class WidgetPanel {
   }
   async setVisible(enabled:boolean,position:{x:number;y:number}|null){
     this.wanted=enabled;if(!enabled){this.win?.hide();return;}await this.ensure();if(!this.wanted || this.closed || !this.win || this.win.isDestroyed())return;
-    if(!this.win.isVisible()){const display=position ? screen.getDisplayNearestPoint(position) : screen.getPrimaryDisplay();this.win.setBounds(widgetBounds(position,display.workArea));this.update();this.win.showInactive();}
+    if(!this.win.isVisible()){const display=position ? screen.getDisplayNearestPoint(position) : screen.getPrimaryDisplay();this.win.setBounds(widgetBounds(position,display.workArea,this.options.state().typography));this.update();this.win.showInactive();}
   }
-  update(){if(this.win && !this.win.isDestroyed())this.win.webContents.send('lumi:widgetState',this.snapshot());}
+  update(){if(this.win && !this.win.isDestroyed()){
+    const state=this.snapshot(),current=this.win.getBounds(),size=widgetWindowSize(state.typography);
+    if(current.width!==size.width || current.height!==size.height){const area=(screen.getDisplayNearestPoint?.({x:current.x,y:current.y}) || screen.getPrimaryDisplay()).workArea;this.win.setBounds(widgetBounds(current,area,state.typography));}
+    this.win.webContents.send('lumi:widgetState',state);
+  }}
   /** Release the renderer on plugin disable; the host's restricted handlers remain reusable. */
   suspend(){this.wanted=false;clearTimeout(this.moveTimer);this.material?.dispose();this.material=undefined;this.win?.destroy();this.win=undefined;}
   async smoke(){
     await this.ensure();const win=this.win!;
-    const result=await win.webContents.executeJavaScript(String.raw`(async()=>{await new Promise(r=>setTimeout(r,150));const s=await window.lumiWidget.snapshot();let rejected=false;try{await window.lumiWidget.action({type:'shell',command:'invalid'});}catch{rejected=true;}const drag=document.querySelector('.widget-header');return {isolated:typeof require==='undefined' && typeof window.lumi==='undefined' && typeof window.lumiTray==='undefined',state:typeof s.balance==='string',rejected,layout:document.documentElement.scrollWidth<=innerWidth && document.documentElement.scrollHeight<=innerHeight,drag:!!drag && getComputedStyle(drag).getPropertyValue('-webkit-app-region')==='drag'};})()`);
+    const result=await win.webContents.executeJavaScript(String.raw`(async()=>{await new Promise(r=>setTimeout(r,150));const s=await window.lumiWidget.snapshot();let rejected=false;try{await window.lumiWidget.action({type:'shell',command:'invalid'});}catch{rejected=true;}const drag=document.querySelector('.widget-header'),size=s.typography?.fontSize || 13,scale=Math.max(1,size/13);return {isolated:typeof require==='undefined' && typeof window.lumi==='undefined' && typeof window.lumiTray==='undefined',state:typeof s.balance==='string',rejected,typography:Math.abs(parseFloat(getComputedStyle(document.querySelector('.widget-consumption dt')).fontSize)-10*size/13)<.02 && (s.typography?.fontFamily!=='serif' || getComputedStyle(document.body).fontFamily.includes('serif')),layout:document.documentElement.scrollWidth<=innerWidth && document.documentElement.scrollHeight<=innerHeight && innerWidth>=244*scale && innerHeight>=64*scale,drag:!!drag && getComputedStyle(drag).getPropertyValue('-webkit-app-region')==='drag'};})()`);
     win.close();return {...result,nativeCloseHidden:!win.isDestroyed() && !win.isVisible() && !this.wanted};
   }
   close(){this.closed=true;this.wanted=false;clearTimeout(this.moveTimer);if(process.platform==='darwin')nativeTheme.removeListener('updated',this.onNativeTheme);ipcMain.removeHandler('lumi:widgetSnapshot');ipcMain.removeHandler('lumi:widgetAction');this.material?.dispose();this.material=undefined;this.win?.destroy();this.win=undefined;}

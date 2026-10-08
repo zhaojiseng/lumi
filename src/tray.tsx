@@ -6,6 +6,7 @@ import {nativeMenuBarState,normalizeMenuBarContents} from '../shared/menu-bar';
 import {trayPanelContentHeight,TRAY_CLOSE_DURATION,type TrayAction,type TrayPanelState} from '../shared/tray';
 import type {MenuBarSelection} from '../shared/types';
 import {surfacePaletteStyle} from '../shared/surface-theme';
+import {applyDocumentTypography,disposeDocumentTypography} from './host/typography';
 import './theme-tokens.css';
 import './tray.css';
 
@@ -26,13 +27,15 @@ function TrayApp(){
     let active=true,streamed=false;
     const receive=(next:TrayPanelState)=>{if(!active)return;setState(old=>{const selection=pending.current;
       if(selection && old.usage.viewKey && old.usage.viewKey===next.usage.viewKey){
-        if(next.usage.days!==selection.days || next.usage.tool!==selection.tool)return {...old,theme:next.theme,palette:next.palette,motion:next.motion,usage:{...old.usage,contents:next.usage.contents}};
+        if(next.usage.days!==selection.days || next.usage.tool!==selection.tool)return {...old,typography:next.typography,theme:next.theme,palette:next.palette,motion:next.motion,usage:{...old.usage,contents:next.usage.contents}};
         if(['idle','loading'].includes(next.usage.phase))return {...next,usage:{...old.usage,...selection,contents:next.usage.contents,phase:'loading',canRefresh:false,message:'正在刷新用量…'}};
       }
       pending.current=null;return next;
     });};
     const stop=bridge.onState(next=>{streamed=true;receive(next);});void bridge.snapshot().then(next=>{if(!streamed)receive(next);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;stop();};
   },[]);
+  useLayoutEffect(()=>{applyDocumentTypography(document,state.typography);},[state.typography?.fontSize,state.typography?.fontFamily]);
+  useLayoutEffect(()=>()=>disposeDocumentTypography(document),[]);
   useLayoutEffect(()=>{
     const element=card.current,bridge=window.lumiTray;if(!element || !bridge)return;
     const media=matchMedia('(prefers-reduced-motion: reduce)');let frame=0,active=true;

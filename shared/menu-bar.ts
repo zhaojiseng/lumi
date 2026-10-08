@@ -22,6 +22,7 @@ export function menuBarPanelHeight(contents:unknown=MENU_BAR_SECTION_IDS,modelCo
   return Math.min(648,260+(sections.length ? 14+12*(sections.length-1)+sections.reduce((sum,id)=>sum+heights[id],0) : 0));
 }
 export interface NativeMenuBarState {
+  typography?:import('./typography').Typography;
   type:'state';schemaVersion:1;phase:string;siteName:string;accountLabel:string;days:number;tool:string;
   theme?:'light'|'dark';
   palette?:import('./surface-theme').SurfacePalette;

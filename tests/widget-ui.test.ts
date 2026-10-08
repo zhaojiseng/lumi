@@ -429,7 +429,14 @@ app.whenReady().then(async()=>{
     close.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));close.click();
     return {focusedOpacity,actions:window.fixtureActions,wideBridge:typeof window.lumi,require:typeof require};
   }.toString()+')()');
-  process.stdout.write('WIDGET_LAYOUT_RESULT '+JSON.stringify({results,transition,controls})+'\n');
+  win.setContentSize(Math.ceil(244*24/13),Math.ceil(64*24/13));
+  await win.webContents.executeJavaScript('fixtureEmit({...fixtureState,typography:{fontSize:24,fontFamily:"serif"}})');
+  for(let i=0;i<80;i++){if(await win.webContents.executeJavaScript('innerWidth>=451 && innerWidth<=452 && innerHeight>=119 && innerHeight<=120 && Math.abs(parseFloat(getComputedStyle(document.querySelector(".widget-consumption dd")).fontSize)-16*24/13)<.02'))break;await new Promise(r=>setTimeout(r,20));}
+  const large=await win.webContents.executeJavaScript('('+function(){
+    const card=document.querySelector('.widget-card').getBoundingClientRect();
+    return {size:[innerWidth,innerHeight],family:getComputedStyle(document.body).fontFamily,font:parseFloat(getComputedStyle(document.querySelector('.widget-consumption dd')).fontSize),inside:[...document.querySelectorAll('.widget-data dt,.widget-data dd,.widget-close')].every(el=>{const r=el.getBoundingClientRect();return r.left>=card.left && r.right<=card.right+.5 && r.top>=card.top && r.bottom<=card.bottom+.5;})};
+  }.toString()+')()');
+  process.stdout.write('WIDGET_LAYOUT_RESULT '+JSON.stringify({results,transition,controls,large})+'\n');
   win.destroy();app.exit(0);
 }).catch(error=>{process.stderr.write(String(error.stack || error));app.exit(1);});
 `);
@@ -440,7 +447,8 @@ app.whenReady().then(async()=>{
   const code=await new Promise<number|null>((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
   assert.equal(code,0,stderr);
   const line=stdout.split(/\r?\n/).find(line=>line.startsWith('WIDGET_LAYOUT_RESULT '));assert.ok(line,stdout+stderr);
-  const {results,transition,controls}=JSON.parse(line.slice('WIDGET_LAYOUT_RESULT '.length));
+  const {results,transition,controls,large}=JSON.parse(line.slice('WIDGET_LAYOUT_RESULT '.length));
+  assert.ok(large.size[0]>=451 && large.size[0]<=452 && large.size[1]>=119 && large.size[1]<=120,JSON.stringify(large));assert.ok(Math.abs(large.font-16*24/13)<.02);assert.match(large.family,/serif/);assert.equal(large.inside,true);
   for(const result of results){
     assert.deepEqual(result.viewport,[244,64],result.name);assert.deepEqual(result.document,[244,64],result.name);
     const card=result.bounds['.widget-card'],data=result.bounds['.widget-data'];

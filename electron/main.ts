@@ -422,6 +422,8 @@ async function start() {
       result.widgetPanel=await plugins.require('surface.widget','surface.control').smoke();result.widgetPanelValid=Object.values(result.widgetPanel).every(Boolean);
       await plugins.setEnabled('surface.widget',false);
       const widgetReleased=!plugins.isEnabled('surface.widget') && BrowserWindow.getAllWindows().length===1;
+      // Recreated independent renderers must receive the same global typography.
+      await store.update({fontSize:24,fontFamily:'serif'});await plugins.notifySurfaces();
       await plugins.setEnabled('surface.widget',true);
       const restartedWidget=await plugins.require('surface.widget','surface.control').smoke();
       await plugins.setEnabled('surface.widget',false);
@@ -432,6 +434,7 @@ async function start() {
       const trayReleased=!plugins.isEnabled('surface.tray') && BrowserWindow.getAllWindows().length===1;
       await plugins.setEnabled('surface.tray',true);
       const restartedTray=await plugins.require('surface.tray','surface.control').smoke();
+      await store.update({fontSize:13,fontFamily:'system'});await plugins.notifySurfaces();
       result.surfaceLifecycleValid=widgetReleased && trayReleased && Object.values(restartedWidget).every(Boolean) && restartedTray.nativeWindowsTray===true && restartedTray.nativeStatusCard===true && BrowserWindow.getAllWindows().length===1;
       const updaterProbe=process.platform==='darwin' ? macUpdater(path.join(data,'updates')) : await nativeUpdater();updaterProbe.onError(()=>{})();result.nativeUpdaterLoaded=true;
       if (process.env.LUMI_SMOKE_SCREENSHOT) await writeFile(process.env.LUMI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG());

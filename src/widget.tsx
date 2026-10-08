@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {X} from 'lucide-react';
 import type {WidgetBridge,WidgetModel,WidgetState} from '../shared/widget';
 import {surfacePaletteStyle} from '../shared/surface-theme';
+import {applyDocumentTypography,disposeDocumentTypography} from './host/typography';
 import {refreshKeyframes,refreshExitKeyframes,type DataRefreshAnimation} from '../shared/motion';
 import './theme-tokens.css';
 import './widget.css';
@@ -77,6 +78,8 @@ export function WidgetApp() {
   const [received,setState]=useState<WidgetState>(initialState),[error,setError]=useState('');
   const alive=useRef(false),{state,data}=useDataMotion(received);
   useLayoutEffect(()=>{document.documentElement.dataset.theme=received.theme;},[received.theme]);
+  useLayoutEffect(()=>{applyDocumentTypography(document,received.typography);},[received.typography?.fontSize,received.typography?.fontFamily]);
+  useLayoutEffect(()=>()=>disposeDocumentTypography(document),[]);
   useEffect(()=>{
     alive.current=true;
     const bridge=window.lumiWidget;

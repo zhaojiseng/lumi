@@ -70,7 +70,7 @@ test('content fades at final geometry and cannot animate a parked model row from
   inOrder(fields,'field.wantsLayer = true','field.frame =','addSubview(field)');
   inOrder(source,'chart.wantsLayer = true','chart.frame =');
   const geometry=between('private func reflowImmediately','func apply');
-  assert.match(geometry,/if hidden \{ fields\.0\.setFrameOrigin\(NSPoint\(x: 18, y: 0\)\)/);
+  assert.match(geometry,/if hidden \{ fields\.0\.setFrameOrigin\(NSPoint\(x: 18 \* widthScale, y: 0\)\)/);
   assert.doesNotMatch(geometry,/animator\(\)|NSAnimationContext/);
 });
 

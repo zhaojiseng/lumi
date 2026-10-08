@@ -1,4 +1,5 @@
 import type {SurfacePalette} from './surface-theme';
+import {normalizeTypography,type Typography} from './typography';
 import type {SiteStatus,UsageLog} from './types';
 import type {DataRefreshAnimation} from './motion';
 import {logMetrics} from './logs';
@@ -8,10 +9,11 @@ export interface WidgetModelUsage {name:string;quota:number;quotaKnown?:boolean;
 export interface WidgetMinute {start:number;end:number;quota:number;quotaKnown?:boolean;requests:number;models:WidgetModelUsage[];latestModel?:WidgetModelUsage;}
 export interface WidgetUsage {siteId:string;siteName:string;status:SiteStatus;balance:number|null;loggedIn:boolean;minute:WidgetMinute|null;historical:boolean;fetchedAt:number;warnings:string[];source?:'api'|'local';periodLabel?:string;}
 export interface WidgetModel {name:string;cost:string;requests:string;input:string;output:string;cacheRead:string;cacheWrite:string;}
-export interface WidgetState {material?:'acrylic'|'liquid-glass'|'vibrancy'|'opaque';palette?:SurfacePalette;phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';animation?:DataRefreshAnimation;source?:'api'|'local';}
+export interface WidgetState {typography?:Typography;material?:'acrylic'|'liquid-glass'|'vibrancy'|'opaque';palette?:SurfacePalette;phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';animation?:DataRefreshAnimation;source?:'api'|'local';}
 export type WidgetAction={type:'close'|'refresh'|'open'};
 export interface WidgetBridge {snapshot():Promise<WidgetState>;action(event:WidgetAction):Promise<void>;onState(listener:(state:WidgetState)=>void):()=>void;}
 export const WIDGET_WIDTH=244,WIDGET_HEIGHT=64;
+export function widgetWindowSize(typography?:Typography){const scale=Math.max(1,normalizeTypography(typography).fontSize/13);return {width:Math.ceil(WIDGET_WIDTH*scale),height:Math.ceil(WIDGET_HEIGHT*scale)};}
 export function previousMinute(now=Date.now()){const end=Math.floor(now/60000)*60-1;return {start_timestamp:end-59,end_timestamp:end};}
 export function parseWidgetAction(value:unknown):WidgetAction|null {if(!value || typeof value!=='object' || Array.isArray(value))return null;const e=value as Record<string,unknown>;return Object.keys(e).length===1 && Object.hasOwn(e,'type') && ['close','refresh','open'].includes(e.type as string) ? {type:e.type as WidgetAction['type']} : null;}
 const valid=(n:unknown):n is number=>typeof n==='number' && Number.isFinite(n) && n>=0;
