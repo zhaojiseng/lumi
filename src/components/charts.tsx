@@ -12,7 +12,7 @@ export interface ChartRow { tooltipLabel?: string; label: string; cost: number; 
 export const TrendChart=memo(function TrendChart({data,metric='cost',symbol='',series=[]}:{data:ChartRow[];metric?:TrendMetric;symbol?:string;series?:ChartLine[]}) {
   const scale=(useContext(AppContext)?.preferences.fontSize ?? 13)/13;
   const rate=metric==='cacheHitRate',speed=metric==='speed' || metric==='netSpeed',observed=rate || speed,metricName=metric==='cost' ? '消费金额' : metric==='tokens' ? 'Tokens' : rate ? '缓存命中率' : metric==='speed' ? '速率' : metric==='netSpeed' ? '净速率' : '请求次数';
-  return <div className="trend-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} margin={{top:14,right:14+24*Math.max(0,scale-1),left:-14,bottom:0}}>
+  return <div className="trend-chart"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={data} margin={{top:Math.ceil(14*Math.max(1,scale)),right:14+24*Math.max(0,scale-1),left:-14,bottom:0}}>
     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false}/>
     <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{fontSize:11*scale,fill:'var(--text-muted)'}} height={Math.ceil(30*Math.max(1,scale))} dy={10} minTickGap={25*Math.max(1,scale)} interval="preserveStartEnd"/>
     <YAxis axisLine={false} tickLine={false} tick={{fontSize:11*scale,fill:'var(--text-muted)'}} domain={rate ? [0,1] : [0,'auto']} tickFormatter={v=>rate ? (v*100).toFixed(0)+'%' : speed ? compact(v)+' t/s' : metric==='cost' ? `${symbol}${v}` : compact(v)} width={Math.ceil((speed ? 76 : 64)*Math.max(1,scale))} tickCount={4}/>

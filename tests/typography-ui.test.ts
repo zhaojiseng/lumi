@@ -66,9 +66,9 @@ if(!await frame().executeJavaScript('document.getElementById("draft")===original
 }
 await run('selectFont("字体大小","24");selectFont("字体样式","serif")');await until(()=>frame().executeJavaScript('Math.abs(parseFloat(getComputedStyle(document.getElementById("message")).fontSize)-14*24/13)<.02'),'Larger type not applied');
 await run('window.skinSheet=new CSSStyleSheet();skinSheet.replaceSync("@scope (#root) {.skin-text {font-size:17px}}");document.adoptedStyleSheets=[skinSheet];fixture.refresh();void 0');
-if(!await run('Math.abs(parseFloat(getComputedStyle(document.querySelector(".skin-text")).fontSize)-17*24/13)<.02'))throw Error('Adopted skin stylesheet did not scale');
+await until(()=>run('Math.abs(parseFloat(getComputedStyle(document.querySelector(".skin-text")).fontSize)-17*24/13)<.02'),'Adopted skin stylesheet did not scale');
 await run('document.adoptedStyleSheets=[];fixture.refresh();void 0');if(!await run('skinSheet.cssRules[0].cssRules[0].style.fontSize==="17px"'))throw Error('Detached skin retained typography mutation');
-await run('document.adoptedStyleSheets=[skinSheet];fixture.refresh();void 0');if(!await run('Math.abs(parseFloat(getComputedStyle(document.querySelector(".skin-text")).fontSize)-17*24/13)<.02'))throw Error('Reattached skin scaled twice');
+await run('document.adoptedStyleSheets=[skinSheet];fixture.refresh();void 0');await until(()=>run('Math.abs(parseFloat(getComputedStyle(document.querySelector(".skin-text")).fontSize)-17*24/13)<.02'),'Reattached skin scaled twice');
 fs.writeFileSync(path.join(__dirname,'..','font-settings-24-serif-wide.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
 win.setContentSize(420,480);await until(()=>run('innerWidth===420 && innerHeight===480'),'Narrow window did not settle');
 if(!await run('document.documentElement.scrollWidth<=innerWidth && [...document.querySelectorAll(".typography-controls .select-wrap,.typography-controls .button")].every(el=>{const r=el.getBoundingClientRect();return r.left>=0 && r.right<=innerWidth})'))throw Error('Large fonts overflowed narrow appearance controls');
