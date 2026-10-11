@@ -2,7 +2,7 @@ import type {SurfacePalette} from './surface-theme';
 import {normalizeTypography,type Typography} from './typography';
 import type {SiteStatus,UsageLog} from './types';
 import type {DataRefreshAnimation} from './motion';
-import {logMetrics} from './logs';
+import {logMetrics,usageLogKey} from './logs';
 import {compact,currency,formatMoney} from './utils';
 
 export interface WidgetModelUsage {name:string;quota:number;quotaKnown?:boolean;requests:number;inputTokens:number|null;outputTokens:number|null;cacheReadTokens:number|null;cacheWriteTokens:number|null;}
@@ -19,8 +19,8 @@ export function parseWidgetAction(value:unknown):WidgetAction|null {if(!value ||
 const valid=(n:unknown):n is number=>typeof n==='number' && Number.isFinite(n) && n>=0;
 const sum=(a:number|null,b:unknown)=>a!==null && valid(b) ? a+b : null;
 export function widgetMinute(rows:UsageLog[],start:number):WidgetMinute {
-  const byModel=new Map<string,WidgetModelUsage>(),ids=new Set<number>();let quota=0,requests=0,latest:UsageLog|undefined;
-  for(const row of rows){if(row.type!==2 || row.created_at<start || row.created_at>=start+60 || ids.has(row.id))continue;ids.add(row.id);if(!valid(row.quota))throw new Error('分钟消费记录包含无效额度。');
+  const byModel=new Map<string,WidgetModelUsage>(),ids=new Set<string>();let quota=0,requests=0,latest:UsageLog|undefined;
+  for(const row of rows){const id=usageLogKey(row);if(row.type!==2 || row.created_at<start || row.created_at>=start+60 || ids.has(id))continue;ids.add(id);if(!valid(row.quota))throw new Error('分钟消费记录包含无效额度。');
     const name=typeof row.model_name==='string' && row.model_name ? row.model_name.slice(0,200) : '未知模型';
     if(!latest || row.created_at>latest.created_at || row.created_at===latest.created_at && row.id>latest.id)latest=row;
     const model=byModel.get(name) || {name,quota:0,requests:0,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0},metrics=logMetrics(row);

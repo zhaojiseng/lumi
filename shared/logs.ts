@@ -1,4 +1,7 @@
 import {DEFAULT_LOG_COLUMNS,LOG_COLUMN_IDS,type UsageLog,type LogColumnId} from './types';
+// New API IDs are display ordinals within a query. Cached queries cover disjoint
+// seconds, so include the timestamp when identifying rows in their merged result.
+export function usageLogKey(log:Pick<UsageLog,'created_at'|'id'>):string {return `${log.created_at}:${log.id}`;}
 export const LOG_COLUMN_LABELS: Record<LogColumnId,string> = {
   time:'时间',model:'模型',reasoning:'思考强度',token:'令牌',input:'输入 Tokens',output:'输出 Tokens',cacheRead:'缓存读取',cacheWrite:'缓存写入',cost:'费用',duration:'首字 / 后续',speed:'Token 速度',netSpeed:'净速率',channel:'渠道',status:'状态',firstToken:'首字延迟',group:'路由分组',requestId:'请求 ID',stream:'流式输出',tool:'工具归属',
 };

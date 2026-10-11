@@ -166,6 +166,14 @@ test('duplicate IDs never charge a second model or add duplicate token counts',(
   assert.deepEqual(result.latestModel,{name:'model-a',quota:0,requests:1,inputTokens:120,outputTokens:30,cacheReadTokens:0,cacheWriteTokens:0});
 });
 
+test('minute totals retain repeated display IDs from disjoint cached seconds',()=>{
+  const first=log(1,{quota:200,created_at:minuteStart+10}),second=log(1,{quota:300,created_at:minuteStart+40});
+  const result=widgetMinute([first,second,{...first}],minuteStart);
+  assert.equal(result.requests,2);assert.equal(result.quota,500);
+  assert.equal(result.models[0].inputTokens,240);assert.equal(result.models[0].outputTokens,60);
+  assert.equal(result.latestModel?.quota,300);
+});
+
 test('model totals are independent of row order and equal costs sort consistently',()=>{
   const rows=[log(1,{model_name:'zeta'}),log(2,{model_name:'alpha'}),log(3,{model_name:'largest',quota:200})];
   const result=widgetMinute(rows,minuteStart);

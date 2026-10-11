@@ -1,5 +1,19 @@
 # Lumi 验证记录
 
+## 1.0.3 · 发布前验证（2026-10-11）
+
+- 应用清单、lockfile 根、主界面与浏览器适配版本统一为 1.0.3，依赖版本保持原样。修复详情和原版复现见下一节；本轮发布验证使用最终版本和隔离假数据。
+- Windows x64 / Node 24.18.0：typecheck、check:extensions、完整 npm test、dist、构建后 test:desktop、verify:release 与 npm audit 通过。测试 920 项，917 通过、3 项平台跳过、0 失败；audit 0 漏洞。安装包内 78 个文件与当前构建匹配，65 份 npm 与 84 份 Rust 完整许可保留，不含本地数据。日志位于 `.test-data/release-103/{test,dist,desktop,verify}.log`，审计为 `audit.json`。
+- 本机安装包 `release/patch-103-20261011/Lumi-1.0.3-x64.exe` SHA-256 为 `8f14a80040d7bc5ce77f3e0ac0d6f8dcde1e5f1b4506d8574e59ed06ddeba168`。该文件与 GitHub CI 独立构建的公开包分别记录，不能互换散列。
+- 三平台检查、macOS ARM64 原生构建/启动/DMG 校验及六项公开附件须由标签工作流完成；本条不宣称这些远端步骤已完成。
+
+## 未发布开发增量 · 消费日志分页误报修复（2026-10-11）
+
+- New API 的 `/api/log/self` 日志 ID 为查询内显示序号，历史与近期缺口分别查询后可以重复。使用 HEAD 原版区间缓存和两条不同时刻、相同 ID 的合成记录复现“消费日志分页不完整，请重新加载曲线。”；未读取真实账户数据。
+- 合并快照、浮窗去重及日志列表行键统一使用时间戳与显示 ID；缓存选择的区间按秒互不重叠，保留同一秒中的多个请求。固定查询内的重复 ID、总量变化和缺页仍拒绝整个结果。新增四项回归覆盖近期刷新、扩大范围、type=0/type=2 混合缓存、同秒请求和浮窗完整统计。
+- Windows x64 / Node 24.18.0：严格 typecheck、87 项定向测试、check:extensions、check:secrets、完整 npm test、build 与构建后 test:desktop 均通过。完整测试 920 项，917 通过、3 项平台跳过、0 失败；构建保留 65 份 npm 与 84 份 Rust 完整许可。日志：`.test-data/usage-pagination-fix-{tests,build,desktop}.log`。
+- 本次仅更新主程序工作区源码及构建资源，未修改独立插件仓库、版本、公开标签或发行附件；未验证本轮 macOS/Linux。
+
 ## 1.0.2 · 公开发布验收（2026-10-11）
 
 - [Lumi 1.0.2](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.2) 已公开，发布时间为北京时间 2026-10-11 16:13:58，标签固定提交 `1ca34fc9cdd28d4c4a621310c4ea3f4b412c7737`。正式标签流程 [38123445978](https://github.com/zhaojiseng/lumi/actions/runs/38123445978) 首次执行成功，三平台检查、Windows x64/macOS ARM64 打包、隔离桌面启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。

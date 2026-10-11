@@ -5,7 +5,7 @@ import {ProviderIcon} from './BrandIcon';
 import {Button,Modal} from './ui';
 import {useApp} from '../context';
 import type {UsageLog,SiteStatus,ModelCatalog} from '../../shared/types';
-import {ACTIVITY_COLUMN_IDS,ACTIVITY_COLUMN_LABELS,DEFAULT_ACTIVITY_COLUMNS,normalizeActivityColumns,visibleActivityColumns,logMetrics,requestTiming,requestStatus,requestReasoningEffort,upstreamChannel,type ActivityColumnId} from '../../shared/logs';
+import {ACTIVITY_COLUMN_IDS,ACTIVITY_COLUMN_LABELS,DEFAULT_ACTIVITY_COLUMNS,normalizeActivityColumns,visibleActivityColumns,usageLogKey,logMetrics,requestTiming,requestStatus,requestReasoningEffort,upstreamChannel,type ActivityColumnId} from '../../shared/logs';
 import {formatMoney,toolForLog} from '../../shared/utils';
 import {RequestDetail} from './RequestLogs';
 import '../recent-activity.css';
@@ -77,7 +77,7 @@ export function RecentActivity({logs,status,catalog,columns=DEFAULT_ACTIVITY_COL
     }
   }
   return <>
-    <div className="table-scroll"><table className="data-table recent-activity-table"><thead><tr>{visible.map(id=><th key={id} title={columnHelp[id]}>{id==='input' && showCacheRead ? '输入 / 缓存命中' : ACTIVITY_COLUMN_LABELS[id]}</th>)}</tr></thead><tbody>{logs.slice(0,5).map(log=><tr key={log.id}>{visible.map(id=><td key={id}>{cell(log,id)}</td>)}</tr>)}</tbody></table></div>
+    <div className="table-scroll"><table className="data-table recent-activity-table"><thead><tr>{visible.map(id=><th key={id} title={columnHelp[id]}>{id==='input' && showCacheRead ? '输入 / 缓存命中' : ACTIVITY_COLUMN_LABELS[id]}</th>)}</tr></thead><tbody>{logs.slice(0,5).map(log=><tr key={usageLogKey(log)}>{visible.map(id=><td key={id}>{cell(log,id)}</td>)}</tr>)}</tbody></table></div>
     <PopupPresence>{detail && <RequestDetail log={detail} status={status} onClose={close}/>}</PopupPresence>
   </>;
 }

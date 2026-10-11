@@ -9,7 +9,7 @@ import {resolveRange} from '../shared/range';
 import type {UsageLog} from '../shared/types';
 
 async function fixture(){
-  const seen:{path:string;query:URLSearchParams;auth:string|undefined;}[]=[];let status=1,total=150,legacy=false,rows:UsageLog[]|undefined,broken='';
+  const seen:{path:string;query:URLSearchParams;auth:string|undefined;}[]=[];let status=1,total=150,legacy=false,displayIds=false,rows:UsageLog[]|undefined,broken='';
   let statusWait=Promise.resolve(),releaseStatus:(()=>void)|undefined,logWait=Promise.resolve(),releaseLogs:(()=>void)|undefined;
   const timestamp=resolveRange(1).start_timestamp+10;
   const server=createServer(async(req,res)=>{
@@ -22,6 +22,8 @@ async function fixture(){
       let matchingTotal=total;
       if(rows){const matching=rows.filter(row=>row.created_at>=start && row.created_at<=end && (!type || row.type===type)).sort((a,b)=>b.created_at-a.created_at || b.id-a.id);matchingTotal=matching.length;items=matching.slice((page-1)*size,page*size) as typeof items;}
       else if(timestamp<start || timestamp>end){items=[];matchingTotal=0;}
+      // New API exposes query-local display ordinals rather than database IDs.
+      if(displayIds)items=items.map((row,index)=>({...row,id:(page-1)*size+index+1}));
       if(broken==='duplicate' && page===2)items[0]={...items[0],id:1};
       if(broken==='empty' && page===2)items=[];
       if(broken==='total' && page===2)matchingTotal++;
@@ -44,7 +46,7 @@ async function fixture(){
   const store=new SettingsStore(root,{available:()=>true,encrypt:s=>s,decrypt:s=>s});await store.load();
   const site={id:store.activeSite().id,name:'Fixture',url:'http://127.0.0.1:'+port,allowHttp:true,userId:42,accessToken:'fixture-account'};
   await store.saveSite(site);const api=new NewApiClient(store);
-  return {api,seen,store,site,setTotal:(n:number)=>{total=n;},setLegacy:()=>{legacy=true;},setRows:(value:UsageLog[])=>{rows=value;},breakPages:(value:string)=>{broken=value;},holdLogs:()=>{logWait=new Promise<void>(resolve=>{releaseLogs=resolve;});},releaseLogs:()=>releaseLogs?.(),holdStatus:()=>{statusWait=new Promise<void>(resolve=>{releaseStatus=resolve;});},close:()=>new Promise<void>(resolve=>{releaseStatus?.();releaseLogs?.();server.close(()=>resolve());})};
+  return {api,seen,store,site,setTotal:(n:number)=>{total=n;},setLegacy:()=>{legacy=true;},setDisplayIds:()=>{displayIds=true;},setRows:(value:UsageLog[])=>{rows=value;},breakPages:(value:string)=>{broken=value;},holdLogs:()=>{logWait=new Promise<void>(resolve=>{releaseLogs=resolve;});},releaseLogs:()=>releaseLogs?.(),holdStatus:()=>{statusWait=new Promise<void>(resolve=>{releaseStatus=resolve;});},close:()=>new Promise<void>(resolve=>{releaseStatus?.();releaseLogs?.();server.close(()=>resolve());})};
 }
 test('token curves read every page at a fixed range, share concurrent reads and return only usage metadata',async(t)=>{
   const f=await fixture();try{
@@ -145,6 +147,44 @@ test('automatic trend refresh reads a small recent overlap while historical/nest
     await f.api.tokenUsage(30);const expanded=f.seen.filter(row=>row.path==='/api/log/self');assert.equal(expanded.length,initial+2);assert.equal(Number(expanded.at(-1)!.query.get('end_timestamp')),resolveRange(7).start_timestamp-1);
   }finally{await f.close();}
 });
+test('New API display IDs can restart during recent refresh and range expansion without losing usage',async(t)=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(2026,9,11,12,0,0).getTime()});
+  const f=await fixture(),end=Math.floor(Date.now()/1000),make=(id:number,time:number):UsageLog=>({id,created_at:time,type:2,model_name:'fixture',token_name:'fixture',token_id:1,prompt_tokens:10,completion_tokens:5,use_time:1,is_stream:true,quota:2,group:'fixture'});
+  const history=Array.from({length:150},(_,i)=>make(i+1,end-86400-i)),recent=[make(151,end-200),make(152,end-10)],older=[make(153,end-10*86400)];
+  try{
+    f.setDisplayIds();f.setRows([...history,...recent,...older]);
+    assert.equal((await f.api.tokenUsage(7)).logCount,152);
+    t.mock.timers.tick(60000);f.setRows([...history,...recent,...older,make(154,end+50)]);
+    const refreshed=await f.api.tokenUsage(7);
+    assert.equal(refreshed.logCount,153);assert.equal(refreshed.quality.requestCount,153);
+    assert.equal(refreshed.points.reduce((sum,p)=>sum+p.token_used,0),153*15);
+    assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,3,'refresh reads only the recent gap');
+    const expanded=await f.api.tokenUsage(30);
+    assert.equal(expanded.logCount,154);assert.equal(expanded.points.reduce((sum,p)=>sum+p.quota,0),308);
+    assert.equal(f.seen.filter(r=>r.path==='/api/log/self').length,4,'expansion reads only older history');
+    const filtered=await f.api.dashboard({range:1,models:['fixture']});
+    assert.equal(filtered.logs.total,3);
+    assert.equal((await f.api.tokenUsage(30)).logCount,154,'type-0 and type-2 snapshots can share display ordinals');
+  }finally{await f.close();}
+});
+
+test('filtered log pages retain same-second requests and repeated display IDs across cached ranges',async(t)=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(2026,9,11,12,0,0).getTime()});
+  const f=await fixture(),end=Math.floor(Date.now()/1000);
+  const rows=Array.from({length:3},(_,i):UsageLog=>({id:i+100,created_at:end-86400,type:2,model_name:'fixture',token_name:'fixture',token_id:1,prompt_tokens:10,completion_tokens:5,use_time:1,is_stream:true,quota:2,group:'fixture'}));
+  rows.push({...rows[0],id:200,created_at:end-10});
+  try{
+    f.setDisplayIds();f.setRows(rows);
+    await f.api.dashboard({range:1,models:['fixture']});
+    const expanded=await f.api.dashboard({range:7,models:['fixture']});
+    assert.equal(expanded.logs.total,4);assert.equal(expanded.stat?.quota,8);
+    const page=await f.api.logs({days:7,page:1,pageSize:15,models:['fixture']});
+    assert.equal(page.items.length,4);assert.equal(new Set(page.items.map(row=>row.id)).size,3);
+    assert.equal(new Set(page.items.map(row=>`${row.created_at}:${row.id}`)).size,4);
+    assert.equal((await f.api.tokenUsage(7)).logCount,4);
+  }finally{await f.close();}
+});
+
 test('filtered dashboard snapshots serve unfiltered consumption curves and isolate caller mutations',async()=>{
   const f=await fixture();try{const dashboard=await f.api.dashboard({range:1,models:['model-a']});const reads=f.seen.filter(row=>row.path==='/api/log/self').length;
     dashboard.logs.items[0].quota=99999;

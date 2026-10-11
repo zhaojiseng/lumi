@@ -75,3 +75,11 @@ test('a covered cache hit remains available while a larger history read is pendi
   let hit=false;const cached=f.cache.get('site:account',2,covered,f.load).then(result=>{hit=true;return result;});await Promise.resolve();
   try{assert.equal(hit,true,'a fresh hit must not wait for unrelated pages');assert.equal((await cached).rows.length,1);}finally{release();await expansion;}
 });
+
+test('disjoint snapshots retain query-local display IDs including same-second requests',async()=>{
+  const f=fixture();f.setRows([row(1,990001),row(2,990001),row(1,990003)]);
+  await f.cache.get('site:account',2,{start_timestamp:990003,end_timestamp:990003},f.load);
+  const result=await f.cache.get('site:account',2,{start_timestamp:990000,end_timestamp:990003},f.load);
+  assert.deepEqual(result.rows.map(row=>[row.created_at,row.id]),[[990003,1],[990001,2],[990001,1]]);
+  assert.equal(result.rows.reduce((sum,row)=>sum+row.quota,0),3);
+});

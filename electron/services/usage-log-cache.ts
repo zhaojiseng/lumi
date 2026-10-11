@@ -1,4 +1,5 @@
 import type {UsageLog} from '../../shared/types';
+import {usageLogKey} from '../../shared/logs';
 
 export interface UsageWindow {start_timestamp:number;end_timestamp:number;}
 export interface CachedUsageLogs {rows:UsageLog[];fetchedAt:number;revision:number;endTimestamp:number;}
@@ -76,13 +77,14 @@ export class UsageLogCache {
       try{await job;}finally{if(state.pending===job)state.pending=null;}
     }
     this.assertCurrent(key,state);
-    const pieces=this.plan(state,type,window),rows:UsageLog[]=[],ids=new Set<number>();
+    const pieces=this.plan(state,type,window),rows:UsageLog[]=[],ids=new Set<string>();
     // Newer intervals precede older ones so filtered request pages retain newest-first ordering.
     for(const piece of pieces.toReversed()){
       if(!piece.segment)throw new Error('用量缓存已过期，请重新同步。');
       for(const row of piece.segment.rows)if(row.created_at>=piece.start_timestamp && row.created_at<=piece.end_timestamp && (type!==2 || row.type===2)){
-        if(ids.has(row.id))throw new Error('消费日志分页不完整，请重新加载曲线。');
-        ids.add(row.id);rows.push(row);
+        const id=usageLogKey(row);
+        if(ids.has(id))throw new Error('消费日志分页不完整，请重新加载曲线。');
+        ids.add(id);rows.push(row);
       }
     }
     // Account eviction never truncates a requested series or an active read.
