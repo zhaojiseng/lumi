@@ -525,7 +525,7 @@ Codex 桥接由宿主默认提供，不列入内置插件列表，也无需启�
 
 ### 受控液态玻璃折射
 
-此接口从 Lumi 0.5.13 起提供，Lumi 1.0.0 保持兼容。界面插件可在 `:scope` 上声明无单位数值 `--lumi-glass-distortion`，单位为逻辑像素；宿主将值限制到 0–12，0 或无效值关闭效果。结合 `appearanceGroups` 和 `data-appearance-*` 可让用户选择强度。
+此接口从 Lumi 0.5.13 起提供，Lumi 1.0.1 保持兼容。界面插件可在 `:scope` 上声明无单位数值 `--lumi-glass-distortion`，单位为逻辑像素；宿主将值限制到 0–12，0 或无效值关闭效果。结合 `appearanceGroups` 和 `data-appearance-*` 可让用户选择强度。
 
 宿主仅为 `.sidebar`、`.segmented-thumb`、`.vendor-tabs > button.active`、`.favorite-filter.active`、`.modal`、`.toast`、`[data-popup-kind="popover"]`、`.multi-popover`、`.recharts-default-tooltip`、`.donut-tooltip` 及打开的 `.select-wrap select` 生成局部圆角位移图，向元素提供 `--lumi-glass-filter`。插件通过 `backdrop-filter: blur(2px) var(--lumi-glass-filter, blur(0px))` 消费滤镜；原生下拉在 `::picker(select)` 使用相同变量。中心保持平直，边缘按局部法线偏移；不要将滤镜应用到正文 `filter` 上。
 
@@ -1069,11 +1069,11 @@ async function inspectTypes() {
 每个插件视图和加载代次使用独立进程，消息仅推送到所属视图。关闭视图、停用或更新插件、重新扫描时终止该连接及在途任务；桥接停用后须重新连接。`lumi/bridge/exited` 是宿主连接关闭事件，插件应清空在途状态并提供重连。重复或过期审批响应会被拒绝。
 
 
-## 14. 本地模型网关桥接（Lumi 1.0.0 起）
+## 14. 本地模型网关桥接（Lumi 1.0.1 起）
 
-新增可选 `gateway` SDK 命名空间，扩展 API 仍为 1；最低产品版本为 Lumi 1.0.0。声明权限为 `gateway.control`、`gateway.config`、`gateway.records.read`、`gateway.records.manage`、`gateway.cli-config`；旧插件无需声明，旧宿主拒绝新权限。可选清单字段 `minHostVersion` 约束产品版本。
+新增可选 `gateway` SDK 命名空间，扩展 API 仍为 1；最低产品版本为 Lumi 1.0.1。声明权限为 `gateway.control`、`gateway.config`、`gateway.records.read`、`gateway.records.manage`、`gateway.cli-config`；旧插件无需声明，旧宿主拒绝新权限。可选清单字段 `minHostVersion` 约束产品版本。
 
-Lumi 1.0.0 内置并管理固定网关核心。插件用 `gateway.local.status/setup/configure` 完成首次设置、端口与运行限制，`connect({})` 连接当前插件的托管实例；用户无需额外启动程序或准备配对文件。`gateway.pair()` 保留登记外部 TLS 实例的受限兼容入口。认证写入由系统保护，读接口只返回引用与是否存在；会话绑定插件 ID、generation 与 view，插件不能提供任意进程路径或管理令牌。
+Lumi 1.0.1 内置并管理固定网关核心。插件用 `gateway.local.status/setup/configure` 完成首次设置、端口与运行限制，`connect({})` 连接当前插件的托管实例；用户无需额外启动程序或准备配对文件。`gateway.pair()` 保留登记外部 TLS 实例的受限兼容入口。认证写入由系统保护，读接口只返回引用与是否存在；会话绑定插件 ID、generation 与 view，插件不能提供任意进程路径或管理令牌。
 
 SDK 提供 `listener.start/stop`、`routes.config.get/set`、`routes.save/delete`、`routes.models.detect`、`rules.list/preview/replace`、`recording.config.get/set`、`records.list/get/delete/export` 及 `cliConfig.preview/apply/restore`。`events.subscribe({sessionId}, listener)` 异步返回取消函数，事件只包含状态与警告。配置写入带 `expectedVersion`；路由、规则和录制配置共用版本，写入后需重新读取快照。运行中修改路由、认证与监听端口由宿主事务提交，已接收请求继续使用其原配置与认证快照；端口绑定或写入失败保留原状态。
 
@@ -1093,4 +1093,4 @@ CLI 事务仅改变本地网关入口与认证，不改变 `service_tier`、模�
 
 链路快照含独立 `snapshotId/revision` 和五类有限事件，不含请求/回答正文。最多保留 128 项正在处理的请求和 64 项已结束请求，总摘要受 192 KiB 上限约束；超限先撤回旧历史，再缩减活动项的诊断字段，保留活动线路身份。可选 `rateWindow` 是最近 5000 ms 实际输出 Unicode 字符数 / 窗口观测时长，单位字符/s；不足 5 秒按已观测时长计算，缺少有效输出观测时保持未知，不替代上游 token 用量。活动耗时与窗口读数可在 `revision` 不变时更新，客户端仍须读取最新快照；结束后冻结窗口。计数区分已进入处理的请求、实际上游尝试、发生修改的整流、改道和送达客户端的错误；未观测的时间/用量保留未知。`gateway.chain.snapshot` 归属记录读取权限。客户端与上游协议独立，不能转换的状态、内置工具、隐藏思考/签名等明确拒绝，工具 strict 默认行为不会静默变更。
 
-以上接口从 Lumi 1.0.0 起提供；插件应声明 `minHostVersion: "1.0.0"` 并与对应宿主一起验证。SDK 新方法的存在不代表任意 API1 宿主具备相应接口。
+以上接口从 Lumi 1.0.1 起提供；插件应声明 `minHostVersion: "1.0.1"` 并与对应宿主一起验证。SDK 新方法的存在不代表任意 API1 宿主具备相应接口。

@@ -166,8 +166,19 @@ win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContent
 await win.webContents.executeJavaScript('('+waitMultiClosed.toString()+')("Escape")');
 }
 await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
-await win.webContents.executeJavaScript('document.querySelector(".multi-trigger").click();new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))).then(()=>{const panel=document.querySelector(".multi-popover");if(!panel || panel.getAnimations().length || getComputedStyle(panel).opacity!=="1")throw new Error("Reduced motion animates multiselect opening");document.querySelector(".multi-trigger").click();})');
-await win.webContents.executeJavaScript('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))).then(()=>{if(document.querySelector(".multi-popover"))throw new Error("Reduced motion delays multiselect unmount");})');
+// CDP completion precedes media/style invalidation in a macOS offscreen surface.
+// Observe the preference and its CSS before clicking; do not wait out a wrong animation.
+await win.webContents.executeJavaScript('('+async function(){
+const media=matchMedia('(prefers-reduced-motion: reduce)'),end=performance.now()+2000,probe=document.createElement('div');probe.className='multi-popover open';probe.hidden=true;document.querySelector('.desktop-shell').append(probe);
+try{while(!media.matches || getComputedStyle(probe).animationName!=='none'){if(performance.now()>end)throw new Error('Reduced motion media/styles did not settle: '+JSON.stringify({matches:media.matches,animationName:getComputedStyle(probe).animationName}));await new Promise(r=>requestAnimationFrame(r));}}finally{probe.remove();}
+}.toString()+')()');
+await win.webContents.executeJavaScript('('+async function(){
+const trigger=document.querySelector('.multi-trigger'),end=performance.now()+2000;trigger.click();
+while(!document.querySelector('.multi-popover')){if(performance.now()>end)throw new Error('Reduced motion multiselect did not mount');await new Promise(r=>requestAnimationFrame(r));}
+await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const panel=document.querySelector('.multi-popover'),style=panel && getComputedStyle(panel);if(!panel || !matchMedia('(prefers-reduced-motion: reduce)').matches || panel.getAnimations().length || style.opacity!=='1')throw new Error('Reduced motion animates multiselect opening: '+JSON.stringify({matches:matchMedia('(prefers-reduced-motion: reduce)').matches,phase:panel?.dataset.popupPhase,opacity:style?.opacity,animationName:style?.animationName,animations:panel?.getAnimations().map(a=>({name:a.animationName,playState:a.playState,currentTime:a.currentTime}))}));trigger.click();
+while(trigger.getAttribute('aria-expanded')!=='false'){if(performance.now()>end)throw new Error('Reduced motion close did not commit');await new Promise(r=>requestAnimationFrame(r));}
+await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));if(document.querySelector('.multi-popover'))throw new Error('Reduced motion delays multiselect unmount');
+}.toString()+')()');
 win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack || error);app.exit(1)});
 `);

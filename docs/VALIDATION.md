@@ -1,5 +1,15 @@
 # Lumi 验证记录
 
+## 1.0.1 · 首次公开 1.x 修订验证（2026-10-11）
+
+- 主程序清单、lockfile 与两个渲染侧版本统一为 1.0.1；独立模型网关 1.0.1 声明最低 Lumi 1.0.1 / 扩展 API v1。内置 Rust 核心版本仍为 1.0.0，本修订未改运行时源码；原 1.0.0 本轮 Rust/Node 检查见下一节，不冒充本修订重跑结果。
+- 1.0.0 标签流程 38109547896 的 Windows/Linux 检查通过，macOS 的请求详情在 1000×680 窗口中为 645/642 px，减少动态效果多选框开启检查也失败，未打包或公开 Release。保留两个仓库原 1.0.0 标签；修订减小短窗口弹窗纵向留白，夹具先观察媒体偏好和样式，再同步 React 开闭提交，保留无动画与立即退出断言。
+- 本次严格 typecheck、check:extensions 和完整 npm test 通过：901 项、898 通过、3 平台跳过、0 失败/取消，日志 `.test-data/release-101/test.log`。本次 npm audit 0 漏洞，结果 `.test-data/release-101/audit.json`。定向 UI 修订三项及最终多选框复验通过，前次中间失败日志保留于 release-100。
+- 本次 Windows x64 安装包 `release/major-101-20261011/Lumi-1.0.1-x64.exe` 为 113237870 字节，SHA-256 `fcc6258c8bdd34e5484ea3dcef7316b5b6ca527d7336322f534eb764951e01a5`。dist、隔离 test:desktop、verify:release 通过，匹配 78 个当前构建文件，完整许可、核心原始字节、更新元数据与本地数据排除均通过；独立模型网关不编译进 EXE。日志 `.test-data/release-101/{dist,desktop,verify}.log`。
+- 最终包内核心的真实沙箱 Electron 回归 `../extensions/.cache/gateway-plugin-ui/real-electron-sR7JeE/result.json` 通过：25 组、227 次 SDK 调用、27 个事件、24 项视图、26 项概况/弹窗及 67 张截图，错误/意外网络为空。实际 Host/Frame/preload/SDK、TLS、系统加密和包内核心参与；已目视并发概况与梦幻深色 480 px 供应商编辑。核心 SHA-256 `e930b928a9486f97fed5a96c7e8f36a6f78edc9e33db998a54593f37214d94b9`。
+- 网关七项资源与 package-stage 字节一致，当前 1.0.1 宿主官方校验通过，digest `11d907cf9a516c20c9f4f7081213a0e4489baa6e27d8cc4dd7e0621fbbd95976`。首次沙箱账户因 Electron AppContainer ACL 启动失败，未关闭 Chromium 沙箱或改 ACL；改用当前 Windows 用户运行隔离夹具后通过，过程日志保留。
+- 所有应用/CLI 数据、密钥与上游为隔离夹具，未操作用户实际 CLI 或付费请求。三平台标签检查、macOS ARM64 包/隔离启动/DMG 以及公开附件摘要另由正式发布流程验证；本条不宣称这些远端步骤已完成。
+
 ## 1.0.0 · 大版本发布前验证（2026-10-11）
 
 - 版本已在主程序清单、lockfile 根、渲染器与浏览器适配中统一为 1.0.0；内置 Rust 核心为 1.0.0。独立模型网关 1.0.0 保持插件 ID，声明最低 Lumi 1.0.0 / 扩展 API v1，七项资源与源目录一致；其他插件保持各自版本。

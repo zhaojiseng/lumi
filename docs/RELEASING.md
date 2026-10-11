@@ -30,7 +30,7 @@ npm run build
 npm audit
 ```
 
-主程序包含 Rust 网关核心，构建还需要 Rust 1.85+ / Cargo 与平台 C 编译器；CI 使用 stable 工具链，并在三个平台执行内置核心的 `cargo test --locked`。构建会从 Cargo 元数据收集并携带完整依赖许可，缺失许可时失败。独立网关插件保持单独打包和发布，最低宿主为 Lumi 1.0.0。
+主程序包含 Rust 网关核心，构建还需要 Rust 1.85+ / Cargo 与平台 C 编译器；CI 使用 stable 工具链，并在三个平台执行内置核心的 `cargo test --locked`。构建会从 Cargo 元数据收集并携带完整依赖许可，缺失许可时失败。独立网关插件保持单独打包和发布，最低宿主为 Lumi 1.0.1。
 
 CI 只需要 contents: read，不使用真实站点、账号或发布密钥。依赖以 `npm ci --ignore-scripts` 安装，再显式运行 `npm run setup:electron`，确保真实 Chromium 布局检查实际执行。Linux 使用 Xvfb 虚拟显示，并配置 Chromium SUID 沙箱的所有者及权限；测试不会关闭沙箱。动画 fixture 显式模拟无减少动态效果，并通过暂停 / 完成真实动画校验状态，避免宿主机偏好与调度影响结果。
 
