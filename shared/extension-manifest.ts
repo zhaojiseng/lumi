@@ -1,6 +1,10 @@
 import {z} from 'zod';
 import {EXTENSION_PERMISSIONS,EXTENSION_SLOTS,type ExtensionManifest} from './contracts/extensions';
 export const extensionId=/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/;
+const minimumVersion=z.string().max(40).refine(value=>{
+  const match=/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*))?$/.exec(value);
+  return !!match && (!match[4] || match[4].split('.').every(part=>!/^\d+$/.test(part) || part==='0' || !part.startsWith('0')));
+},'最低宿主版本必须是有效的产品 semver。');
 const localId=z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/);
 export function safeExtensionPath(value:string){
   return value.length<=240 && !value.includes('\\') && !value.startsWith('/') && value.split('/').every(part=>/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/.test(part) && !part.includes('..') && !part.includes(':'));
@@ -12,7 +16,7 @@ const origin=z.string().max(500).refine(value=>{try{const u=new URL(value);retur
 const schema=z.object({
   kind:z.enum(['feature','interface']).default('feature'),interface:z.object({stylesheet:file.refine(v=>v.endsWith('.css')),preview:file.refine(v=>v.endsWith('.html')).optional(),appearanceGroups:z.array(appearanceGroup).max(8).optional()}).strict().optional(),
   schemaVersion:z.literal(1),id:z.string().regex(extensionId),name:z.string().trim().min(1).max(80),version:z.string().regex(/^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/).max(40),
-  hostApiVersion:z.literal(1),description:z.string().max(500),author:z.string().trim().min(1).max(100),license:z.string().min(1).max(100),
+  hostApiVersion:z.literal(1),minHostVersion:minimumVersion.optional(),description:z.string().max(500),author:z.string().trim().min(1).max(100),license:z.string().min(1).max(100),
   permissions:z.array(z.enum(EXTENSION_PERMISSIONS)).max(EXTENSION_PERMISSIONS.length).default([]),networkOrigins:z.array(origin).max(20).default([]),
   switches:z.array(z.object({id:localId,title:z.string().trim().min(1).max(80),defaultEnabled:z.boolean().default(true)}).strict()).max(30).default([]),
   contributions:z.array(z.object({id:localId,slot:z.enum(EXTENSION_SLOTS),title:z.string().trim().min(1).max(80),order:z.number().int().min(0).max(10000).default(100),scope:z.enum(['site','independent']).default('independent'),entry:file.refine(v=>v.endsWith('.html')),switch:localId.optional(),section:z.enum(['workspace','tools','settings']).optional()}).strict()).max(30).default([]),

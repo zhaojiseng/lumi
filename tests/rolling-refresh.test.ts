@@ -71,7 +71,7 @@ test('rolling dashboard and log filters use request timestamps rather than parti
     if(url.pathname==='/api/log/self/stat')data={quota:99999,rpm:0,tpm:0};
     if(url.pathname==='/api/log/self'){
       const start=Number(url.searchParams.get('start_timestamp')),end=Number(url.searchParams.get('end_timestamp'));
-      const items=logs.filter(row=>row.created_at>=start && row.created_at<=end);data={items,total:items.length};
+      const items=logs.filter(row=>row.created_at>=start && row.created_at<=end).sort((a,b)=>b.created_at-a.created_at || b.id-a.id);data={items,total:items.length};
     }
     if(url.pathname==='/api/perf-metrics/summary')data={models:[]};
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify({success:true,data}));
@@ -89,7 +89,7 @@ test('rolling dashboard and log filters use request timestamps rather than parti
     const api=new NewApiClient(store),[dashboard,other]=await Promise.all([api.dashboard('24h'),api.dashboard('24h')]);
     assert.equal(dashboard.detailed,true);assert.equal(dashboard.stat?.quota,200);
     assert.deepEqual(dashboard.interval,{quota:200,tokens:240,requests:2});
-    assert.equal(dashboard.logs.total,2);assert.deepEqual(dashboard.logs.items.map(r=>r.id),[2,3]);
+    assert.equal(dashboard.logs.total,2);assert.deepEqual(dashboard.logs.items.map(r=>r.id),[3,2]);
     assert.equal(other.series.reduce((n,p)=>n+p.token_used,0),240);
     const requests=seen.filter(url=>url.pathname==='/api/log/self');assert.equal(requests.length,1);
     assert.equal(Number(requests[0].searchParams.get('end_timestamp'))-Number(requests[0].searchParams.get('start_timestamp')),86400);

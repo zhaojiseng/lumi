@@ -35,6 +35,11 @@ export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,r
     if(!group){group={...g,series:!selected || selected===g.key ? createSeries() : null};groups.set(g.key,group);}
     group.series?.add(point);
   }
+  if(selected && grouping!=='total' && !groups.has(selected)){
+    selected='';
+    for(const group of groups.values())group.series=createSeries();
+    for(const point of points)groups.get(pointGroup(point,grouping).key)?.series?.add(point);
+  }
   const valid=total.finish();
   if(grouping==='total')return {rows:valid.map(row=>({...row,values:{} as Record<string,number|null>})),lines:[],options:[],combined:0};
   const options=[...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN',{numeric:true}) || a.key.localeCompare(b.key));

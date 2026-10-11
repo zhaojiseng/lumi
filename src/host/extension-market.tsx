@@ -10,7 +10,7 @@ import {resolveInterfaceAppearance} from '../../shared/interface-appearance';
 import {EXTENSION_MARKET_URL,compareExtensionVersions,type ExtensionMarketCatalog,type ExtensionMarketItem} from '../../shared/contracts/extension-market';
 import './extension-market.css';
 
-const permissionNames:Record<string,string>={'storage':'插件存储','secrets':'插件加密凭据','network.read':'网络读取','workbench.read':'工作台用量','usage.read':'用量快照','codex.usage.read':'Codex 限额'};
+const permissionNames:Record<string,string>={'storage':'插件存储','secrets':'插件加密凭据','network.read':'网络读取','workbench.read':'工作台用量','usage.read':'用量快照','codex.usage.read':'Codex 限额','gateway.control':'网关连接与监听控制','gateway.config':'网关路由与规则设置','gateway.records.read':'网关记录读取','gateway.records.manage':'网关记录删除与导出','gateway.cli-config':'CLI 网关配置接管与恢复'};
 export function ExtensionMarketplace({onClose}:{onClose():void}){
   const {bootstrap,preferences,toast}=useApp(),{extensions,statuses,busyId,installExtension,removeExtension}=usePluginSettings();
   const [catalog,setCatalog]=useState<ExtensionMarketCatalog>(),[loading,setLoading]=useState(false),[error,setError]=useState(''),[query,setQuery]=useState(''),[kind,setKind]=useState<'all'|'feature'|'interface'>('all'),[installedOnly,setInstalledOnly]=useState(false),[detail,setDetail]=useState<string>(),[confirmRemove,setConfirmRemove]=useState(false);

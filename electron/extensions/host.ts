@@ -9,10 +9,14 @@ import {extensionNetworkRead} from './network';
 import path from 'node:path';
 import type {InterfaceSelection} from '../../shared/contracts/interface';
 import {preferredInterface,type StyleCandidate} from '../../shared/interface-styles';
+import {compareExtensionVersions} from '../../shared/contracts/extension-market';
+import {GATEWAY_METHOD_PERMISSIONS,isGatewayMethod,type GatewayBridge,type GatewayRevocationReason} from '../../shared/contracts/gateway';
+import {parseGatewayInput,parseGatewayOutput} from '../../shared/gateway-validation';
 interface ActivePackage {pkg:ExtensionPackage;enabled:boolean;generation:number;controller:AbortController;pending:number;}
 export interface ExtensionHostOptions {
   directory:string;roots?:string[];settingsDirectory:string;cipher:Cipher;sdk:Buffer;uiCss?:Buffer;
   context():ExtensionContext;scope():string;
+  hostVersion?:string;gateway?:GatewayBridge;
   interfacePreferences?():{candidates:StyleCandidate[];priorities:Record<string,number>};
   read(method:'workbench.read'|'usage.read'|'codex.usage.read',input:unknown):Promise<unknown>;
   codexBridge?(method:ExtensionMethod,input:unknown,owner:{id:string;generation:number;view:string;signal:AbortSignal}):Promise<unknown>;
@@ -27,8 +31,17 @@ export class ExtensionHost {
   inventory():ExtensionInventory{const settings=this.options.interfacePreferences?.(),styles=[...this.packages.values()].filter(p=>p.pkg.manifest.kind==='interface'),winner=preferredInterface([...settings?.candidates || [],...styles.map(p=>({id:p.pkg.manifest.id,enabled:p.enabled,priority:100}))],settings?.priorities),selected=styles.find(p=>p.pkg.manifest.id===winner),definition=selected?.pkg.manifest.interface;return {directory:this.options.directory,plugins:[...this.packages.values()].map(({pkg})=>({manifest:pkg.manifest,digest:pkg.digest,removable:this.removable(pkg)})),diagnostics:this.diagnostics,interfaceStyle:selected && definition ? {id:selected.pkg.manifest.id,css:selected.pkg.files.get(definition.stylesheet)!.toString('utf8'),preview:definition.preview ? selected.pkg.files.get(definition.preview)!.toString('utf8') : undefined,appearanceGroups:definition.appearanceGroups} : undefined};}
   private removable(pkg:ExtensionPackage){return path.relative(path.resolve(this.options.directory),path.dirname(pkg.directory))==='';}
   private roots(){return [this.options.directory,...this.options.roots || []];}
-  private replacePackage(id:string,pkg?:ExtensionPackage){
-    this.packages.get(id)?.controller.abort();this.packages.delete(id);
+  private async revokeGateway(id:string,generation:number,reason:GatewayRevocationReason){
+    try{await this.options.gateway?.revoke({id,generation},reason);}catch{}
+  }
+  private hostCompatible(pkg:ExtensionPackage){
+    const minimum=pkg.manifest.minHostVersion;
+    return !minimum || !!this.options.hostVersion && compareExtensionVersions(this.options.hostVersion,minimum)>=0;
+  }
+  private async replacePackage(id:string,pkg?:ExtensionPackage){
+    const previous=this.packages.get(id);previous?.controller.abort();
+    if(previous)await this.revokeGateway(id,previous.generation,'disabled');
+    this.packages.delete(id);
     if(pkg)this.packages.set(id,{pkg,enabled:false,generation:++this.epoch,controller:new AbortController(),pending:0});
   }
   installFiles(id:string,files:ReadonlyMap<string,Buffer>){return this.serial(async()=>{
@@ -41,14 +54,14 @@ export class ExtensionHost {
     try{
       await mkdir(staged);
       for(const [name,bytes] of files){if(!safeExtensionPath(name))throw new Error('插件文件路径无效。');const file=path.join(staged,name);await mkdir(path.dirname(file),{recursive:true});await writeFile(file,bytes,{flag:'wx'});}
-      const validated=await readExtensionPackage(staged);if(validated.manifest.id!==id)throw new Error('插件包 ID 与市场条目不一致。');
+      const validated=await readExtensionPackage(staged);if(!this.hostCompatible(validated))throw new Error('此插件需要更新的 Lumi 主程序。');if(validated.manifest.id!==id)throw new Error('插件包 ID 与市场条目不一致。');
       try{const existing=await readExtensionPackage(target);if(existing.manifest.id!==id)throw new Error('安装目录已被其它插件使用。');await rename(target,backup);movedPrevious=true;}catch(error:any){if(error.code!=='ENOENT')throw error;}
       await rename(staged,target);movedNew=true;
       const scanned=await scanExtensionPackages(this.roots()),installed=scanned.packages.find(pkg=>pkg.manifest.id===id);
       if(!installed || installed.digest!==validated.digest)throw new Error('插件安装超过宿主限制或目录冲突。');
       if(this.closing)throw new Error('扩展宿主正在退出。');
       await this.store.change(id,{enabled:false,digest:installed.digest});committed=true;
-      this.replacePackage(id,installed);this.diagnostics=scanned.diagnostics;
+      await this.replacePackage(id,installed);this.diagnostics=scanned.diagnostics;
       return this.inventory();
     }catch(error){
       if(!committed){if(movedNew)await rm(target,{recursive:true,force:true,maxRetries:5,retryDelay:100});if(movedPrevious){await rename(backup,target);movedPrevious=false;}}
@@ -64,7 +77,7 @@ export class ExtensionHost {
       await rename(item.pkg.directory,backup);moved=true;
       const scanned=await scanExtensionPackages(this.roots()),fallback=scanned.packages.find(pkg=>pkg.manifest.id===id);
       await this.store.change(id,{enabled:false,digest:fallback?.digest || ''});committed=true;
-      this.replacePackage(id,fallback);this.diagnostics=scanned.diagnostics;
+      await this.replacePackage(id,fallback);this.diagnostics=scanned.diagnostics;
       return this.inventory();
     }catch(error){if(moved && !committed){await rename(backup,item.pkg.directory);moved=false;}throw error;}
     finally{if(!moved || committed)await rm(temporary,{recursive:true,force:true,maxRetries:5,retryDelay:100}).catch(()=>{});}
@@ -77,24 +90,28 @@ export class ExtensionHost {
   has(id:string){return this.packages.has(id);}
   reload(){return this.serial(async()=>{
     const scanned=await scanExtensionPackages([this.options.directory,...this.options.roots || []]);
+    const next=new Map<string,ActivePackage>();
+    for(const pkg of scanned.packages){if(!this.hostCompatible(pkg)){scanned.diagnostics.push({package:pkg.manifest.id,error:'此插件需要更新的 Lumi 主程序。'});continue;}const saved=this.store.get(pkg.manifest.id);next.set(pkg.manifest.id,{pkg,enabled:saved.enabled && saved.digest===pkg.digest,generation:++this.epoch,controller:new AbortController(),pending:0});}
     for(const item of this.packages.values())item.controller.abort();
-    this.packages.clear();this.diagnostics=scanned.diagnostics;
-    for(const pkg of scanned.packages){const saved=this.store.get(pkg.manifest.id);this.packages.set(pkg.manifest.id,{pkg,enabled:saved.enabled && saved.digest===pkg.digest,generation:++this.epoch,controller:new AbortController(),pending:0});}
+    for(const item of this.packages.values())await this.revokeGateway(item.pkg.manifest.id,item.generation,next.get(item.pkg.manifest.id)?.enabled ? 'generation' : 'disabled');
+    this.packages=next;this.diagnostics=scanned.diagnostics;
     return this.inventory();
   });}
   setEnabled(id:string,enabled:boolean){return this.serial(async()=>{
     const item=this.packages.get(id);if(!item)throw new Error('额外插件不存在，请重新扫描。');
-    const previous=item.enabled;item.controller.abort();item.controller=new AbortController();item.generation=++this.epoch;item.enabled=enabled;
+    const previous=item.enabled,previousGeneration=item.generation;item.controller.abort();
+    await this.revokeGateway(id,previousGeneration,enabled ? 'generation' : 'disabled');
+    item.controller=new AbortController();item.generation=++this.epoch;item.enabled=enabled;
     try{await this.store.change(id,{enabled,digest:item.pkg.digest});}catch(error){item.enabled=previous;item.generation=++this.epoch;throw error;}
   });}
   setView(id:string,view:string,enabled:boolean){return this.serial(async()=>{
     const item=this.packages.get(id);if(!item?.pkg.manifest.switches.some(s=>s.id===view))throw new Error('额外插件没有此功能开关。');
     await this.store.change(id,{views:{...this.store.get(id).views,[view]:enabled}});
-    item.controller.abort();item.controller=new AbortController();item.generation=++this.epoch;
+    item.controller.abort();await this.revokeGateway(id,item.generation,'generation');item.controller=new AbortController();item.generation=++this.epoch;
   });}
   private active(input:ExtensionRequest){
     const item=this.packages.get(input.id),view=item?.pkg.manifest.contributions.find(v=>v.id===input.view);
-    if(this.closing || !item?.enabled || input.generation!==item.generation || !view || view.switch && (this.store.get(input.id).views[view.switch] ?? item.pkg.manifest.switches.find(s=>s.id===view.switch)?.defaultEnabled)===false)throw new Error('扩展或显示项已停用，请重新打开。');
+    if(this.closing || !item?.enabled || item.controller.signal.aborted || input.generation!==item.generation || !view || view.switch && (this.store.get(input.id).views[view.switch] ?? item.pkg.manifest.switches.find(s=>s.id===view.switch)?.defaultEnabled)===false)throw new Error('扩展或显示项已停用，请重新打开。');
     return item;
   }
   async request(input:ExtensionRequest){
@@ -115,6 +132,11 @@ export class ExtensionHost {
         await this.serial(async()=>{this.active(input);await this.store.change(input.id,{}, {key,value});});result=null;
       }else if(input.method==='network.read'){
         requirePermission('network.read');result=await extensionNetworkRead(input.input,item.pkg.manifest.networkOrigins,AbortSignal.any([item.controller.signal,AbortSignal.timeout(15000)]),key=>{requirePermission('secrets');return this.store.secret(input.id,key);});
+      }else if(isGatewayMethod(input.method)){
+        requirePermission(GATEWAY_METHOD_PERMISSIONS[input.method]);if(!this.options.gateway)throw new Error('网关桥接不可用。');
+        let parsed:unknown;try{parsed=parseGatewayInput(input.method,input.input);}catch{throw new Error('网关参数无效或超过大小限制。');}
+        const value=await this.options.gateway.request(input.method,parsed,{id:input.id,generation:input.generation,view:input.view,signal:item.controller.signal});
+        try{result=parseGatewayOutput(input.method,value);}catch{throw new Error('网关返回数据无效，请检查伴随程序版本。');}
       }else if(input.method.startsWith('codex.bridge.')){
         requirePermission('codex.bridge');if(!this.options.codexBridge)throw new Error('Codex 桥接不可用。');
         result=await this.options.codexBridge(input.method,input.input ?? {},{id:input.id,generation:input.generation,view:input.view,signal:item.controller.signal});
@@ -135,5 +157,5 @@ export class ExtensionHost {
     const origin='lumi-extension://'+url.hostname;
     return {body,type,csp:`default-src 'none'; script-src ${origin}; style-src ${origin} 'unsafe-inline'; img-src ${origin} data:; font-src ${origin}; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`};
   }
-  dispose(){this.closing=true;for(const item of this.packages.values())item.controller.abort();this.packages.clear();}
+  dispose(){this.closing=true;for(const item of this.packages.values()){item.controller.abort();void this.revokeGateway(item.pkg.manifest.id,item.generation,'shutdown');}this.packages.clear();}
 }

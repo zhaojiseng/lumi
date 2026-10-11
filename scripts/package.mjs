@@ -20,15 +20,16 @@ const output=process.env.LUMI_RELEASE_DIR ? path.resolve(process.env.LUMI_RELEAS
 // Leave the publish array on disk: electron-builder treats a programmatic publish override as one provider.
 const {publish,...buildOptions}=pkg.build;
 const config = { ...buildOptions, files: [...pkg.build.files, '!**/node_modules{,/**/*}'], directories: { output, app: stage }, electronDist: path.join(root, 'node_modules/electron/dist'), electronVersion: JSON.parse(await readFile('node_modules/electron/package.json', 'utf8')).version };
+config.extraResources=[{from:path.join(root,'dist-native/lumi-gateway-runtime'+(process.platform==='win32'?'.exe':'')),to:'native/lumi-gateway-runtime'+(process.platform==='win32'?'.exe':'')}];
 if(process.platform==='darwin'){
   if(process.arch!=='arm64')throw new Error('macOS release packaging requires an Apple Silicon host and ARM64 Electron.');
   // electron-builder removes distribution-root notices on macOS; retain them inside the app bundle.
-  config.extraResources=[
+  config.extraResources.push(
     {from:path.join(config.electronDist,'LICENSE'),to:'licenses/LICENSE.electron.txt'},
     {from:path.join(config.electronDist,'LICENSES.chromium.html'),to:'licenses/LICENSES.chromium.html'},
     {from:path.join(root,'dist-native/lumi-menu-bar'),to:'native/lumi-menu-bar'},
     {from:path.join(root,'dist-native/lumi-widget-glass.node'),to:'native/lumi-widget-glass.node'},
-  ];
+  );
 }
 const directory = process.argv.includes('--dir');
 await build({ targets: Platform.current().createTarget(directory ? 'dir' : undefined), config, publish:'never' });

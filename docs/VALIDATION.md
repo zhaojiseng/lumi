@@ -1,5 +1,81 @@
 # Lumi 验证记录
 
+## 1.0.0 · 大版本发布前验证（2026-10-11）
+
+- 版本已在主程序清单、lockfile 根、渲染器与浏览器适配中统一为 1.0.0；内置 Rust 核心为 1.0.0。独立模型网关 1.0.0 保持插件 ID，声明最低 Lumi 1.0.0 / 扩展 API v1，七项资源与源目录一致；其他插件保持各自版本。
+- 本次严格 typecheck、check:extensions 和完整 npm test 通过：901 项，898 通过、3 项平台跳过、0 失败/取消。日志位于 `.test-data/release-100/{typecheck,check-extensions,test}.log`；本条使用本次实际运行结果。
+- 内置 Rust 108 项及插件开发 Rust 105 项全过，两个核心的严格 clippy 和插件运行时 Node 91 项通过；构造假凭据/拒绝地址的等价夹具修订后，受影响 Rust 和宿主 43 项回归通过。扫描规则保持，Git 暂存内容与差异空白检查通过。
+- 最终 Windows x64 NSIS EXE 为 `release/major-100-20261011/Lumi-1.0.0-x64.exe`，113237559 字节，SHA-256 `0adbbba47d07fd5ee38b63f610f4e9b648e6e2034ed510f0a84f1d88dac9dce5`。完整 dist、隔离 test:desktop 与 verify:release 通过，匹配 78 个当前构建文件、完整第三方许可、核心原始字节、更新元数据及本地数据排除。主程序包不含独立网关插件。日志 `.test-data/release-100/{dist-final,desktop-final,verify-final}.log`。
+- 本次使用最终安装包内核心的真实沙箱 Electron 回归通过：25 组流程、227 次 SDK 调用、28 个事件、67 张截图，错误和意外网络为空。覆盖默认/梦幻、浅深、1280/600/480 px、统一接入与认证轮换、草稿目录、运行中热配置、两段规则、并发请求字符窗口和真实 404；已目视并发线路与梦幻深色短窗口供应商编辑。实际 Host/Frame/preload/SDK、TLS、Windows 系统加密和包内 Rust 核心均参与；报告 `../extensions/.cache/gateway-plugin-ui/real-electron-TYhHoY/result.json`。
+- 本次 npm audit 为 0 漏洞，结果 `.test-data/release-100/audit.json`。验证仅使用隔离应用与 CLI 家目录、假凭据和本机上游，没有用户 CLI 或付费请求。三平台 CI、macOS ARM64 构建/隔离启动/DMG 核验及公开附件摘要须由标签工作流另行确认，本机结果不替代这些步骤。
+
+
+## 未发布开发增量 · 用量趋势完整分页与区间缓存（2026-10-11）
+
+- 曲线、效率、分钟 / 多条件详细统计及明确浮窗区间取消 10,000 条和 101 页上限，仍检查总数、重复 ID 及分页完整性；CSV 导出和默认浮窗的历史搜索保留各自原有边界。使用相同账户内存快照复用日志，完整分页不缓存单页，失败后立即重新查询。
+- 近期区间缓存 1 分钟，历史区间缓存 30 分钟，重查最近 5 分钟及新增区间；相交范围只补缺口，type=0 完整快照可提供消费曲线，账户内缺口分页串行、已覆盖缓存不等待更大范围查询。历史缓存过期及手动刷新重新校验更早的延迟写入或修正。返回日志页按时间 / ID 降序，并仅克隆可见页，撤销在途旧快照，最多保留 8 个账户和 16 项曲线，不截断记录。
+- 衍生曲线按日志版本、精确时间和规范化筛选缓存。日志元数据弱缓存解析，原始字符串变化即失效；选中单个模型 / 令牌不再先计算全部曲线，失效的已保存选项正确退回合计分组展示。
+- 隔离 loopback 站点真实分页回归读取 25,001 条、251 页，曲线和效率总量一致；20,002 条日志初次读取 201 页后，自动刷新读取一次近期区间并得到 20,004 条，缩小范围无新请求，扩大到 30 天仅一项历史缺口请求。覆盖修正 / 删除 / 延迟记录、同名令牌、精确边界、异常分页及立即恢复、并发、缓存副本、退出和 Cookie 身份变更。
+- 最终 `npm run typecheck`、`check:extensions`、`check:secrets`、`build`、`test:desktop` 和 `git diff --check` 通过。完整 `npm test`：882 项，879 通过、3 平台跳过、0 失败 / 取消；日志 `.test-data/usage-trend-full-test-final.log`。此前全量中的旧日志顺序断言差异保留在 `.test-data/usage-trend-full-test.log`，不是最终通过证据。
+- 真实隐藏 Electron 曲线回归覆盖总 / 净速率、有效样本加权、模型 / 令牌分组、未知留空、选项保存及浅深主题明细；目视 `.test-data/net-speed-trend.png`，日志 `.test-data/net-speed-ui.log`。完整构建生成 65 项 npm 与 84 项 Rust 依赖的完整许可；构建和官方隔离桌面启动日志为 `.test-data/usage-trend-{build,desktop}.log`。
+- 使用假账户、合成消费记录、独立应用数据和 CLI home；没有读取真实账户、CLI 配置或会话，没有收费请求。主程序版本保持 0.5.23，已有网关等工作区改动保留；未打包安装器、提交、推送或公开发布。Windows 验证不替代 macOS ARM64 原生检查。
+
+## 未发布开发增量 · 供应商模型、两段整流与多协议链路（2026-10-11）
+
+- 用户明确授权网关契约、配置校验、托管运行时及记录/链路联动。供应商共享 API/认证，增加模型别名与实际 ID；入口/上游协议独立，固定 SDK 提供 Agent、两段整流预览及有版本的真实请求链路。原有 Anthropic tier 限制、字段保留、严格工具语义、未知观测和 SDK 权限/预算边界保持。
+- 本轮 Rust 104/104、运行时 Node 91/91、严格 clippy 通过。最终 main typecheck、check:extensions 及完整 npm test 通过：866 项，863 通过、3 平台跳过、0 失败/取消；`.test-data/gateway-v2-main-test-confirmed.log`。真实管理/Rust/DPAPI 覆盖九种协议组合的 18 次 JSON/SSE 工具往返、预览与实际发送、Agent 范围和不支持字段发送前拒绝。
+- 真实沙箱 Electron 的 `../extensions/.cache/gateway-plugin-ui/real-electron-AePmvC/result.json`：20 组、284 次调用、17 个事件、六页浅深/宽窄 36 项布局、39 图，错误及意外网络请求为空；使用本次包内核心、真实 Host/Frame/preload/SDK/TLS/系统加密。新增模型/Agent/整流/链路实际操作及原正文、CLI、目录、记录和生命周期通过。已目视最终浅色链路及 480 px 深色整流页面。
+- Windows x64 EXE：`release/gateway-v2-20261011/Lumi-0.5.23-x64.exe`，113,242,877 字节，SHA-256 `d4d1f5a0ecbd7fc08bc992cf6d108820ed4d1620d08a540320baba0f3f40689c`。verify:release 匹配 78 文件、65 npm/84 Rust 完整许可、核心原始字节、既有插件及无本地数据通过；核心 SHA-256 `3285097898e4f98ce73b41c0b4f0d64cef86a818eee66dc954456c59c0fa3b30`。checkout 和包内 EXE 的隔离官方 smoke 通过；日志 `.test-data/gateway-v2-{dist,verify,checkout-smoke,packaged-smoke}.log`。
+- 文档和 portable SDK 类型同步后完成最终检查。较早全量中的契约/文档失败及收尾字号 UI 一次暂态退出保留日志；字号原断言未改，单独复核和完整复验通过，不将较早日志当作最终证据。
+- 独立插件 0.1.0-dev.5 七项资源冻结在相邻 `release/gateway-v2-20261011/extension.lumi.gateway`，已按用户授权安装到 Roaming/Lumi/extensions/extension.lumi.gateway，逐项字节和本次 main 官方包校验通过，原 dev.4 已备份。固定公开宿主不支持开发权限，默认插件 npm check 仍失败；本轮使用配套当前宿主的官方校验器，host.json 没有伪造公开 pin。
+- 主程序版本仍为 0.5.23，未提交、推送、公开发布或执行用户主程序安装器；新插件需要本次配套 EXE。Messages SSE 转换为满足真实用量与块生命周期而缓冲；自动改道、Gemini、token 计数与 Responses 状态接口为后续阶段。macOS/Linux、真实工具与提供者、安装/升级另行验收。完整记录见 [模型网关验证](../../extensions/docs/GATEWAY_VALIDATION.md)。
+
+## 未发布开发增量 · Cherry 双认证头兼容（2026-10-11）
+
+- 已确定 Cherry Studio 2.1.4 对模型目录 GET 同时发送 Authorization Bearer 和 X-Api-Key；同一有效密钥单 Bearer 返回 200，旧网关双头返回 401。用户明确批准此次主程序修改及本地 EXE 重编译。仅 `gateway-runtime/transport.mjs` 的客户端认证分支允许各出现一次、分别严格匹配同一保存密钥的双头；冲突/错误/空值/畸形/重复仍拒绝。OpenAI/Anthropic 单头、Host/Origin、TLS/DNS、限额与凭据隔离保持。
+- 运行时开发镜像逐字节一致；定向 54/54、全量 Node 91/91 通过，0 跳过。模型 GET、两协议 POST、准确正文和客户端认证不传上游有实际 HTTP/TLS 回归。日志为相邻 `.cache/model-gateway-ui/runtime-node-final.log`。Rust 源码未改，本轮未重跑 Rust 测试。
+- 严格 typecheck、check:extensions、完整 build 通过；主程序全量 npm test 848 项，845 通过、3 平台跳过、0 失败，`.test-data/gateway-cherry-main-test.log`。前次记录未充当本次结果。
+- 新 Windows x64 EXE 为 `release/gateway-cherry-20261011/Lumi-0.5.23-x64.exe`，113,095,492 字节，SHA-256 `20e6bdd4288bfa48227c593f0e559126f2c653a9936935044942cebe94faca24`。verify:release 匹配 78 个构建文件、65 npm/84 Rust 完整许可、既有内置插件与无本地数据；checkout 及包内 win-unpacked/Lumi.exe 的隔离官方 smoke 通过。日志 `.test-data/gateway-cherry-{exe-dist,exe-verify,checkout-smoke,packaged-smoke}.log`；核心 SHA-256 仍为 `c39aa98f950888a6b700bf6b918946ead90543c58188fd4e439a77b7c52fcb93`。
+- 隔离复制 Cherry Electron 44.2.0，原始认证头函数与 schema 对新 app.asar/main.cjs 原样提取的网关区域验证：有效双头 200、6 项有效/0 丢弃，冲突及同值错误双头 401；目录 1 次、引擎/录制 0 次。完整证据 `.test-data/cherry-endpoint-review-v6zkr7/gateway-auth-package-evidence.json`；没有加载实际 Cherry 入口或读取其用户配置，原包 SHA 前后相同。该测试使用假密钥/目录；完整 EXE 的启动与资源另行验证。
+- 相邻模型网关 `0.1.0-dev.3` 的改名、布局和草稿/CLI/记录逻辑仅在插件侧修改。当前源码宿主与本次安装包核心的真实沙箱 UI `real-electron-chuBES` 通过 12 组、120 次调用、13 个事件、60 项默认元素对照、24 项布局及 27 图；Chrome `chromium-HMOo6y` 13 组/173 调用/24 图通过，错误和意外网络请求为空。分页使用 51 条隔离假上游记录，摘要为经生产 SDK 投递的固定夹具事件。两仓库 90 项既有插件资源保持，现有配置不变；未提交、推送或公开发布，Windows 结果不替代其他平台、真实推理或用户安装升级。详见 [模型网关验证](../../extensions/docs/GATEWAY_VALIDATION.md)。
+
+## 未发布开发增量 · 网关默认元素与客户端模型目录（2026-10-10）
+
+- 用户要求网关页面复用 Lumi 默认元素，并明确批准数据端口 `GET /<routeID>/v1/models` 及完整配置仅一条路由时的裸 `/v1/models` 别名。插件使用宿主 `lumi-ui.css` 与 SDK，样式只保留布局；已保存路由显示实际数据端口 API 地址。两仓库 90 项既有插件文件 SHA-256 与本轮开始时相同，皮肤资源未改。
+- 目录沿用客户端鉴权和主进程持有的上游认证，公共 DNS/TLS/固定路径/有界分页复用 catalog；返回真实 ID 与固定 OpenAI object 字段，最多 500 项/128 KiB，显式截断。不转发客户端 Cookie/任意头，不补造创建时间/所有者，不运行推理或写入 AI 记录。共享并发、正常排空、取消、配置撤销与原 GET 推理路径 405 均有回归。
+- typecheck、check:extensions、完整 build 通过；全量 npm test 848 项：845 通过、3 平台跳过、0 失败，日志 `.test-data/gateway-default-ui-models-main-test.log`。运行时 Node 86/86 全过（新增客户端目录 12 项及真实 TLS 数据 GET 6 项），相邻日志 `.cache/gateway-default-ui/runtime-node.log`。Rust 本轮未改或重跑，前次测试仍为历史证据。
+- 当前源码宿主与本次安装包核心的真实沙箱 Electron 通过 10 组流程、103 次 SDK 调用、9 个事件、27 张截图；1280/600/480 px 浅深主题 60 项默认元素对照、24 项四页布局检查全过，结果 `../extensions/.cache/gateway-plugin-ui/real-electron-Tszb5i/result.json`。实际 Host/Frame/preload/SDK/TLS/系统加密、规则、正文、CLI、认证轮换及撤销保持通过。Chrome 最终 `chromium-SYTK5A` 的 7 组/128 调用/11 图通过；错误及意外网络请求为空。
+- 新 Windows x64 NSIS EXE：`release/gateway-default-ui-models-20261010/Lumi-0.5.23-x64.exe`，113,095,311 字节，SHA-256 `fc0afb606a1cd7574408299bf0463dbac77b194782caca90afb756dfcd853c31`。verify:release 匹配 78 个构建文件、65 npm/84 Rust 完整许可、包内核心原始字节、现有插件与无本地数据，通过；核心 SHA-256 为 `c39aa98f950888a6b700bf6b918946ead90543c58188fd4e439a77b7c52fcb93`。checkout 和包内 `win-unpacked/Lumi.exe` 的隔离官方 smoke 通过，日志 `.test-data/gateway-default-ui-models-{exe-dist,exe-verify,checkout-smoke,packaged-smoke}.log`。
+- 插件 `0.1.0-dev.2` 单独交付在相邻 `release/gateway-default-ui-models-20261010/extension.lumi.gateway`，六项资源逐字节匹配源码和 SHA-256 清单，官方校验器通过。两项输出均新建目录，旧开发包未覆盖；无真实认证、用户 CLI 数据或付费请求。主程序版本保持 0.5.23，未提交、推送、发布；公开旧版本不具有本轮接口。其他平台、真实工具/提供者和安装升级验证仍待执行。完整证据见 [网关验证](../../extensions/docs/GATEWAY_VALIDATION.md)。
+
+## 未发布开发增量 · 网关上游模型目录检测（2026-10-10）
+
+- 用户明确批准新增受限接口并编译 EXE。`gateway.routes.models.detect` 使用已保存路由与主进程持有的认证读取 OpenAI/Anthropic 模型目录，沿用 `gateway.config` 权限、固定路径和协议头；输入不接收任意 URL/头/密钥。目录不证明模型推理、额度、价格或 tier 兼容；不会发推理请求或生成录制记录。
+- 每页公共 DNS 全地址审查与固定 TLS 连接，拒绝重定向；最多 500 项/每 ID 256 UTF-8 字节、五页、总响应 1 MiB/总时限 12 秒；独立两项并发、取消与版本检查。管理等待不阻塞监听停止；界面未保存修改须先保存，路由/配置/页面变化即撤回目录，迟到成功及失败不回填。只返回固定错误码，远端原始错误与凭据反射均阻止。
+- typecheck、check:extensions、构建通过；完整 npm test 848 项：845 通过、3 项平台跳过、0 失败，日志 `.test-data/gateway-models-main-test.log`。目录契约最终定向复验通过。相邻运行时 90 Rust + 68 Node 全过（新增目录 17、真实 TLS 管理 9）；Rust 核心源码未改。
+- 真实沙箱 Electron 使用当前源码宿主和新安装包内核心通过 98 次 SDK 调用、10 组流程、9 张截图；两次 TLS 模型 GET 使用已保存及轮换后的认证，检测期间零推理/录制。原规则、正文、CLI、配置与生命周期仍通过。结果 `../extensions/.cache/gateway-plugin-ui/real-electron-kgIAHD/result.json`；Chrome 页面 `chromium-Q6FhGG` 的 128 次调用、7 组/11 图及窄视图通过。仅固定隔离假上游与 CLI，未操作用户实际数据或付费请求。
+- 新本地 EXE 位于 `release/gateway-models-20261010/Lumi-0.5.23-x64.exe`，113,093,062 字节，SHA-256 `0e11152f3bc3279f3fd634f376936ffe5e021446b5fa07e9d23a681c1079547a`。verify:release 匹配 78 个构建文件、65 npm/84 Rust 完整许可、包内核心原始字节与无本地数据，通过；包内 `win-unpacked/Lumi.exe` 的隔离正式 smoke 通过，日志 `.test-data/gateway-models-exe-{dist,verify}.log`、`gateway-models-packaged-smoke.log`。
+- 新插件单独交付在相邻仓库 `release/gateway-models-20261010/extension.lumi.gateway`。专用目录没有覆盖既有开发包或历史目录；版本仍为 0.5.23，未提交、推送、公开发布。macOS/Linux、真实工具/提供者与安装升级仍待对应验证；完整证据见 [网关验证](../../extensions/docs/GATEWAY_VALIDATION.md)。
+
+## 未发布开发增量 · 内置网关与全界面配置（2026-10-10）
+
+- 用户要求全部界面配置。固定 Rust 核心随本次开发 EXE 打包，Lumi 托管首次初始化、端口与运行限制、路由及认证变更、TLS 管理与退出；无需额外安装/启动工具、终端命令或配对文件。数据与核心路径由宿主固定，认证经私有管道与系统加密存储，关闭等待实际进程退出。
+- typecheck、check:extensions、构建及隔离桌面启动通过。最终全量 npm test 846 项：843 通过、3 项平台跳过、0 失败；日志 `.test-data/gateway-gui-main-test.log`。14 项托管服务回归（含真实 Windows DPAPI/TLS/Rust）和 36 项契约/管理回归通过；相邻运行时 90 Rust + 42 Node 全过。三项跳过仍为 Unix shebang、Swift/AppKit 与 macOS 原生玻璃检查。
+- 真实沙箱 Electron 使用本次安装包内核心，通过 96 次 SDK 调用、8 组流程、7 张截图：首次 GUI 设置、占用端口后的无认证重输修复、请求大小/并发、路由增删、双认证轮换、四种 tier 和自定义值、正文与 CLI 恢复。实际宿主/Frame/preload/SDK、TLS 与系统加密均参与；固定本机假上游保留 CA 校验，没有真实账户请求或用户 CLI 改动。结果 `../extensions/.cache/gateway-plugin-ui/real-electron-IQWMSG/result.json`。
+- 当前 Windows x64 NSIS EXE 为 `release/gateway-gui-20261010/Lumi-0.5.23-x64.exe`，113,090,539 字节，SHA-256 `943a369a7779dba42d92902326fa21948d2d8557d48019207257f89f15cff173`。包内核心 SHA-256 为 `c39aa98f950888a6b700bf6b918946ead90543c58188fd4e439a77b7c52fcb93`。verify:release 匹配 78 个构建文件、核心原始字节、65 份 npm 和 84 份 Rust 完整依赖许可，两份既有插件与无本地数据检查通过。日志 `.test-data/gateway-gui-exe-{dist,verify}.log`。
+- 包内 `win-unpacked/Lumi.exe` 和 checkout 的隔离官方 smoke 通过；日志 `.test-data/gateway-gui-{packaged,checkout}-smoke.log`。未在用户数据目录执行安装器。开发插件六项资源单独交付在相邻仓库 `release/gateway-gui-20261010/extension.lumi.gateway`，当前官方校验器通过；未编译进 EXE。
+- 内置核心源文件与 Cargo 锁定依赖位于 `native/gateway-runtime`，可在主仓库独立构建。版本仍为 0.5.23，未提交、推送或公开发布；macOS/Linux、真实工具及安装升级仍需各自验证。完整记录见 [网关验证](../../extensions/docs/GATEWAY_VALIDATION.md)。
+- 打包时漏设输出目录，覆盖了默认 release 下原本的本地 0.5.23 安装包、blockmap 和更新元数据；没有找到同字节备份，不能声明恢复。新文件已移到专用 gateway-gui-20261010 目录，默认旧 SHA256SUMS 保留为历史记录；其他历史目录与公开附件未改变。
+
+## 未发布开发增量 · 本地录制网关宿主桥接（2026-10-10）
+
+- 版本仍为 0.5.23。已获用户批准的受限网关契约、五类权限、TLS 配对管理、SDK、CLI 加密事务与原生恢复入口接入实际工作树；保留原有未提交修改。未暂存、提交、推送或发布。
+- 本轮 typecheck、check:extensions、build 和隔离 test:desktop 通过；完整 npm test 830 项，827 通过、3 跳过、0 失败。跳过 Unix shebang、Swift/AppKit 与 macOS 原生玻璃检查，Windows 结果不替代对应平台。构建保留 65 份依赖完整许可。日志 `.test-data/gateway-main-final-test.log`、`gateway-main-build.log`、`gateway-main-desktop.log`。
+- 实际网关回归 65/65 通过：契约 13、TLS 管理 21、配对 4、CLI 16、固定进程探测 11。修复重扫失效插件的监听撤销、并发会话限额、网关 Frame UTF-8 预算和恢复事务返回状态。CLI 仅使用隔离家目录和假凭据，保留模型、profile、本地 service_tier 与 auth.json。
+- 独立插件仓库的真实 Electron 44.5.0 联动通过：正式 preload/SDK、实际 ExtensionHost/Frame、认证 TLS 管理、Rust 引擎和 Windows 系统加密；沙箱/contextIsolation 开启，Node 关闭。四种 tier 规则核对实际发送字节，验证加密正文、先恢复 CLI 再停止、view 释放和 generation/停用撤销。上游为固定测试 HTTPS dial 的本地 TLS mock，CA 校验开启；没有付费调用或真实 CLI 配置修改。
+- 完整证据和仍未完成的 macOS/Linux、真实工具版本及发行范围见相邻插件仓库 [验证记录](../../extensions/docs/GATEWAY_VALIDATION.md)。真实界面结果 `../extensions/.cache/gateway-plugin-ui/real-electron-vnogMX/result.json`，已目视检查记录页与窄窗口深色设置。
+- 用户随后要求编译本地 EXE。Windows x64 NSIS 安装包位于 `release/gateway-dev-20261010/Lumi-0.5.23-x64.exe`，111,917,860 字节，SHA-256 `88ad49c006edf04b79355dff4a304b2be25659dc93ddbcff33e24421e0a4c428`；verify:release 校验 77 个当前构建文件、完整许可及无本地数据，通过。包内 `win-unpacked/Lumi.exe` 的隔离官方 smoke 通过，日志 `.test-data/gateway-exe-{dist,verify,smoke}.log`。外部网关插件另行提供，未编译进 EXE，未发布或复用公开附件。
+
 ## 0.5.23 · 全局字体与 SDK 握手发布修订（2026-10-08）
 
 - 最终标签流程 [37713099707](https://github.com/zhaojiseng/lumi/actions/runs/37713099707) 成功，Windows／Linux／macOS 检查、两平台完整打包、隔离启动、包内校验及公开发布全部通过。首次标签 Windows 字体夹具遇到无诊断 Chromium 异常，同一提交的主分支三平台与两平台包已成功；重跑标签失败任务通过，未修改或移动标签。
@@ -867,3 +943,39 @@ macOS 取消 frame 动画、加载快照保留实际模型行数、连续切换 
 - 本机 Windows x64 的严格类型检查、生产构建和 65 个依赖的完整许可生成通过；隔离桌面冒烟通过，覆盖受限 IPC、系统加密、插件启停与草稿 / 焦点 / 滚动保留、本机会话及浮窗 / 托盘生命周期。
 - Windows 安装包 `release/modal-blur/Lumi-0.5.7-x64.exe` 生成完成，`verify:release` 核验 75 个包内构建文件一致、完整许可、2 个独立插件及无本机数据，SHA-256 为 `dc8cb66d11f512cff77389cdb1ec8c55f50b80f4962f0ab3d18ac76de24d378e`。检查安装包归档，未执行安装；macOS 未在本机验证。
 - 最终全量自动测试 719 项：716 通过、3 项平台检查跳过、0 失败；首次运行的文档样式示例检查因新增 CSS 片段后旧固定索引遗漏配色失败，修正为组合全部界面示例后，两项文档回归与最终全量检查通过。独立插件包校验通过，Dreamy 1.0.5 ZIP 的四个文件与提交逐字节一致；远程平台检查由 v0.5.7 发布流程验证。
+
+
+## 模型网关运行概况联动验证（2026-10-11，本地 Windows）
+
+模型网关独立插件更新为 `0.1.0-dev.6`，概况开关、新增/编辑、连线和模型显示设置使用现有宿主接口。实际保存回归发现 Rust 整流规则对小数范围边界的持久化解析失败，本轮按此前用户授权修复 `native/gateway-runtime/src/rectify.rs` 并补充持久化/重启回归；配置格式兼容。
+
+- Rust 测试 105 项、严格 Clippy、独立 Node 运行时 91 项均通过；主程序全量 882 项测试：879 通过、3 项平台跳过、0 失败。真实日志为 `.test-data/gateway-overview-rust-{test,clippy}.log`、`.test-data/gateway-overview-main-test.log` 与插件仓库 `.cache/gateway-overview-20261011/standalone-runtime.log`。
+- 使用 `LUMI_RELEASE_DIR=release/gateway-overview-20261011` 完成 Windows x64 打包和 `verify:release`，源码 checkout 与包内 `win-unpacked/Lumi.exe` 的隔离启动均通过。保留完整第三方许可，安装包不包含独立网关插件或用户数据。
+- `release/gateway-overview-20261011/Lumi-0.5.23-x64.exe`：113229642 字节，SHA-256 `969bbaa690689be5eea696aa763c95e5f31d6a508439bfd63db8c071fab89535`。本地开发构建沿用清单版本，未创建标签或公开 Release。
+- 插件用该安装包中的 Rust 核心和实际宿主完成 24 组交互、351 次 SDK 调用、46 张截图；浅/深主题与 1280/600/480 像素窗口、隐藏模型真实调用、重连/完整 iframe 重建及退出生命周期通过。页面错误和外部请求为零，Node 关闭，沙箱开启，使用隔离假凭据和本地 TLS 假上游。完整报告：`../extensions/.cache/gateway-plugin-ui/real-electron-POcNsf/result.json`，详细记录见独立插件仓库 `docs/GATEWAY_VALIDATION.md`。
+
+macOS ARM64 原生/DMG 与 Linux CI 未在此 Windows 本轮执行。本段仅记录上述实际执行结果，不把过往发布或其他平台记录当作本轮验证。
+
+
+## 模型网关草稿目录、热保存与上游错误（2026-10-11，本地 Windows 开发构建）
+
+在用户明确允许的主程序/Rust 联动范围内，新增受限 gateway.routes.models.preview，不落盘草稿地址与认证；配置保存使用原生 prepare/commit/cancel 事务，在双端口与加密配对文件准备成功后提交。接收时的配置快照贯穿读请求体、模型映射、凭据、整流及录制；更新不重启核心，旧入口已接收的 JSON/SSE 可完成。供应商、Agent、认证及请求限制均支持运行中保存。SDK 类型与文档副本同步，权限维持原范围，旧 detect 与旧配置兼容。
+
+上游 HTTP 非成功响应保留原状态、头与正文，不被成功 SSE 转换器掩盖；Chat 在明确 finish_reason 后正常 EOF 可收尾，部分输出、keep-alive 和缺失结束原因的 DONE 仍明确拒绝。认证与隐式接口重试未引入变化，故障判断不修改用户配置。
+
+- 最终全量893项：890通过、3项既有条件跳过、0失败，日志 `.test-data/gateway-deepseek-20261011/node-all-final.log`。初次全量回归的热保存测试因原生记录收尾尚占并发槽位而收到429，修正为等待监听 activeRequests=0 后保留413大小断言，并重新完整执行。相关专项28项全部通过，日志 `targeted-final.log`。
+- 本轮原生108项测试及严格 Clippy 通过，日志 `.test-data/gateway-hot-draft-20261011/rust-test.log`、`rust-clippy.log`。后续错误处理仅修改 Node 层。严格类型检查、生产构建、内置插件校验与完整依赖许可生成通过。
+- dev.13 独立插件使用最终安装包中的核心完成真实 Electron23组流程、210次SDK调用、53张截图、26项概况及24项弹窗检查；沙箱、生产preload/SDK、TLS管理和系统加密真实参与。错误与外部访问为空；详见兄弟插件仓库 `docs/GATEWAY_VALIDATION.md` 与 `release/gateway-hot-draft-20261011/verification.json`。
+- checkout官方隔离桌面检查和最终 win-unpacked/Lumi.exe 隔离检查均通过；安装包校验78个构建文件相符、完整许可、不含本机数据，日志 `.test-data/gateway-deepseek-20261011/desktop-final.log`、`packaged-desktop-final.log`、`verify-release-final.log`。
+
+本地开发包 `release/gateway-hot-draft-20261011/Lumi-0.5.23-x64.exe`：113235988字节，SHA-256 `dd48d88748779feb0f7c26f790a7c7b5cc65b9be937050e7972b1b26b5024556`。清单版本沿用0.5.23，未执行安装器或公开发行流程；网关插件独立安装，不编入主程序。macOS ARM64与Linux未在此Windows环境验证。保留两仓库其他修改及本地AGENTS，没有提交、推送、标签或公开Release。
+
+## 2026-10-11 网关活动快照与5秒输出窗口（Windows 开发构建）
+
+在此前用户明确授权的网关宿主链路范围内新增可选 rateWindow DTO、内存中的真实输出 Unicode 字符滑动计量及活动请求保留；独立插件 dev.14 显示字符/s，旧宿主未知，不伪造 token 计数。已接收请求的转发、认证和配置事务保持原实现，不修改 Rust 核心。同步可复制 SDK 文档。
+
+本轮实际执行 typecheck、完整 npm test：901 项，898 通过、0 失败、3 跳过；初次 SDK 文档不同步已修复，最终完整结果见 `.test-data/gateway-cards-full-tests.log`。新增窗口回归包括 5 秒过期/空闲/冻结、Unicode 与 SSE 解析、未知/有界数据、超过 64 项完成后的长活动请求、192 KiB 预算下全部 128 活动身份、严格可选 DTO 和旧调用兼容。
+
+npm run dist、test:desktop 与 verify:release 通过；Windows x64 开发安装包 `release/gateway-cards-20261011/Lumi-0.5.23-x64.exe`，SHA-256 `a23c8f58e69e04f712b87ab2d0a09313ba710fca941085d5e060a74915fa14d0`，78 项构建资源匹配，65 项 JS 与 84 项网关完整依赖许可保留，无本地数据。桌面脚本验证 checkout 构建的隔离启动，包内校验验证安装包字节，不声称已安装 EXE 启动。本轮没有 macOS/Linux 执行结果、提交或公开 Release。
+
+独立插件真实 ExtensionHost/Frame、生产 preload/SDK、TLS 管理及上述新安装包内核心回归：25 组界面流程，227 次 SDK 调用，28 个事件；默认/梦幻 × 浅/深 × 三种宽度，24 项弹窗、26 项概况检查、67 张截图，错误/外部请求为0。两个真实并发 SSE 确认窗口归零/更新/冻结、revision 不变时仍更新、全部活动线路和结束撤回；上游77 token保持独立。报告 `../extensions/.cache/gateway-plugin-ui/real-electron-2ugrXV/result.json`。独立插件固定 v0.5.20 校验器仍不接受 gateway 权限，未将该项计为通过，未移动公开固定宿主。

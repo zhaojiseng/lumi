@@ -9,6 +9,12 @@ import {createHash} from 'node:crypto';
 import { z } from 'zod';
 import {createBuiltinPlugins} from './host/plugins';
 import {ExtensionHost} from './extensions/host';
+import {EXTENSION_METHODS} from '../shared/contracts/extensions';
+import {GatewayManagementService} from './services/gateway-management';
+import {GatewayLocalService} from './services/gateway-local';
+import {readGatewayPairingFile} from './services/gateway-pairing';
+import {GatewayCliConfigService} from './services/gateway-cli-config';
+import {gatewayCliToolRunning} from './services/gateway-cli-process';
 import {ExtensionMarket} from './extensions/market';
 import {extensionId} from '../shared/extension-manifest';
 import {DEFAULT_INTERFACE_ID} from '../shared/contracts/interface';
@@ -19,7 +25,7 @@ import {backgroundInterfaceManifest} from '../plugins/interface.background/manif
 import {SurfaceThemeState,parseSurfaceTheme} from '../shared/surface-theme';
 import {formattedWidget} from '../shared/widget';
 import {nativeMenuBarState,menuBarSelection} from '../shared/menu-bar';
-import { SettingsStore } from './services/store';
+import { SettingsStore,atomicWrite } from './services/store';
 import { ConfigService } from './services/config';
 import {WIDGET_PERIODS,type WidgetPeriod} from '../shared/widget-period';
 import { browserLogin } from './services/browser-login';
@@ -35,6 +41,7 @@ import {DATA_REFRESH_ANIMATIONS} from '../shared/motion';
 import {validFontSize,validFontFamily,type FontFamily} from '../shared/typography';
 import {startupHtml} from './startup';
 import { currency, logsToCsv } from '../shared/utils';
+import {validServiceTier} from '../shared/pricing';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput,Page } from '../shared/types';
 const root = path.resolve(__dirname, '..');
 // Anonymous stylesheet loads need normal CORS checks to expose CSSOM in opaque
@@ -62,7 +69,7 @@ const appearanceSelectionSchema=z.object({interfaceId:z.string().max(100),values
 const interfacePrioritySchema=z.object({id:z.string().regex(styleId),priority:z.number().int().min(-1000).max(1000)}).strict();
 const backgroundSchema=z.object({image:z.string().max(MAX_BACKGROUND_LENGTH).refine(validBackgroundImage),name:z.string().max(120),fit:z.enum(BACKGROUND_FITS)}).strict();
 const preferenceSchema = z.object({ fontSize:z.custom<number>(validFontSize).optional(),fontFamily:z.custom<FontFamily>(validFontFamily).optional(),dismissedUpdateVersion: z.string().max(30).regex(/^(?:|(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/).optional(), activeSiteId: z.string().max(100).optional(), tokenPrefix: z.string().trim().min(1).max(20).regex(/^[a-zA-Z0-9_-]+$/).optional(), theme: z.enum(['light', 'dark', 'system']).optional(), refreshInterval: z.number().int().min(0).max(3600).optional(), menuBarRefreshInterval:z.number().int().min(0).max(3600).optional(),widgetDataSource:z.enum(['api','local']).optional(),widgetPeriod:z.union([z.literal('latest'),z.number().refine(value=>WIDGET_PERIODS.some(option=>option.value===value)).transform(value=>value as WidgetPeriod)]).optional(),widgetInputMode:z.enum(['total','uncached']).optional(),menuBarTotalsRange:barRangeSchema.optional(),menuBarChartRange:barRangeSchema.optional(), menuBarContents:z.array(z.enum(MENU_BAR_SECTION_IDS)).max(MENU_BAR_SECTION_IDS.length).refine(v=>new Set(v).size===v.length).optional(), lowBalanceThreshold: z.number().min(0).max(1e9).optional(), favoriteModels: z.array(z.string().max(200)).max(500).optional(), logColumns: z.array(z.enum(LOG_COLUMN_IDS)).min(1).max(LOG_COLUMN_IDS.length).refine(v => new Set(v).size === v.length).optional(), selection:selectionSchema.optional(),sourceSelection:z.object({sourceId:z.enum(['source.local-sessions','feature.usage']),values:selectionSchema.shape.values}).strict().optional() }).strict();
-const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional(), disableAttributionHeader:z.boolean().optional() }).strict();
+const configSchema = z.object({ tool: toolSchema, model: z.string().trim().min(1).max(200), group: z.string().min(1).max(100), sonnet: z.string().max(200).optional(), opus: z.string().max(200).optional(), haiku: z.string().max(200).optional(), contextWindow:z.number().int().min(4096).max(10000000).optional(), disableAttributionHeader:z.boolean().optional(), serviceTier:z.string().refine(validServiceTier).optional() }).strict().refine(value=>value.serviceTier===undefined || value.tool==='codex');
 const tokenSchema = z.object({ name: z.string().trim().min(1).max(50), tool: toolSchema.optional(), group: z.string().min(1).max(100), unlimited: z.boolean(), quota: z.number().min(0).max(Number.MAX_SAFE_INTEGER), models: z.string().max(5000).optional(), expiredTime:z.number().int().refine(v=>v===-1 || v>0).optional(),allowIps:z.string().max(5000).optional(),crossGroupRetry:z.boolean().optional() }).strict();
 function trustedFrame(event: Electron.IpcMainInvokeEvent) {
   const url = event.senderFrame?.url;
@@ -147,6 +154,42 @@ async function start() {
   const codexBridge=createExtensionCodexBridge(()=>codexBridgeFactory,event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
   const dropBridgeSubscriber=(id:string)=>codexBridge.drop(id);
   const dropAllBridgeSubscribers=()=>codexBridge.drop();
+  const gatewayLocal=new GatewayLocalService({dataDir:data,binaryPath:path.join(app.isPackaged?process.resourcesPath:root,app.isPackaged?'native':'dist-native','lumi-gateway-runtime'+(process.platform==='win32'?'.exe':''))});
+  const gatewayManagement=new GatewayManagementService({directory:data,cipher:store.cipher,atomicWrite,local:gatewayLocal,
+    pair:async signal=>{const picked=await dialog.showOpenDialog(win,{title:'导入本地网关配对文件',properties:['openFile'],filters:[{name:'网关配对',extensions:['json']}]});if(signal.aborted || picked.canceled || !picked.filePaths[0])return null;return readGatewayPairingFile(picked.filePaths[0]);},
+    emit:event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);},
+    chooseExport:async(format,signal)=>{const picked=await dialog.showSaveDialog(win,{title:'导出脱敏网关记录',defaultPath:'Lumi-gateway-records.'+format,filters:[{name:format.toUpperCase(),extensions:[format]}]});return signal.aborted || picked.canceled || !picked.filePath?null:picked.filePath;},
+    writeExport:(file,content)=>writeFile(file,content,{encoding:'utf8',mode:0o600}),
+  });
+  const gatewayCli=new GatewayCliConfigService(store.cipher,data,{
+    atomicWrite,homeDir:process.env.LUMI_TEST_HOME,
+    environment:()=>process.env.LUMI_TEST_HOME?{}:{CODEX_HOME:process.env.CODEX_HOME,CLAUDE_CONFIG_DIR:process.env.CLAUDE_CONFIG_DIR},
+    resolveTarget:(input,owner)=>gatewayManagement.resolveCliTarget(input,owner),
+    assertContext:(input,owner)=>gatewayManagement.assertCliContext(input,owner),
+    isToolRunning:tool=>gatewayCliToolRunning(tool),
+  });
+  gatewayManagement.setCliBridge(gatewayCli);
+  const recoverGatewayCli=async()=>{
+    try{
+      const rows=await gatewayCli.hostRecoveryTransactions();
+      if(!rows.length){await dialog.showMessageBox(win,{type:'info',title:'网关 CLI 恢复',message:'没有待恢复的网关入口事务。'});return;}
+      const page=rows.slice(0,12);
+      const picked=await dialog.showMessageBox(win,{type:'question',title:'恢复网关 CLI 入口',message:'选择要恢复的事务。仅恢复该事务修改的入口与认证；冲突时保留当前配置。',buttons:[...page.map(row=>(row.tool==='codex'?'Codex':'Claude Code')+' · '+row.transaction.transactionId.slice(0,8)),'取消'],cancelId:page.length,noLink:true});
+      const chosen=page[picked.response];if(!chosen)return;
+      await gatewayCli.restore({transactionId:chosen.transaction.transactionId,expectedFingerprint:chosen.transaction.fingerprint},{id:chosen.ownerId,generation:1,view:'host-recovery',signal:new AbortController().signal});
+      await dialog.showMessageBox(win,{type:'info',title:'网关 CLI 恢复',message:'网关入口与认证已恢复，其他配置保持原值。'});
+    }catch{await dialog.showMessageBox(win,{type:'error',title:'网关 CLI 恢复',message:'恢复未完成。当前配置可能被修改、工具仍在运行，或系统加密存储不可用。请保留网关监听并检查后重试。'});}
+  };
+  const gatewayRecoveryMenu=()=>({label:'网关',submenu:[{label:'恢复 CLI 网关入口…',click:()=>{void recoverGatewayCli();}}]});
+  if(process.platform!=='darwin'){Menu.setApplicationMenu(Menu.buildFromTemplate([gatewayRecoveryMenu()]));win.setAutoHideMenuBar(true);win.setMenuBarVisibility(false);}
+
+  try{await gatewayManagement.load();}catch{appLogs.write('warn','网关','保存的网关配对暂不可用，请重新配对或检查系统加密存储。');}
+  let gatewayShutdownComplete=false,gatewayShutdownStarted=false;
+  app.on('before-quit',event=>{
+    if(gatewayShutdownComplete)return;
+    event.preventDefault();if(gatewayShutdownStarted)return;gatewayShutdownStarted=true;
+    void gatewayManagement.shutdown().catch(()=>appLogs.write('warn','网关','网关关闭未完成。')).finally(()=>{gatewayShutdownComplete=true;app.quit();});
+  });
   const extensions=new ExtensionHost({directory:path.join(data,'extensions'),roots:process.env.LUMI_SMOKE==='1' ? [] : app.isPackaged ? [path.join(process.resourcesPath,'extensions')] : [path.join(root,'extensions','packages')],settingsDirectory:data,cipher:store.cipher,uiCss:await readFile(path.join(root,'dist-electron/extension-ui.css')),sdk:await readFile(path.join(root,'dist-electron/lumi-extension-sdk.js')),
     interfacePreferences:()=>({candidates:[{id:DEFAULT_INTERFACE_ID,enabled:store.preferences.defaultInterfaceEnabled,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:pluginEnabled(backgroundInterfaceManifest,store.preferences),priority:200}],priorities:store.preferences.interfacePriorities}),
     context:()=>{const site=store.activeSite();return {theme:resolvedTheme(),locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
@@ -156,7 +199,7 @@ async function start() {
       if(method==='usage.read'){const usage=await plugins.require('feature.usage','usage.present').loadWidget();return formattedWidget('ready',usage,{enabled:true,viewKey:'extension',theme:resolvedTheme()});}
       const usage=await plugins.require('feature.workbench','workbench.present').loadMenu((input as {force?:boolean}).force);return nativeMenuBarState({phase:'ready',usage},menuBarSelection(store.preferences.viewSelections[store.preferences.activeSiteId]),store.preferences.menuBarContents);
     },
-    codexBridge:codexBridge.call,
+    codexBridge:codexBridge.call,gateway:gatewayManagement,hostVersion:app.getVersion(),
   });
   await extensions.start();
   const extensionMarket=new ExtensionMarket(extensions);
@@ -192,7 +235,7 @@ async function start() {
   // Run after startup paint, without delaying settings/account initialization or scanning browser caches.
   const initialCacheCleanup=updateEnabled && !macMounted ? cleanInstalledPackages() : Promise.resolve();
   const updatePanels=()=>{void plugins.notifySurfaces();};
-  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate(macMenu({navigate,show:showWindow,quit,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}})));
+  if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate([...macMenu({navigate,show:showWindow,quit,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}}),gatewayRecoveryMenu()]));
   let lastNotice = 0;
   const noPayload = z.undefined();
   handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
@@ -204,7 +247,7 @@ async function start() {
   handle('removeExtension',z.string().regex(extensionId),async id=>{dropBridgeSubscriber(id);const previous=extensions.inventory().interfaceStyle,inventory=await extensions.remove(id);updateSurfaceInterface(previous);return inventory;});
   handle('reloadExtensions',noPayload,async()=>{dropAllBridgeSubscribers();const previous=extensions.inventory().interfaceStyle,inventory=await extensions.reload();updateSurfaceInterface(previous);return inventory;});
   handle('openExtensionsDirectory',noPayload,async()=>{const error=await shell.openPath(extensions.inventory().directory);if(error)throw new Error('扩展目录暂未能打开。');});
-  handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read','codex.bridge.status','codex.bridge.send','codex.bridge.respond','codex.bridge.subscribe','codex.bridge.unsubscribe','codex.bridge.chooseDirectory']),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
+  handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(EXTENSION_METHODS),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
   handle('readCodexUsage',z.object({force:z.boolean().optional()}).strict(),input=>plugins.require('provider.codex','subscriptionUsage.read').read(input));
   handle('setPluginEnabled',z.object({id:z.string().min(1).max(100),enabled:z.boolean()}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle;if(extensions.has(input.id))await extensions.setEnabled(input.id,input.enabled);else await plugins.setEnabled(input.id,input.enabled);if(!input.enabled && extensions.has(input.id))dropBridgeSubscriber(input.id);updateSurfaceInterface(previous);if(input.id==='surface.widget')win.webContents.send('lumi:widgetVisibility',input.enabled);return allPluginStatuses();});
   handle('setPluginView',z.object({id:z.string().min(1).max(100),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),enabled:z.boolean()}).strict(),async input=>{if(extensions.has(input.id))await extensions.setView(input.id,input.view,input.enabled);else await plugins.setView(input.id,input.view,input.enabled);return allPluginStatuses();});

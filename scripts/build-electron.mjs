@@ -18,3 +18,4 @@ await rm(obsolete,{recursive:true,force:true});
 console.log('Electron main and preload built.');
 await import('./build-native-menu-bar.mjs');
 await import('./build-native-widget-glass.mjs');
+await import('./build-gateway-runtime.mjs');

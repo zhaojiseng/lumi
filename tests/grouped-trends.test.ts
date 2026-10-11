@@ -52,3 +52,12 @@ test('high-cardinality groups share bounded date formatting while preserving opt
     assert.ok(chart.rows.slice(0,26).every(row=>Object.values(row.values).every(value=>value===null)));
   }
 });
+
+test('a missing saved model/token falls back to the complete bounded legend without dropping any usage',()=>{
+  const points=Array.from({length:12},(_,i)=>({created_at:at(12),model_name:'model-'+i,token_id:i+1,token_name:'token-'+i,quota:i+1,token_used:i+1,count:1}));
+  for(const grouping of ['model','token'] as const){
+    const chart=groupedTrend(points,1,status,range,now,grouping,'cost','missing');
+    assert.deepEqual(chart,groupedTrend(points,1,status,range,now,grouping,'cost'));
+    assert.equal(chart.options.length,12);assert.equal(chart.lines.length,9);assert.equal(chart.combined,4);
+  }
+});

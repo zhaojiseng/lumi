@@ -275,7 +275,7 @@ export function requestPriceRuleLabel(condition:string):string {
       if(n.k==='binary' && n.op==='&&')return friendly(n.left)+' · '+friendly(n.right);
       if(n.k==='binary' && ['==','has'].includes(n.op) && n.left.k==='call' && ['param','header'].includes(n.left.name) && n.left.args[0]?.k==='value' && n.right.k==='value'){
         const key=String(n.left.args[0].value),value=String(n.right.value);
-        if(key==='service_tier' && ['fast','priority'].includes(value))return value==='fast' ? 'Fast' : 'Fast（Priority）';
+        if(key==='service_tier' && ['fast','priority','ultrafast'].includes(value))return ({fast:'Fast',priority:'Fast（Priority）',ultrafast:'Ultrafast'} as Record<string,string>)[value];
         if(key==='anthropic-beta' && value==='fast-mode')return 'Fast（fast-mode）';
         return (n.left.name==='header' ? '请求头 ' : '请求参数 ')+key+' = '+value;
       }
@@ -283,6 +283,33 @@ export function requestPriceRuleLabel(condition:string):string {
     };
     return friendly(node);
   }catch{return condition;}
+}
+export function validServiceTier(value:unknown):value is string {
+  return typeof value==='string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value);
+}
+/** Read advertised parameter values from conditional AST nodes, never from formula text or sample requests. */
+export function publishedServiceTiers(model:ModelInfo):string[] {
+  const tiers=new Set<string>();
+  const parameter=(node:Node)=>node.k==='call' && node.name==='param' && node.args.length===1 && node.args[0].k==='value' && node.args[0].value==='service_tier';
+  const condition=(node:Node):void=>{
+    if(node.k==='binary'){
+      if(node.op==='==')for(const [left,right] of [[node.left,node.right],[node.right,node.left]]){
+        if(parameter(left) && right.k==='value' && validServiceTier(right.value) && tiers.size<32)tiers.add(right.value);
+      }
+      if(node.op==='&&' || node.op==='||'){condition(node.left);condition(node.right);}
+    }else if(node.k==='unary' && node.op==='!')condition(node.right);
+  };
+  const walk=(node:Node):void=>{
+    if(node.k==='choose'){condition(node.cond);walk(node.yes);walk(node.no);}
+    else if(node.k==='binary'){walk(node.left);walk(node.right);}
+    else if(node.k==='unary')walk(node.right);
+    else if(node.k==='call')node.args.forEach(walk);
+  };
+  const sources=[model,...(model.billing_plugin_variants || []).map(variant=>({...model,...variant,billing_mode:variant.billing_mode || 'tiered_expr'}))];
+  for(const source of sources)if(isExpression(source)){
+    try{walk(compilePrice(source.billing_expr!).node);}catch{/* An unreadable source cannot advertise a tier. */}
+  }
+  return [...tiers];
 }
 /** Separate global request factors from context tiers; retain clock pricing in the base. */
 export function publishedRequestPricing(model:ModelInfo):{model:ModelInfo;rules:RequestPriceRule[]} {

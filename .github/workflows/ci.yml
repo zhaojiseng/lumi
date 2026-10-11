@@ -13,6 +13,9 @@ jobs:
     name: Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: stable
+      CARGO_TARGET_DIR: .cache/gateway-runtime/target
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +30,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Prepare native gateway toolchain
+        run: rustup update stable --no-self-update
+      - name: Test bundled gateway core
+        run: cargo test --locked --manifest-path native/gateway-runtime/Cargo.toml
       - run: npm run setup:electron
       - name: Configure Chromium sandbox on Linux
         if: runner.os == 'Linux'

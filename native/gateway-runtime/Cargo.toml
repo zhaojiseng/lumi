@@ -1,0 +1,32 @@
+[package]
+name = "lumi-gateway-runtime"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+publish = false
+description = "Lumi 独立本地请求录制网关核心"
+
+[dependencies]
+aes-gcm = "=0.10.3"
+base64 = "=0.22.1"
+rand = "=0.8.8"
+rusqlite = { version = "=0.37.0", features = ["bundled"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["arbitrary_precision"] }
+thiserror = "=2.0.21"
+url = { version = "=2.5.8", features = ["serde"] }
+uuid = { version = "=1.26.1", features = ["v4"] }
+zeroize = "=1.9.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Console", "Win32_System_Memory"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = "=3.7.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.190"
+
+[dev-dependencies]
+tempfile = "=3.27.0"

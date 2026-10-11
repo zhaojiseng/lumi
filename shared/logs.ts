@@ -33,8 +33,12 @@ export function visibleActivityColumns(value:unknown):ActivityColumnId[] {
   return columns.filter(id=>!(id==='cacheRead' && columns.includes('input')) && !(id==='firstToken' && columns.includes('timing')));
 }
 function record(value:unknown):Record<string,unknown> {return value && typeof value==='object' && !Array.isArray(value) ? value as Record<string,unknown> : {};}
+const metadataCache=new WeakMap<UsageLog,{source:string;value:Record<string,unknown>}>();
 export function logMetadata(log:UsageLog):Record<string,unknown> {
-  try {return record(typeof log.other==='string' ? JSON.parse(log.other) : log.other);}catch{return {};}
+  if(typeof log.other!=='string')return record(log.other);
+  const cached=metadataCache.get(log);if(cached?.source===log.other)return cached.value;
+  let value:Record<string,unknown>;try{value=record(JSON.parse(log.other));}catch{value={};}
+  metadataCache.set(log,{source:log.other,value});return value;
 }
 export function requestReasoningEffort(log:UsageLog):string|null {
   const root=record(log),other=logMetadata(log);

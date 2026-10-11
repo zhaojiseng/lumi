@@ -15,6 +15,7 @@
 .billing-rule>span{overflow-wrap:anywhere}.billing-rule strong{color:var(--orange);white-space:nowrap;font-size:12px;font-variant-numeric:tabular-nums}
 .billing-rule strong small{font-size:9px;margin-left:6px;font-weight:400;color:var(--text-muted)}
 .billing-rule.matched{border-color:var(--accent);background:var(--accent-soft)}.billing-rule.matched strong,.billing-rule.matched small{color:var(--accent)}
+.request-detail-modal .billing-rule{flex-basis:140px;flex-direction:column;align-items:flex-start;gap:0;padding:4px 8px;line-height:1.2}
 .modal.request-detail-modal{width:min(940px,calc(100vw - 36px));padding:18px 22px;max-height:calc(100vh - 36px)}
 .request-detail-modal .modal-heading{margin-bottom:12px}.request-detail-modal .modal-heading h2{font-size:17px}.request-detail-modal .modal-heading p{margin-top:3px;font-size:10px}
 .request-billing-summary{display:grid;grid-template-columns:1.2fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px}

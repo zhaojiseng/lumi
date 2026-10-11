@@ -5,9 +5,11 @@ import {filterLogs,logStat} from '../../../shared/statistics';
 import type { SettingsStore, SiteSecret, SessionCookie } from '../../../electron/services/store';
 import { publicEncrypt, randomBytes, createCipheriv, randomUUID, createHash } from 'node:crypto';
 import { normalizeCatalog, availableGroups } from '../../../shared/catalog';
+import {publishedServiceTiers,validServiceTier} from '../../../shared/pricing';
 import {tokenSettings} from './token-controls';
 import {DEFAULT_SITE_URL} from '../../../shared/types';
 import {ReadCache} from '../../../electron/services/read-cache';
+import {UsageLogCache,USAGE_HISTORY_TTL,USAGE_LIVE_TTL,type CachedUsageLogs,type UsageWindow} from '../../../electron/services/usage-log-cache';
 import {appLogs} from '../../../electron/services/app-logs';
 import {tokenPoints} from '../../../shared/trends';
 import {summarizeQuality} from '../../../shared/usage-quality';
@@ -28,16 +30,22 @@ interface Challenge { scope: Scope; cookies: SessionCookie[]; flowToken?: string
 export function timeRange(query: DashboardQuery) { const r=resolveRange(query); return {start_timestamp:r.start_timestamp,end_timestamp:r.end_timestamp}; }
 export class NewApiClient {
   private cache:ReadCache;
+  private usageLogs:UsageLogCache;
+  private trends:ReadCache;
   private refreshes: Map<string, Promise<SiteSecret>>;
   private provisions: Map<string, Promise<ResolvedToolToken>>;
   private challenges: Map<string, Challenge>;
   private lifetime:{closed:boolean;controller:AbortController};
   constructor(private store: SettingsStore, private snapshot?: Scope, private owner?: NewApiClient) {
     this.cache=owner?.cache || new ReadCache();
+    this.usageLogs=owner?.usageLogs || new UsageLogCache();
+    this.trends=owner?.trends || new ReadCache(()=>Date.now(),16);
     this.lifetime=owner?.lifetime || {closed:false,controller:new AbortController()};
     this.refreshes = owner?.refreshes || new Map(); this.provisions = owner?.provisions || new Map(); this.challenges = owner?.challenges || new Map();
   }
-  close(){this.lifetime.closed=true;this.lifetime.controller.abort();this.cache.invalidate('');this.challenges.clear();}
+  private invalidate(prefix:string){this.cache.invalidate(prefix);this.usageLogs.invalidate(prefix);this.trends.invalidate(prefix);}
+  private usageScope(scope:Scope,secret:SiteSecret){return scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');}
+  close(){this.lifetime.closed=true;this.lifetime.controller.abort();this.invalidate('');this.challenges.clear();}
   private scope() { const site = structuredClone(this.store.activeSite()); return new NewApiClient(this.store, { site, secret: this.store.credentials(site.id), preferences: structuredClone(this.store.preferences) }, this.owner || this); }
   private current() { return this.snapshot || { site: structuredClone(this.store.activeSite()), secret: this.store.credentials(), preferences: structuredClone(this.store.preferences) }; }
   private checkScope(scope: Scope) {if(this.lifetime.closed)throw new Error('NewAPI 插件已停用。');this.store.assertSite(scope.site.id, scope.site.url); }
@@ -87,7 +95,7 @@ export class NewApiClient {
     this.checkScope(scope);
     const current = this.store.credentials(scope.site.id);
     // A logged-out or changed account cannot be revived by an in-flight request.
-    if (current.userId !== scope.secret.userId || current.sessionId !== scope.secret.sessionId || current.accessToken !== scope.secret.accessToken && !(scope.secret.sessionAuth && current.sessionAuth && current.sessionId && current.userId)) throw new Error('登录状态已变更，请刷新页面。');
+    if (current.userId !== scope.secret.userId || current.sessionId !== scope.secret.sessionId || !scope.secret.sessionAuth && current.accessToken===scope.secret.accessToken && JSON.stringify(current.cookies)!==JSON.stringify(scope.secret.cookies) || current.accessToken !== scope.secret.accessToken && !(scope.secret.sessionAuth && current.sessionAuth && current.sessionId && current.userId)) throw new Error('登录状态已变更，请刷新页面。');
     if (current.accessToken !== scope.secret.accessToken) return current;
     if (scope.secret.sessionAuth && scope.secret.accessExpiresAt && scope.secret.accessExpiresAt <= Date.now()/1000 + 45) return this.refreshSecret(scope);
     return scope.secret;
@@ -107,7 +115,7 @@ export class NewApiClient {
     })();
     this.refreshes.set(id,job); try { return await job; } finally { if (this.refreshes.get(id) === job) this.refreshes.delete(id); }
   }
-  private async request(endpoint: string, options: { query?: Record<string, unknown>; method?: string; body?: unknown; public?: boolean } = {}): Promise<any> {
+  private async request(endpoint: string, options: { query?: Record<string, unknown>; method?: string; body?: unknown; public?: boolean; cache?:boolean } = {}): Promise<any> {
     const scope = this.current();
     this.checkScope(scope);
     const prefix=scope.site.id+'\0'+scope.site.url+'\0';
@@ -123,14 +131,14 @@ export class NewApiClient {
     };
     const ttl=endpoint==='/api/pricing' ? 300000 : endpoint==='/api/data/self' || endpoint==='/api/log/self/stat' || endpoint.startsWith('/api/perf-metrics') ? 60000 : endpoint==='/api/token/' || endpoint==='/api/user/self' ? 30000 : endpoint==='/api/log/self' ? 15000 : 0;
     let result:any;
-    if((options.method || 'GET')==='GET' && options.body===undefined && ttl){
+    if((options.method || 'GET')==='GET' && options.body===undefined && options.cache!==false && ttl){
       const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
-      const entries=Object.entries(options.query || {}).filter(([,v])=>v!==undefined && v!=='').map(([key,value])=>[key,key==='end_timestamp' && typeof value==='number' && value>=Date.now()/1000-60 ? Math.floor(value/60)*60 : value]).sort(([a],[b])=>String(a).localeCompare(String(b)));
+      const entries=Object.entries(options.query || {}).filter(([,v])=>v!==undefined && v!=='').map(([key,value])=>[key,endpoint!=='/api/log/self' && key==='end_timestamp' && typeof value==='number' && value>=Date.now()/1000-60 ? Math.floor(value/60)*60 : value]).sort(([a],[b])=>String(a).localeCompare(String(b)));
       result=await this.cache.get(prefix+identity+':'+endpoint+JSON.stringify(entries),ttl,load);
     }else{
       const mutation=(options.method || 'GET')!=='GET';
-      if(mutation)this.cache.invalidate(prefix);
-      try{result=await load();}finally{if(mutation)this.cache.invalidate(prefix);}
+      if(mutation)this.invalidate(prefix);
+      try{result=await load();}finally{if(mutation)this.invalidate(prefix);}
     }
     this.checkScope(scope);await this.validSecret(scope);
     return result;
@@ -197,7 +205,7 @@ export class NewApiClient {
   async logout(siteId: string) {
     const site = this.store.preferences.sites.find(s => s.id === siteId); if (!site) throw new Error('站点不存在。');
     const secret = this.store.credentials(siteId);
-    this.cache.invalidate(siteId+'\0');
+    this.invalidate(siteId+'\0');
     if (secret.sessionAuth) { try { await this.raw({site,secret,preferences:this.store.preferences},'/api/user/auth/logout',{method:'POST',authenticated:true,secret}); } catch { /* Local logout must still remove the encrypted session. */ } }
     return this.store.clearSession(siteId,site.url,secret.accessToken);
   }
@@ -207,7 +215,7 @@ export class NewApiClient {
     const scope=this.current();
     const assertActive=()=>{this.checkScope(scope);const site=this.store.activeSite();if(site.id!==input.siteId || site.url!==input.siteUrl || scope.site.id!==input.siteId || scope.site.url!==input.siteUrl)throw new Error('当前站点已切换，请重新读取模型目录。');};
     assertActive();
-    if(input.force)this.cache.invalidate(scope.site.id+'\0');
+    if(input.force)this.invalidate(scope.site.id+'\0');
     const empty:ModelCatalog={models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]};
     if(!scope.secret.accessToken && !scope.secret.cookies?.length){
       const status=await this.status();assertActive();
@@ -230,7 +238,7 @@ export class NewApiClient {
     if (!this.snapshot) return this.scope().logs(q,window);
     if(q.models?.length || q.tokenIds?.length){
       const rows=filterLogs((await this.completeLogs(q.range || q.days,0)).rows,q).filter(row=>(!q.type || row.type===q.type) && (!q.model || row.model_name===q.model) && (!q.tokenName || row.token_name===q.tokenName));
-      return {items:rows.slice((q.page-1)*q.pageSize,q.page*q.pageSize),total:rows.length,page:q.page,pageSize:q.pageSize};
+      return {items:structuredClone(rows.slice((q.page-1)*q.pageSize,q.page*q.pageSize)),total:rows.length,page:q.page,pageSize:q.pageSize};
     }
     const j = await this.request('/api/log/self', { query: { ...(window || timeRange(q.range || q.days)), p: q.page, page_size: q.pageSize, type: q.type || 0, model_name: q.model, token_name: q.tokenName } });
     // New API changed from an array to a paginated DTO; accept both shapes.
@@ -258,34 +266,42 @@ export class NewApiClient {
     const chunks=await Promise.all(windows.map(query=>this.request('/api/data/self',{query}).then(j=>j.data as QuotaPoint[])));
     return chunks.flat();
   }
-  private async completeLogs(query:DashboardQuery,type=2,fixedWindow?:{start_timestamp:number;end_timestamp:number}):Promise<{rows:UsageLog[];fetchedAt:number}>{
-    const scope=this.current(),secret=await this.validSecret(scope);
-    const resolved=fixedWindow || resolveRange(query),window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
-    const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
-    const cacheWindow={...window,...(isRollingRange(query) ? {start_timestamp:Math.floor(window.start_timestamp/60)*60} : {}),end_timestamp:window.end_timestamp>=Date.now()/1000-60 ? Math.floor(window.end_timestamp/60)*60 : window.end_timestamp};
-    return this.cache.get(scope.site.id+'\0'+scope.site.url+'\0'+identity+':completeLogs:'+type+':'+JSON.stringify(cacheWindow),60000,async()=>{
-      const rows:UsageLog[]=[];let expected:number|undefined;const ids=new Set<number>();
-      for(let page=1;page<=101;page++){
-        const j=await this.request('/api/log/self',{query:{...window,p:page,page_size:100,type}}),data=j.data;
+  private async completeLogs(query:DashboardQuery,type=2,fixedWindow?:UsageWindow):Promise<CachedUsageLogs>{
+    const scope=this.current(),secret=await this.validSecret(scope),resolved=fixedWindow || resolveRange(query);
+    const window={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
+    const result=await this.usageLogs.get(this.usageScope(scope,secret),type,window,async missing=>{
+      const rows:UsageLog[]=[],ids=new Set<number>();let expected:number|undefined;
+      // No record or page ceiling: stop only at a verified end of the remote result.
+      for(let page=1;;page++){
+        const j=await this.request('/api/log/self',{query:{...missing,p:page,page_size:100,type},cache:false}),data=j.data;
         const items:UsageLog[]=Array.isArray(data) ? data : data?.items;
         if(!Array.isArray(items))throw new Error('站点未返回可用的消费日志。');
         const total=Array.isArray(data) ? j.total : data.total;
-        if(Number.isSafeInteger(total) && total>=0){if(expected!==undefined && expected!==total)throw new Error('消费记录已变化，请重新加载曲线。');expected=total;}
-        if(expected!==undefined && expected>10000 || rows.length+items.length>10000)throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
-        for(const item of items){if(!Number.isSafeInteger(item.id) || ids.has(item.id))throw new Error('消费日志分页不完整，请重新加载曲线。');ids.add(item.id);rows.push(item);}
-        if(items.length<100 || expected!==undefined && rows.length>=expected){
-          if(expected!==undefined && rows.length!==expected)throw new Error('消费日志分页不完整，请缩小日期范围后重试。');
-          this.checkScope(scope);await this.validSecret(scope);
-          return {rows:rows.filter(row=>row.created_at>=window.start_timestamp && row.created_at<=window.end_timestamp),fetchedAt:Date.now()};
+        if(total!==undefined){
+          if(!Number.isSafeInteger(total) || total<0)throw new Error('消费日志分页总数无效，请重新加载曲线。');
+          if(expected!==undefined && expected!==total)throw new Error('消费记录已变化，请重新加载曲线。');expected=total;
+        }
+        for(const item of items){
+          if(!item || !Number.isSafeInteger(item.id) || ids.has(item.id))throw new Error('消费日志分页不完整，请重新加载曲线。');
+          ids.add(item.id);rows.push(item);
+        }
+        if(expected!==undefined ? rows.length>=expected || !items.length : items.length<100){
+          if(expected!==undefined && rows.length!==expected)throw new Error('消费日志分页不完整，请重新加载曲线。');
+          this.checkScope(scope);await this.validSecret(scope);return rows;
         }
       }
-      throw new Error('详细统计超过 10,000 条消费日志，请缩小日期范围。');
-    }).then(async result=>{this.checkScope(scope);await this.validSecret(scope);return {...result,rows:result.rows.filter(row=>row.created_at>=window.start_timestamp && row.created_at<=window.end_timestamp)};});
+    });
+    this.checkScope(scope);await this.validSecret(scope);return result;
   }
   async tokenUsage(query:DashboardQuery):Promise<TokenUsage>{
     if(!this.snapshot)return this.scope().tokenUsage(query);
-    const resolved=resolveRange(query),filters=statisticsFilters(query),complete=await this.completeLogs(query,filters.models?.length || filters.tokenIds?.length ? 0 : 2,resolved),rows=filterLogs(complete.rows,filters).filter(r=>r.type===2),fetchedAt=complete.fetchedAt;
-    return {points:tokenPoints(rows,resolved),quality:summarizeQuality(rows,resolved,fetchedAt),logCount:rows.length,fetchedAt};
+    const scope=this.current(),resolved=resolveRange(query),filters=statisticsFilters(query),complete=await this.completeLogs(query,filters.models?.length || filters.tokenIds?.length ? 0 : 2,resolved),secret=await this.validSecret(scope);
+    const key=this.usageScope(scope,secret)+':trend:'+JSON.stringify([complete.revision,resolved.start_timestamp,complete.endTimestamp,[...new Set(filters.models || [])].sort(),[...new Set(filters.tokenIds || [])].sort((a,b)=>a-b)]);
+    const result=await this.trends.get(key,resolved.end_timestamp<Date.now()/1000-300 ? USAGE_HISTORY_TTL : USAGE_LIVE_TTL,async()=>{
+      const rows=filterLogs(complete.rows,filters).filter(row=>row.type===2),fetchedAt=complete.fetchedAt;
+      return {points:tokenPoints(rows,resolved),quality:summarizeQuality(rows,resolved,fetchedAt),logCount:rows.length,fetchedAt};
+    });
+    this.checkScope(scope);await this.validSecret(scope);return result;
   }
   async usageQuality(query:DashboardQuery):Promise<UsageQuality>{
     if(!this.snapshot)return this.scope().usageQuality(query);
@@ -360,7 +376,7 @@ export class NewApiClient {
   }
   async menuBarUsage(force=false,selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarUsage>{
     if(!this.snapshot)return this.scope().menuBarUsage(force,selection);
-    const scope=this.current();if(force)this.cache.invalidate(scope.site.id+'\0');
+    const scope=this.current();if(force)this.invalidate(scope.site.id+'\0');
     const todayWindow=timeRange(1),window=timeRange(selection.range || selection.days),statusTask=this.status(),empty={siteId:scope.site.id,siteName:scope.site.name,today:{quota:null,tokens:null,requests:null},tools:[],period:{selection,quota:null,tokens:null,requests:null,points:null},fetchedAt:Date.now(),warnings:[]};
     if(!scope.secret.accessToken && !scope.secret.cookies?.length)return {...empty,status:await statusTask,user:null};
     const results=await Promise.allSettled([statusTask,this.request('/api/user/self').then(j=>j.data as UserInfo),this.usageData(window),this.request('/api/log/self/stat',{query:{...window,type:2}}).then(j=>j.data as UsageStat),this.tokens(),this.request('/api/log/self/stat',{query:{...todayWindow,type:2}}).then(j=>j.data as UsageStat)]);
@@ -396,7 +412,7 @@ export class NewApiClient {
   }
   async dashboard(query: DashboardQuery,force=false): Promise<Dashboard> {
     if (!this.snapshot) return this.scope().dashboard(query,force);
-    if(force)this.cache.invalidate(this.snapshot.site.id+'\0');
+    if(force)this.invalidate(this.snapshot.site.id+'\0');
     const fetchedAt=Date.now(),resolved=resolveRange(query,new Date(fetchedAt)); const {days,range}=resolved; const timestamps={start_timestamp:resolved.start_timestamp,end_timestamp:resolved.end_timestamp};
     const filters=statisticsFilters(query),detailed=!!(range.startTime || range.endTime || filters.models?.length || filters.tokenIds?.length);
     const statusTask = this.status();
@@ -428,7 +444,7 @@ export class NewApiClient {
     const series=detailed ? tokenPoints(detailRows || [],timestamps) : value<QuotaPoint[]>(2,[]).filter(p=>p.created_at>=timestamps.start_timestamp && p.created_at<=timestamps.end_timestamp),stat=detailed ? detailStat : value<UsageStat|null>(3,null);
     const seriesAvailable=detailed ? detailRows!==null : results[2].status==='fulfilled';
     const interval={quota:stat?.quota ?? (seriesAvailable ? series.reduce((s,p)=>s+p.quota,0) : null),tokens:seriesAvailable ? series.reduce((s,p)=>s+(p.token_used || 0),0) : null,requests:seriesAvailable ? series.reduce((s,p)=>s+(p.count || 0),0) : null};
-    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, interval,health:value<HealthSummary | null>(6,null),healthError:results[6].status === 'rejected' ? '健康度暂不可用：'+results[6].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:(detailRows || []).slice(0,100),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series, stat, catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt, days };
+    return { range, query, detailed, quality:detailRows ? summarizeQuality(detailRows,timestamps) : undefined, interval,health:value<HealthSummary | null>(6,null),healthError:results[6].status === 'rejected' ? '健康度暂不可用：'+results[6].reason.message : undefined,status, toolStats, user: value<UserInfo | null>(0, null), logs: detailed ? {items:structuredClone((detailRows || []).slice(0,100)),total:detailRows?.length || 0,page:1,pageSize:100} : value(1, { items: [], total: 0, page: 1, pageSize: 100 }), series, stat, catalog: value(4, { models: [], groupRatio: {}, usableGroups: {}, autoGroups: [], vendors: [] }), tokens: value(5, []), warnings, fetchedAt, days };
   }
   async modelHealth(model: string): Promise<ModelHealthDetails> {
     if (!this.snapshot) return this.scope().modelHealth(model);
@@ -492,6 +508,7 @@ export class NewApiClient {
     const catalog = await this.catalog(); const model = catalog.models.find(m => m.model_name === req.model);
     if (!model) throw new Error('请选择站点提供的模型。');
     if (!availableGroups(model,catalog).includes(req.group)) throw new Error('所选渠道无法提供这个模型，请重新选择。');
+    if(req.serviceTier!==undefined && (req.tool!=='codex' || !validServiceTier(req.serviceTier) || req.serviceTier!=='default' && !publishedServiceTiers(model).includes(req.serviceTier)))throw new Error('所选模型未公布该服务等级，请重新选择。');
     const tokens = await this.tokens(); const now = Date.now()/1000;
     await this.validSecret(scope);const prefs=this.store.preferences;
     const prefix = prefs.tokenPrefix || 'Lumi-';

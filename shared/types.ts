@@ -18,7 +18,7 @@ export interface SiteProfile {
 }
 export interface ToolBinding {
   tool: Tool; model: string; group: string; tokenName: string; tokenId?: number; siteId: string;
-  sonnet?: string; opus?: string; haiku?: string; appliedAt?: number; contextWindow?:number; disableAttributionHeader?:boolean;
+  sonnet?: string; opus?: string; haiku?: string; appliedAt?: number; contextWindow?:number; disableAttributionHeader?:boolean; serviceTier?:string;
 }
 export const LOG_COLUMN_IDS = ['time','model','reasoning','token','input','output','cacheRead','cacheWrite','cost','duration','speed','netSpeed','channel','status','firstToken','group','requestId','stream','tool'] as const;
 export type LogColumnId = typeof LOG_COLUMN_IDS[number];
@@ -140,7 +140,7 @@ export interface Dashboard {
 }
 export interface ToolConfigState {
   tool: Tool; exists: boolean; path: string; model?: string; baseUrl?: string;
-  keyConfigured: boolean; error?: string; contextWindow?:number;
+  keyConfigured: boolean; error?: string; contextWindow?:number; serviceTier?:string;
 }
 export interface ToolRuntimeState {
   tool: Tool | 'chatgpt'; installed: boolean; version?: string; path?: string; checkedAt: number;
@@ -182,7 +182,7 @@ export interface LocalUsageProgress {
   requestId:string;phase:'discover'|'read'|'complete';filesDone:number;filesTotal:number;bytesRead:number;bytesTotal:number;
 }
 export interface ConfigRequest {
-  tool: Tool; model: string; group: string; sonnet?: string; opus?: string; haiku?: string; contextWindow?:number; disableAttributionHeader?:boolean;
+  tool: Tool; model: string; group: string; sonnet?: string; opus?: string; haiku?: string; contextWindow?:number; disableAttributionHeader?:boolean; serviceTier?:string;
 }
 export interface ConfigPreview {
   id: string; tool: Tool; files: { path: string; before: string; after: string }[];

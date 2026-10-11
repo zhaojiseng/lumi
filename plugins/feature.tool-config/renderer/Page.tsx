@@ -48,9 +48,9 @@ function ToolForm({definition,tool,onPreview,runtime,chatgpt,onInstall,onDetect,
   const provider=usePluginStatus('provider.newapi'),providerEnabled=!provider || provider.state==='active';
   const b=preferences.bindings.find(x=>x.tool===tool && x.siteId===preferences.activeSiteId),state=config || bootstrap.configs.find(x=>x.tool===tool);
   const [model,setModel]=useSavedSelection(tool+'.model',b?.model || state?.model || ''),[group,setGroup]=useSavedSelection(tool+'.group',b?.group || '');
-  const options=definition.useOptions(b,state,locked),RuntimeExtras=definition.RuntimeExtras;
   const [keyInfo,setKeyInfo]=useState(false),[prices,setPrices]=useState(false);
   const site=preferences.sites.find(s=>s.id===preferences.activeSiteId)!,catalog=d?.catalog,models=sortModels(catalog?.models || [],preferences.favoriteModels),selected=models.find(m=>m.model_name===model),groups=selected && catalog ? availableGroups(selected,catalog) : [];
+  const options=definition.useOptions(b,state,locked,selected),RuntimeExtras=definition.RuntimeExtras;
   useEffect(()=>{if(locked || !catalog || !models.length)return;if(model && !selected){setModel('');setGroup('');return;}if(selected && !groups.includes(group))setGroup(defaultModelGroup(selected,catalog));},[model,catalog,group,locked]);
   async function submit(e:React.FormEvent){e.preventDefault();if(locked)return;await onPreview({tool,model,group,...options.request});}
   const prefix=preferences.tokenPrefix || 'Lumi-',expected=(prefix+definition.tokenSuffix).slice(0,50);

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdir,mkdtemp,readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {logMetrics,normalizeLogColumns,upstreamChannel} from '../shared/logs';
+import {logMetrics,requestStatus,requestTiming,normalizeLogColumns,upstreamChannel} from '../shared/logs';
 import {legacyPrices,publishedPriceSections,routePriceSummary} from '../shared/pricing';
 import {DEFAULT_LOG_COLUMNS,type UsageLog,type ModelInfo} from '../shared/types';
 import {logsToCsv} from '../shared/utils';
@@ -63,4 +63,11 @@ test('CSV includes reported reasoning effort and leaves unavailable effort blank
  const rows=csv.split('\r\n');
  assert.ok(rows[1].endsWith(',"high","",""'));
  assert.ok(rows[2].endsWith(',"","",""'));
+});
+
+test('usage metadata is parsed once per immutable log and invalidates when its source changes',t=>{
+  const fixture={...log,other:'{"cache_tokens":10,"frt":500}'};let parses=0;const parse=JSON.parse;
+  t.mock.method(JSON,'parse',(...args:Parameters<typeof JSON.parse>)=>{parses++;return parse(...args);});
+  for(let i=0;i<10;i++){assert.equal(logMetrics(fixture).cacheRead,10);assert.equal(requestStatus(fixture).isError,false);assert.equal(requestTiming(fixture).firstMs,500);}
+  assert.equal(parses,1);fixture.other='{"cache_tokens":20,"frt":1000,"status_code":500}';assert.equal(logMetrics(fixture).cacheRead,20);assert.equal(requestStatus(fixture).isError,true);assert.equal(parses,2);
 });

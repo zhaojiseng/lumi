@@ -35,6 +35,11 @@ for(const directory of ['dist','dist-electron']){
 }
 for(const name of ['Lumi-LICENSE.txt','dependencies-LICENSES.txt','THIRD_PARTY_NOTICES.md','lobe-icons-LICENSE.txt','cc-switch-LICENSE.txt','codexbar-LICENSE.txt','victory-vendor-LICENSE.txt','electron-builder-LICENSE.txt'])assert.ok(extract('dist/third-party/'+name).length>100,'Missing license notice: '+name);
 for(const name of ['LICENSE.electron.txt','LICENSES.chromium.html'])assert.ok((await readFile(path.join(mac ? path.join(resources,'licenses') : appDirectory,name))).length>100,'Missing runtime license notice: '+name);
+assert.ok(extract('dist/third-party/gateway-dependencies-LICENSES.txt').length>100,'Missing gateway dependency license texts');
+const gatewayBinary='lumi-gateway-runtime'+(mac?'':'.exe');
+if(mac){
+ assert.deepEqual(unsignedMachOCode(await readFile(path.join(resources,'native',gatewayBinary))),unsignedMachOCode(await readFile(path.join('dist-native',gatewayBinary))),'Gateway native code must match the build');
+}else assert.deepEqual(await readFile(path.join(resources,'native',gatewayBinary)),await readFile(path.join('dist-native',gatewayBinary)),'Gateway executable must match the current build');
 assert.ok(!listing.some(name=>/\/(?:\.test-data|\.research|\.cache|node_modules|tests)(\/|$)/.test(name)),'Local data or source dependencies must not ship');
 assert.ok(!listing.some(name=>/\/(?:extensions|extension\.[a-z0-9.-]+)(\/|$)/.test(name)),'External plugin packages must remain separate from the EXE');
 const {tsImport}=await import('tsx/esm/api');
@@ -59,13 +64,13 @@ if(mac){
   const exec=(file,...args)=>execFileSync(file,args,{encoding:'utf8'}).trim();
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleShortVersionString','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.version);
   assert.equal(exec('/usr/bin/plutil','-extract','CFBundleIdentifier','raw','-o','-',path.join(appDirectory,'Info.plist')),pkg.build.appId);
-  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar','Resources/native/lumi-widget-glass.node'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helpers and Electron must all be ARM64');
+  for(const file of ['MacOS/Lumi','Frameworks/Electron Framework.framework/Versions/A/Electron Framework','Resources/native/lumi-menu-bar','Resources/native/lumi-widget-glass.node','Resources/native/lumi-gateway-runtime'])assert.equal(exec('/usr/bin/lipo','-archs',path.join(appDirectory,file)),'arm64','App, helpers and Electron must all be ARM64');
   // electron-builder re-signs embedded executables and changes LINKEDIT allocation.
   // Compare all non-signature bytes, then verify actual signatures separately below.
   await mkdir('.test-data',{recursive:true});
   const nativeCheck=await mkdtemp(path.resolve('.test-data/native-verify-'));
   try{
-    for(const name of ['lumi-menu-bar','lumi-widget-glass.node']){
+    for(const name of ['lumi-menu-bar','lumi-widget-glass.node','lumi-gateway-runtime']){
       const normalized=[];
       for(const [index,file] of [path.join(resources,'native',name),path.join('dist-native',name)].entries()){
         const copy=path.join(nativeCheck,name+'-'+index);await writeFile(copy,await readFile(file),{mode:0o755});

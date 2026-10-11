@@ -1,8 +1,9 @@
 import type {PluginManifest,PluginStatus} from './plugins';
 import type {InterfaceStyle,InterfaceDefinition} from './interface';
+import {GATEWAY_METHODS,type GatewayMethod} from './gateway';
 
 export const EXTENSION_API_VERSION=1;
-export const EXTENSION_PERMISSIONS=['workbench.read','usage.read','codex.usage.read','codex.bridge','storage','network.read','secrets'] as const;
+export const EXTENSION_PERMISSIONS=['workbench.read','usage.read','codex.usage.read','codex.bridge','storage','network.read','secrets','gateway.control','gateway.config','gateway.records.read','gateway.records.manage','gateway.cli-config'] as const;
 export type ExtensionPermission=typeof EXTENSION_PERMISSIONS[number];
 export const EXTENSION_SLOTS=['workbench','usage','models','tokens','connection','settingsTab','sidebar'] as const;
 export type ExtensionSlot=typeof EXTENSION_SLOTS[number];
@@ -14,14 +15,15 @@ export interface ExtensionView {
 export interface ExtensionManifest {
   kind?:'feature'|'interface';
   interface?:InterfaceDefinition;
-  schemaVersion:1;id:string;name:string;version:string;hostApiVersion:1;description:string;author:string;license:string;
+  schemaVersion:1;id:string;name:string;version:string;hostApiVersion:1;minHostVersion?:string;description:string;author:string;license:string;
   permissions:ExtensionPermission[];networkOrigins:string[];
   switches:{id:string;title:string;defaultEnabled:boolean}[];
   contributions:ExtensionView[];
 }
 export interface ExtensionDescriptor {manifest:ExtensionManifest;digest:string;removable?:boolean;}
 export interface ExtensionInventory {directory:string;plugins:ExtensionDescriptor[];diagnostics:{package:string;error:string}[];interfaceStyle?:InterfaceStyle;}
-export type ExtensionMethod='context.read'|'storage.read'|'storage.write'|'secret.set'|'secret.has'|'network.read'|'workbench.read'|'usage.read'|'codex.usage.read'|'codex.bridge.status'|'codex.bridge.send'|'codex.bridge.respond'|'codex.bridge.subscribe'|'codex.bridge.unsubscribe'|'codex.bridge.chooseDirectory';
+export type ExtensionMethod='context.read'|'storage.read'|'storage.write'|'secret.set'|'secret.has'|'network.read'|'workbench.read'|'usage.read'|'codex.usage.read'|'codex.bridge.status'|'codex.bridge.send'|'codex.bridge.respond'|'codex.bridge.subscribe'|'codex.bridge.unsubscribe'|'codex.bridge.chooseDirectory'|GatewayMethod;
+export const EXTENSION_METHODS=['context.read','storage.read','storage.write','secret.set','secret.has','network.read','workbench.read','usage.read','codex.usage.read','codex.bridge.status','codex.bridge.send','codex.bridge.respond','codex.bridge.subscribe','codex.bridge.unsubscribe','codex.bridge.chooseDirectory',...GATEWAY_METHODS] as const satisfies readonly ExtensionMethod[];
 export interface ExtensionRequest {id:string;generation:number;view:string;method:ExtensionMethod;input?:unknown;}
 /** Host-initiated push to one extension view; the only stream channel besides context updates. */
 export interface ExtensionEvent {id:string;topic:string;payload:unknown;}

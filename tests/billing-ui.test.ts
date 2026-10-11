@@ -7,7 +7,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 
-test('billing dialogs fit desktop windows and keep Fast pricing independent from context selection',{timeout:40000},async t=>{
+test('billing dialogs fit desktop windows and keep Fast/Ultrafast pricing independent from context selection',{timeout:40000},async t=>{
   const electron=createRequire(import.meta.url)('electron') as string;
   if(!existsSync(electron))return t.skip('Electron unavailable');
   await mkdir('.test-data',{recursive:true});
@@ -18,15 +18,16 @@ import React,{useState} from 'react';import {createRoot} from 'react-dom/client'
 window.lumi={modelHealth:async()=>({groups:[]})};
 const {AppContext}=await import('./src/context'),{CatalogProvider}=await import('./src/host/catalog'),{RequestDetail}=await import('./src/components/RequestLogs'),{PricingDetailsModal}=await import('./src/components/Pricing'),{default:Models}=await import('./plugins/provider.newapi/renderer/Models'),{DEFAULT_PREFERENCES}=await import('./shared/types'),{applyPreferencePatch}=await import('./shared/selections');
 const {modelSelectionKey}=await import('./shared/selections'),{publishedRequestPricing}=await import('./shared/pricing');
-const expression='(len <= 272000 ? tier("0_272k",p*2+c*10+cr*.2+cc*2.5) : tier("272k_plus",p*4+c*15+cr*.4+cc*5))|||when(param("service_tier") == "fast") * 2|||when(param("service_tier") == "priority") * 2';
+const expression='(len <= 272000 ? tier("0_272k", p * 2 + cr * 0.2 + cc * 2.5 + c * 10) : tier("272k_plus", p * 4 + cr * 0.4 + cc * 5 + c * 15)) * (param("service_tier") == "fast" ? 2 : 1) * (param("service_tier") == "priority" ? 2 : 1) * (param("service_tier") == "ultrafast" ? 8 : 1)';
 const status={system_name:'Fixture',quota_per_unit:500000},model={model_name:'fixture-model',vendor:'Fixture',quota_type:0,model_ratio:1,model_price:0,completion_ratio:1,enable_groups:['fixture'],supported_endpoint_types:[],billing_mode:'tiered_expr',billing_expr:expression};
 const catalog={models:[model],groupRatio:{fixture:.3},usableGroups:{fixture:'优选渠道'},autoGroups:[],vendors:[]},snapshot={catalog,status,warnings:[],loggedIn:true,fetchedAt:Date.now()};
 const log={id:1,created_at:Date.now()/1000,type:2,model_name:'fixture-model',token_name:'Lumi-Codex',prompt_tokens:118158,completion_tokens:304,quota:8769,use_time:10,is_stream:true,group:'fixture',request_id:'202610050452065508234768268d9d6IiaU5HJh',other:JSON.stringify({billing_mode:'tiered_expr',expr_b64:btoa(expression),matched_tier:'0_272k',group_ratio:.3,cache_tokens:116736,reasoning_effort:'high',frt:4600,request_path:'/v1/responses',request_rules:[{cond:'param("service_tier") == "fast"',multiplier:2,matched:false},{cond:'param("service_tier") == "priority"',multiplier:2,matched:true}]})};
 window.fixture={errors:[],log};addEventListener('error',event=>fixture.errors.push(event.message));addEventListener('unhandledrejection',event=>fixture.errors.push(String(event.reason)));
-function App(){const [kind,setKind]=useState('request'),[preferences,setPreferences]=useState(structuredClone(DEFAULT_PREFERENCES));fixture.show=setKind;fixture.preferences=preferences;
+function App(){const [kind,setKind]=useState('request'),[preferences,setPreferences]=useState(structuredClone(DEFAULT_PREFERENCES)),[requestTier,setRequestTier]=useState('priority');fixture.show=setKind;fixture.preferences=preferences;fixture.requestTier=requestTier;fixture.setRequestTier=setRequestTier;
+const requestLog={...log,other:JSON.stringify({...JSON.parse(log.other),request_rules:['fast','priority','ultrafast'].map(tier=>({cond:'param("service_tier") == "'+tier+'"',multiplier:tier==='ultrafast' ? 8 : 2,matched:tier===requestTier}))})};
 const context={preferences,dashboard:null,bootstrap:{desktop:true,configs:[],version:'fixture'},updatePreferences:async patch=>setPreferences(current=>applyPreferencePatch(current,patch)),toast:()=>{},configureModel:()=>{}};
 fixture.usePriority=()=>context.updatePreferences({selection:{siteId:preferences.activeSiteId,values:{[modelSelectionKey(model.model_name,'mode')]:publishedRequestPricing(model).rules[1].condition}}});
-return <main className="desktop-shell" data-theme="light" style={{display:'block',padding:20}}><AppContext.Provider value={context}><CatalogProvider value={{snapshot,loading:false,error:'',refresh:async()=>{}}}>{kind==='request' ? <RequestDetail log={log} status={status} onClose={()=>{}}/> : kind==='pricing' ? <PricingDetailsModal model={model} catalog={catalog} status={status} snapshot={snapshot} onClose={()=>{}}/> : <Models/>}</CatalogProvider></AppContext.Provider></main>;}
+return <main className="desktop-shell" data-theme="light" style={{display:'block',padding:20}}><AppContext.Provider value={context}><CatalogProvider value={{snapshot,loading:false,error:'',refresh:async()=>{}}}>{kind==='request' ? <RequestDetail log={requestLog} status={status} onClose={()=>{}}/> : kind==='pricing' ? <PricingDetailsModal model={model} catalog={catalog} status={status} snapshot={snapshot} onClose={()=>{}}/> : <Models/>}</CatalogProvider></AppContext.Provider></main>;}
 createRoot(document.getElementById('root')).render(<App/>);
 `},bundle:true,platform:'browser',format:'esm',target:'chrome140',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
   await writeFile(path.join(directory,'app.js'),output.outputFiles[0].contents);
@@ -50,31 +51,40 @@ const run=async kind=>win.webContents.executeJavaScript('('+async function(kind)
   document.querySelector('.desktop-shell').getBoundingClientRect();
   const modal=document.querySelector('[role="dialog"]');
   if(modal){
-    check(modal.scrollHeight<=modal.clientHeight+1,kind+' needs vertical scrolling: '+modal.scrollHeight+'/'+modal.clientHeight);
+    check(modal.scrollHeight<=modal.clientHeight+1,kind+' needs vertical scrolling: '+modal.scrollHeight+'/'+modal.clientHeight+' '+JSON.stringify([...modal.querySelectorAll('.request-detail-main > *, .billing-rule')].map(element=>({class:element.className,width:element.clientWidth,height:element.clientHeight,flex:getComputedStyle(element).flex}))));
     check(modal.getBoundingClientRect().bottom<=innerHeight,kind+' exceeds viewport');
     for(const table of modal.querySelectorAll('.billing-table-wrap'))check(table.scrollWidth<=table.clientWidth+1,kind+' table overflows horizontally');
   }
   if(kind==='request'){
-    check(modal.textContent.includes('$0.017538'),'actual cost changed');check(modal.textContent.includes('Fast（Priority）'),'actual fast mode missing');
+    check(modal.textContent.includes('$0.017538'),'actual cost changed');check(modal.querySelector('.request-billing-summary').textContent.includes(fixture.requestTier==='ultrafast' ? 'Ultrafast' : 'Fast（Priority）'),'actual request mode missing');
     check(modal.querySelectorAll('.billing-rule.matched').length===1,'unmatched fast rule marked active');
-    const effective=modal.querySelector('.billing-effective-prices');check(effective.textContent.includes('$1.2') && effective.textContent.includes('$0.12'),'effective prices missed group/request factors');
+    const effective=modal.querySelector('.billing-effective-prices');check(effective.textContent.includes(fixture.requestTier==='ultrafast' ? '$4.8' : '$1.2') && effective.textContent.includes(fixture.requestTier==='ultrafast' ? '$0.48' : '$0.12'),'effective prices missed group/request factors');
   }else if(kind==='pricing'){
     check(modal.querySelectorAll('tbody tr').length===2,'context tiers expanded into request combinations');
-    const select=document.querySelector('select[aria-label="定价请求条件"]');check(select.options.length===2,'equivalent Fast/Priority options were not merged');select.value=select.options[1].value;select.dispatchEvent(new Event('change',{bubbles:true}));
+    const select=document.querySelector('select[aria-label="定价请求条件"]');check(select.options.length===3,'Fast/Priority aliases or Ultrafast option incorrect');select.value=select.options[1].value;select.dispatchEvent(new Event('change',{bubbles:true}));
     await until(()=>modal.textContent.includes('含分组倍率 · Fast ×2'));check(modal.querySelector('tbody').textContent.includes('$1.2'),'Fast mode failed to multiply published unit prices');
+    select.value=select.options[2].value;select.dispatchEvent(new Event('change',{bubbles:true}));
+    await until(()=>modal.textContent.includes('含分组倍率 · Ultrafast ×8'));check(modal.querySelector('tbody').textContent.includes('$4.8') && modal.querySelector('tbody').textContent.includes('$9.6'),'Ultrafast mode failed to multiply both context tiers');
+    select.value=select.options[1].value;select.dispatchEvent(new Event('change',{bubbles:true}));await until(()=>modal.textContent.includes('含分组倍率 · Fast ×2'));
   }else{
-    const mode=document.querySelector('[aria-label="fixture-model 请求条件"]');check(mode.querySelectorAll('button').length===2,'Fast/Priority has duplicate stops');check(mode.querySelector('[aria-pressed="true"]').textContent.includes('Fast'),'pricing mode was not shared with model card');
+    const mode=document.querySelector('[aria-label="fixture-model 请求条件"]');check(mode.querySelectorAll('button').length===3,'Fast/Priority aliases or Ultrafast stop incorrect');check(mode.querySelector('[aria-pressed="true"]').textContent.includes('Fast'),'pricing mode was not shared with model card');
     // Font layout and ResizeObserver can commit after the selection on macOS.
     // Wait for the measured thumb while retaining exact position/size assertions.
     const knobOf=async group=>{await until(()=>{const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb'),match=knob && /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)/.exec(knob.style.transform);return match && Number(match[1])===active.offsetLeft && Number(match[2])===active.offsetTop && parseFloat(knob.style.width)===active.offsetWidth;});const active=group.querySelector('[aria-pressed="true"]'),knob=group.querySelector('.segmented-thumb');check(parseFloat(knob.style.width)===active.offsetWidth,'knob size differs from the stop');return knob.style.transform;},initialKnob=await knobOf(mode);
+    mode.querySelectorAll('button')[2].click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$4.8'));await knobOf(mode);
     mode.querySelector('button').click();await until(()=>document.querySelector('[aria-label="fixture-model 请求条件"] [aria-pressed="true"]').textContent.includes('普通'));
     check(await knobOf(mode)!==initialKnob,'knob did not slide to the ordinary stop');
     check(document.querySelector('.model-card .price-table').textContent.includes('$0.6'),'ordinary price changed after mode selection');
     const tier=document.querySelector('[aria-label="fixture-model 上下文档位"]');check(tier.classList.contains('segmented-switch'),'context tier must use the same slider');check(tier.closest('.model-switch-row'),'context tier not placed beside the slider');tier.querySelectorAll('button')[1].click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$4.5'));await knobOf(tier);
+    mode.querySelectorAll('button')[2].click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$36'));await knobOf(mode);
+    mode.querySelector('button').click();await until(()=>document.querySelector('.model-card .price-table').textContent.includes('$4.5'));
   }
   check(fixture.errors.length===0,'renderer errors '+fixture.errors);return {kind,height:modal?.clientHeight,viewport:innerHeight};
 }.toString()+')('+JSON.stringify(kind)+')');
 for(const kind of ['request','pricing','market']){console.log('BILLING_UI '+JSON.stringify(await run(kind)));await win.webContents.executeJavaScript('document.getAnimations().forEach(animation=>animation.finish())');fs.writeFileSync(path.resolve('.test-data/billing-'+kind+'.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());}
+await win.webContents.executeJavaScript('fixture.setRequestTier("ultrafast")');console.log('BILLING_UI '+JSON.stringify(await run('request')));
+fs.writeFileSync(path.resolve('.test-data/billing-request-ultrafast.png'),(await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true})).toPNG());
+await win.webContents.executeJavaScript('fixture.show("market")');
 const dragSwitch=async(label,price)=>{
   if(process.platform==='darwin'){win.show();win.focus();}
   await new Promise(resolve=>setTimeout(resolve,300));
@@ -122,5 +132,5 @@ win.destroy();app.exit(0);
   t.signal.addEventListener('abort',reportAbort,{once:true});
   const code=await new Promise<number|null>((resolve,reject)=>{child.on('error',reject);child.on('close',resolve);});
   t.signal.removeEventListener('abort',reportAbort);
-  assert.equal(code,0,stderr+stdout);assert.equal(stdout.split('BILLING_UI ').length-1,10);
+  assert.equal(code,0,stderr+stdout);assert.equal(stdout.split('BILLING_UI ').length-1,11);
 });

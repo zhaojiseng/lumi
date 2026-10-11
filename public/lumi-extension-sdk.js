@@ -65,6 +65,32 @@
         subscribe:listener=>onEvent('codex.bridge',listener),
       }),
     }),
+    gateway:Object.freeze({
+      status:()=>call('gateway.status',{}),
+      local:Object.freeze({status:()=>call('gateway.local.status',{}),setup:input=>call('gateway.local.setup',input),configure:input=>call('gateway.local.configure',input)}),
+      pair:()=>call('gateway.pair',{}),
+      connect:(input={})=>call('gateway.connect',input),
+      disconnect:input=>call('gateway.disconnect',input),
+      listener:Object.freeze({start:input=>call('gateway.listener.start',input),stop:input=>call('gateway.listener.stop',input)}),
+      events:Object.freeze({
+        async subscribe(input,listener){
+          if(typeof listener!=='function')throw new Error('Gateway event listener is required');
+          const {subscriptionId}=await call('gateway.events.subscribe',input);
+          let active=true;
+          const off=onEvent('gateway',event=>{if(active && event?.subscriptionId===subscriptionId)listener(event);});
+          return()=>{if(!active)return;active=false;off();call('gateway.events.unsubscribe',{subscriptionId}).catch(()=>{});};
+        },
+        unsubscribe:input=>call('gateway.events.unsubscribe',input),
+      }),
+      routes:Object.freeze({save:input=>call('gateway.routes.save',input),delete:input=>call('gateway.routes.delete',input),models:Object.freeze({detect:input=>call('gateway.routes.models.detect',input),preview:input=>call('gateway.routes.models.preview',input)}),config:Object.freeze({get:input=>call('gateway.routes.config.get',input),set:input=>call('gateway.routes.config.set',input)})}),
+      agents:Object.freeze({get:input=>call('gateway.agents.get',input),replace:input=>call('gateway.agents.replace',input)}),
+      rectifiers:Object.freeze({list:input=>call('gateway.rectifiers.list',input),replace:input=>call('gateway.rectifiers.replace',input),preview:input=>call('gateway.rectifiers.preview',input)}),
+      chain:Object.freeze({snapshot:input=>call('gateway.chain.snapshot',input)}),
+      rules:Object.freeze({list:input=>call('gateway.rules.list',input),preview:input=>call('gateway.rules.preview',input),replace:input=>call('gateway.rules.replace',input)}),
+      recording:Object.freeze({config:Object.freeze({get:input=>call('gateway.recording.config.get',input),set:input=>call('gateway.recording.config.set',input)})}),
+      records:Object.freeze({list:input=>call('gateway.records.list',input),get:input=>call('gateway.records.get',input),delete:input=>call('gateway.records.delete',input),export:input=>call('gateway.records.export',input)}),
+      cliConfig:Object.freeze({preview:input=>call('gateway.cliConfig.preview',input),apply:input=>call('gateway.cliConfig.apply',input),restore:input=>call('gateway.cliConfig.restore',input)}),
+    }),
     storage:Object.freeze({read:key=>call('storage.read',{key}),write:(key,value)=>call('storage.write',{key,value})}),
     secrets:Object.freeze({has:key=>call('secret.has',{key}),set:(key,value)=>call('secret.set',{key,value})}),
     network:Object.freeze({read:input=>call('network.read',input)}),

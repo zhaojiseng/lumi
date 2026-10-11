@@ -22,6 +22,35 @@ const log:UsageLog={id:1,created_at:1791187200,type:2,model_name:model.model_nam
 const snapshot=(extra:Record<string,unknown>={})=>({...log,other:JSON.stringify({billing_mode:'tiered_expr',expr_b64:Buffer.from(expression).toString('base64'),matched_tier:'0_272k',group_ratio:.3,...extra})});
 const traces=[{cond:'param("service_tier") == "fast"',multiplier:2,matched:false},{cond:'param("service_tier") == "priority"',multiplier:2,matched:true}];
 
+const inlineExpression='(len <= 272000 ? tier("0_272k", p * 2 + cr * 0.2 + cc * 2.5 + c * 10) : tier("272k_plus", p * 4 + cr * 0.4 + cc * 5 + c * 15)) * (param("service_tier") == "fast" ? 2 : 1) * (param("service_tier") == "priority" ? 2 : 1) * (param("service_tier") == "ultrafast" ? 8 : 1)';
+const inlineTraces=[...traces,{cond:'param("service_tier") == "ultrafast"',multiplier:8,matched:false}];
+
+test('inline Fast/Priority/Ultrafast factors keep context tiers and provider choices independent',()=>{
+  const inline={...model,billing_expr:inlineExpression},pricing=publishedRequestPricing(inline);
+  assert.deepEqual(pricing.rules.map(rule=>[rule.label,rule.multiplier]),[['Fast',2],['Fast（Priority）',2],['Ultrafast',8]]);
+  assert.deepEqual(requestPricingOptions(pricing.rules).map(rule=>[rule.label,rule.multiplier,rule.conditions.length]),[['Fast',2,2],['Ultrafast',8,1]]);
+  for(const source of [inline,{...model,billing_expr:undefined,billing_plugin_variants:[{plugin_key:'inline',plugin_name:'Inline',billing_expr:inlineExpression}]}]){
+    const choices=displayPricingChoices(source,status);
+    assert.deepEqual(choices.map(choice=>choice.label),['≤ 272K','> 272K']);
+    assert.deepEqual(choices.map(choice=>choice.section!.rows.map(row=>row.usd)),[[2,10,.2,2.5],[4,15,.4,5]]);
+  }
+});
+test('inline factors use recorded matches for ordinary, Fast, Priority and Ultrafast in both context tiers',()=>{
+  for(const tier of ['0_272k','272k_plus'])for(const matched of [-1,0,1,2]){
+    const result=requestBilling(snapshot({expr_b64:Buffer.from(inlineExpression).toString('base64'),matched_tier:tier,request_rules:inlineTraces.map((rule,index)=>({...rule,matched:index===matched}))}),status);
+    assert.equal(result.sections.length,2);
+    assert.equal(result.selected?.label,tier);
+    assert.deepEqual(result.selected?.rows.map(row=>row.usd),tier==='0_272k' ? [2,10,.2,2.5] : [4,15,.4,5]);
+    assert.equal(result.requestMultiplier,matched===2 ? 8 : matched===-1 ? 1 : 2);
+    assert.deepEqual(result.requestRules.filter(rule=>rule.matched).map(rule=>rule.label),matched===-1 ? [] : [['Fast'],['Fast（Priority）'],['Ultrafast']][matched]);
+    assert.equal(result.ratio,.3);
+  }
+  const missing=requestBilling(snapshot({expr_b64:Buffer.from(inlineExpression).toString('base64')}),status);
+  assert.equal(missing.requestMultiplier,undefined);
+  assert.equal(missing.selected?.rows[0].usd,2);
+  assert.deepEqual(missing.requestRules.map(rule=>rule.matched),[undefined,undefined,undefined]);
+});
+
 test('context tiers and request conditions are independent, preserving published coefficients and provider variants',()=>{
   const pricing=publishedRequestPricing(model);
   assert.deepEqual(pricing.rules.map(rule=>[rule.label,rule.multiplier]),[['Fast',2],['Fast（Priority）',2]]);

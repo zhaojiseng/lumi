@@ -13,6 +13,7 @@ import type { ResolvedToolToken } from '../../shared/contracts/tool-credentials'
 import {planDirectHistory,planDirectIndexes,applyStateChanges,type StateChange} from './codex-direct';
 import {prepareSession,commitSession,discardSessions,rollbackSessions,reverseSession,type SessionChange,type PreparedSession} from './codex-session-files';
 import type { Tool, ConfigRequest, ConfigPreview, ToolConfigState, BackupInfo,ConfigProgress } from '../../shared/types';
+import {validServiceTier} from '../../shared/pricing';
 interface Snapshot { path: string; content: string | null; }
 interface Pending { preview: ConfigPreview; files: Snapshot[]; before: Snapshot[]; rows:StateChange[]; request: ConfigRequest; key: string; siteId: string; siteUrl: string; token: ResolvedToolToken; userId?: number; sessionId?: string; authIdentity: string; }
 interface Backup extends BackupInfo { before: Snapshot[]; after: Snapshot[]; rows?:StateChange[]; sessions?:SessionChange[]; }
@@ -58,7 +59,7 @@ export class ConfigService {
         const active=tool==='codex' && typeof doc.profile==='string' ? {...doc,...doc.profiles?.[doc.profile]} : doc;
         const auth = tool === 'codex' ? await readOptional(files[1]) : null;
         const credentials = auth?.trim() ? JSON.parse(auth) : {};
-        return { tool, path: files[0], exists: content !== null, model: tool === 'codex' ? active.model : doc.env?.ANTHROPIC_MODEL || doc.model, baseUrl: tool === 'codex' ? doc.model_providers?.[active.model_provider]?.base_url : doc.env?.ANTHROPIC_BASE_URL, keyConfigured: tool === 'codex' ? !!(credentials.OPENAI_API_KEY || doc.model_providers?.[active.model_provider]?.experimental_bearer_token) : !!(doc.env?.ANTHROPIC_AUTH_TOKEN || doc.env?.ANTHROPIC_API_KEY),contextWindow:tool==='codex' ? active.model_context_window : (/^[0-9]+$/.test(doc.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS || '') && Number.isSafeInteger(Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)) ? Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) : undefined) };
+        return { tool, path: files[0], exists: content !== null, model: tool === 'codex' ? active.model : doc.env?.ANTHROPIC_MODEL || doc.model, baseUrl: tool === 'codex' ? doc.model_providers?.[active.model_provider]?.base_url : doc.env?.ANTHROPIC_BASE_URL, keyConfigured: tool === 'codex' ? !!(credentials.OPENAI_API_KEY || doc.model_providers?.[active.model_provider]?.experimental_bearer_token) : !!(doc.env?.ANTHROPIC_AUTH_TOKEN || doc.env?.ANTHROPIC_API_KEY),contextWindow:tool==='codex' ? active.model_context_window : (/^[0-9]+$/.test(doc.env?.CLAUDE_CODE_MAX_CONTEXT_TOKENS || '') && Number.isSafeInteger(Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)) ? Number(doc.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS) : undefined),serviceTier:tool==='codex' && validServiceTier(active.service_tier) ? active.service_tier : undefined };
       } catch { return { tool, path: files[0], exists: content !== null, keyConfigured: false, error: '配置文件读取或解析失败，请检查文件大小、权限和 JSON / TOML 语法。' }; }
     }));
   }
@@ -70,6 +71,7 @@ export class ConfigService {
     if (site.url.startsWith('http:') && !site.allowHttp) throw new Error('请先在站点设置中允许使用 HTTP。');
     if (!this.resolveToken) throw new Error('自动配钥服务不可用。');
     if(req.contextWindow!==undefined && (!Number.isInteger(req.contextWindow) || req.contextWindow<4096 || req.contextWindow>10000000))throw new Error('上下文窗口请输入 4096–10000000 的整数 Tokens。');
+    if(req.serviceTier!==undefined && (req.tool!=='codex' || !validServiceTier(req.serviceTier)))throw new Error('无效的 Codex 服务等级，请重新选择。');
     const paths = await this.paths(req.tool);
     const before = await Promise.all(paths.map(async p => ({ path:p,content:await readOptional(p) })));
     try {
@@ -95,7 +97,7 @@ export class ConfigService {
       changes: [],
     };
     preview.changes=req.tool==='codex' ? [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 272000} Tokens`,`渠道：${req.group}`,`直连接口：${site.url}/v1`,`固定 custom provider，专用密钥写入 provider 表；保留现有官方登录。`,`应用时同步相关旧对话及索引，包含归档的 Lumi / 当前 custom 对话。`,`只更新渠道和最近保存的模型设置，历史请求、用量与提示词保持原样。`,`配置与会话设置变更加密备份。`,`应用后需要重启 Codex / CLI，使新配置生效。`] : [`模型：${req.model}`,`上下文窗口：${req.contextWindow ?? 256000} Tokens（CLAUDE_CODE_MAX_CONTEXT_TOKENS）`,`渠道：${req.group}`,`Claude Code CLI 直连：${site.url}`,`专用令牌：${token.tokenName}`,req.disableAttributionHeader!==false ? `禁用归属标头：CLAUDE_CODE_ATTRIBUTION_HEADER="false"。` : `移除归属标头配置，恢复 Claude Code 默认行为。`,`仅写入 Claude Code CLI 的 settings.json。`,`保留已有 MCP、权限与其他配置；应用后重新启动 Claude Code。`];
-    if(req.tool==='codex')preview.changes.splice(2,0,'Fast 默认关闭；仅启用可选功能。桌面闪电开关还需要 ChatGPT 官方登录和模型支持，纯 API 密钥直连不会显示。');
+    if(req.tool==='codex')preview.changes.splice(2,0,req.serviceTier===undefined ? '服务等级：关闭（删除 service_tier）' : `服务等级：${req.serviceTier}（service_tier）`,(req.serviceTier===undefined ? '不指定请求服务等级；Fast 功能保持启用。' : '使用所选服务等级；Fast 功能保持启用。')+'桌面闪电开关还需要 ChatGPT 官方登录和模型支持，纯 API 密钥直连不会显示。');
     this.pending.set(preview.id, { preview, files, before, rows,request: req, key, siteId: site.id, siteUrl: site.url,token,userId:account.userId,sessionId:account.sessionId,authIdentity:authIdentity(account) });this.report({tool:req.tool,operation:'preview',phase:'done'}); return preview;
   }
   private async transaction(before: Snapshot[], after: Snapshot[]) {
@@ -173,7 +175,7 @@ export class ConfigService {
         await this.transaction(p.before, p.files);configApplied=true;
         for(const session of prepared){await commitSession(session);applied.push(session.change);}
         applyStateChanges(history.rows);stateApplied=true;
-        await this.store.setToolKey(p.request.tool,p.key,{tool:p.request.tool,model:p.request.model,group:p.request.group,contextWindow:p.request.contextWindow ?? (p.request.tool==='codex' ? 272000 : 256000),tokenName:p.token.tokenName,tokenId:p.token.tokenId,sonnet:p.request.sonnet,opus:p.request.opus,haiku:p.request.haiku,disableAttributionHeader:p.request.tool==='claude' ? p.request.disableAttributionHeader!==false : undefined,siteId:p.siteId,appliedAt:Date.now()},p.siteId);
+        await this.store.setToolKey(p.request.tool,p.key,{tool:p.request.tool,model:p.request.model,group:p.request.group,contextWindow:p.request.contextWindow ?? (p.request.tool==='codex' ? 272000 : 256000),tokenName:p.token.tokenName,tokenId:p.token.tokenId,sonnet:p.request.sonnet,opus:p.request.opus,haiku:p.request.haiku,disableAttributionHeader:p.request.tool==='claude' ? p.request.disableAttributionHeader!==false : undefined,serviceTier:p.request.tool==='codex' ? p.request.serviceTier : undefined,siteId:p.siteId,appliedAt:Date.now()},p.siteId);
       } catch (e) {
         const failures:string[]=[],causes:unknown[]=[e];
         if(stateApplied)try{applyStateChanges(history.rows,true);}catch(cause){failures.push('会话索引');causes.push(cause);}

@@ -33,9 +33,8 @@ export function UsageTrend({dashboard:d,preferenceKey,title='用量趋势'}:{das
   const points=d.detailed ? d.series : detailData?.points || [];
   const now=useMemo(()=>new Date(d.fetchedAt),[d.fetchedAt]),range=isRollingRange(d.query || d.range || d.days) ? '24h' : d.range;
   const selection=grouping==='model' ? model : token;
-  const all=useMemo(()=>groupedTrend(points,d.days,d.status,range,now,grouping,metric),[points,d.days,d.status,range,now.getTime(),grouping,metric]);
-  const selected=all.options.some(option=>option.key===selection) ? selection : '';
-  const chart=useMemo(()=>selected ? groupedTrend(points,d.days,d.status,range,now,grouping,metric,selected) : all,[all,selected,points,d.days,d.status,range,now,grouping,metric]);
+  const chart=useMemo(()=>groupedTrend(points,d.days,d.status,range,now,grouping,metric,grouping==='total' ? '' : selection),[points,d.days,d.status,range,now,grouping,metric,selection]);
+  const selected=chart.options.some(option=>option.key===selection) ? selection : '';
   const window=useMemo(()=>resolveRange(range || d.days,now),[range,d.days,now]);
   const selectedPoints=useMemo(()=>points.filter(p=>p.created_at>=window.start_timestamp && p.created_at<=window.end_timestamp && (!selected || grouping==='total' || pointGroup(p,grouping).key===selected)),[points,window,selected,grouping]);
   const totals=useMemo(()=>{
@@ -53,11 +52,11 @@ export function UsageTrend({dashboard:d,preferenceKey,title='用量趋势'}:{das
   const grain=usageGranularity(window.durationDays);
   return <>
     <div className="trend-heading">
-      <div className="trend-heading-copy"><h3>{title}</h3><p>{rangeLabel(d.range,now)}</p><DataRefreshMotion className="trend-summary" resetKey={accountKey} identity={JSON.stringify([metric,grouping,selected,value])} animation={preferences.dataRefreshAnimation}><strong>{value}</strong><span>{names[metric]}{selected ? ' · '+all.options.find(o=>o.key===selected)?.name : ' · 当前筛选范围'}</span></DataRefreshMotion></div>
+      <div className="trend-heading-copy"><h3>{title}</h3><p>{rangeLabel(d.range,now)}</p><DataRefreshMotion className="trend-summary" resetKey={accountKey} identity={JSON.stringify([metric,grouping,selected,value])} animation={preferences.dataRefreshAnimation}><strong>{value}</strong><span>{names[metric]}{selected ? ' · '+chart.options.find(o=>o.key===selected)?.name : ' · 当前筛选范围'}</span></DataRefreshMotion></div>
       <div className="trend-controls" aria-label="趋势曲线选项">
         <Select label="趋势指标" value={metric} onChange={v=>setMetric(v as TrendMetric)} decorated={false}>{(['cost','tokens','requests','cacheHitRate','speed','netSpeed'] as const).map(m=><option value={m} key={m}>{names[m]}</option>)}</Select>
         <Select label="曲线分组" value={grouping} onChange={v=>setGrouping(v as TrendGrouping)} decorated={false}><option value="total">合计</option><option value="model">按模型</option><option value="token">按令牌</option></Select>
-        {grouping!=='total' && <Select label={'曲线'+label} value={selected} onChange={grouping==='model' ? setModel : setToken} decorated={false}><option value="">全部{label}</option>{all.options.map(option=><option key={option.key} value={option.key}>{option.name}</option>)}</Select>}
+        {grouping!=='total' && <Select label={'曲线'+label} value={selected} onChange={grouping==='model' ? setModel : setToken} decorated={false}><option value="">全部{label}</option>{chart.options.map(option=><option key={option.key} value={option.key}>{option.name}</option>)}</Select>}
       </div>
     </div>
     <DataRefreshMotion identity={chartIdentity} resetKey={accountKey} animation={preferences.dataRefreshAnimation || 'slide-up'} className="trend-data">
