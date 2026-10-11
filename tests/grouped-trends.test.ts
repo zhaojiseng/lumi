@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {groupedTrend,tokenPoints} from '../shared/trends';
 import {usageSeries} from '../shared/utils';
-import type {UsageLog} from '../shared/types';
+import type {RangeQuery,UsageLog} from '../shared/types';
 const now=new Date(2026,9,1,13,25),range={startDate:'2026-10-01',endDate:'2026-10-01'},status={system_name:'Fixture',quota_per_unit:100};
 const at=(hour:number)=>new Date(2026,9,1,hour).getTime()/1000;
 const log=(id:number,token_id:number,model_name:string,quota=100):UsageLog=>({id,token_id,model_name,token_name:'Same label',created_at:at(12),type:2,quota,prompt_tokens:10,completion_tokens:5,use_time:1,is_stream:true,group:'fixture'});
@@ -59,5 +59,41 @@ test('a missing saved model/token falls back to the complete bounded legend with
     const chart=groupedTrend(points,1,status,range,now,grouping,'cost','missing');
     assert.deepEqual(chart,groupedTrend(points,1,status,range,now,grouping,'cost'));
     assert.equal(chart.options.length,12);assert.equal(chart.lines.length,9);assert.equal(chart.combined,4);
+  }
+});
+
+test('group legends retain Chinese natural ordering, duplicate names and selection colors',()=>{
+  const names=['模型10','模型2','阿尔法','模型1'];
+  const points=names.map((model_name,i)=>({created_at:at(12),model_name,token_id:i+1,token_name:model_name,quota:1,token_used:1,count:1}));
+  points.push({...points[1],token_id:20});
+  for(const grouping of ['model','token'] as const){
+    const chart=groupedTrend(points,1,status,range,now,grouping,'tokens');
+    assert.deepEqual(chart.options.map(option=>option.name),grouping==='model'
+      ? ['阿尔法','模型1','模型2','模型10']
+      : ['阿尔法','模型1','模型2 (#2)','模型2 (#20)','模型10']);
+    for(const option of chart.options){
+      const selected=groupedTrend(points,1,status,range,now,grouping,'tokens',option.key);
+      assert.deepEqual(selected.lines,[chart.lines.find(line=>line.name===option.name)]);
+    }
+  }
+});
+
+test('trend labels retain local dates and second precision across supported durations',()=>{
+  const ranges:RangeQuery[]=[
+    {startDate:'2026-10-01',endDate:'2026-10-01',startTime:'12:00',endTime:'12:01'},
+    '24h',
+    {startDate:'2026-08-01',endDate:'2026-10-01'},
+  ];
+  for(const query of ranges){
+    const rows=usageSeries([],1,status,query,now);
+    const duration=rows.at(-1)!.end_timestamp-rows[0].timestamp+1;
+    const date=(timestamp:number)=>new Date(timestamp*1000).toLocaleDateString('sv-SE');
+    const time=(timestamp:number)=>new Date(timestamp*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',...(duration<1800 ? {second:'2-digit'} : {}),hour12:false});
+    for(const row of rows){
+      const local=new Date(row.timestamp*1000),short=(local.getMonth()+1)+'/'+local.getDate();
+      assert.equal(row.date,date(row.timestamp));
+      assert.equal(row.label,duration/rows.length<86400 ? short+' '+time(row.timestamp) : short);
+      assert.equal(row.tooltipLabel,date(row.timestamp)+' '+time(row.timestamp)+' – '+date(row.end_timestamp)+' '+time(row.end_timestamp));
+    }
   }
 });

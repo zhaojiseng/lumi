@@ -25,6 +25,7 @@ export function pointGroup(point:QuotaPoint,grouping:Exclude<TrendGrouping,'tota
   return {key:point.token_id ? 'id:'+point.token_id : 'name:'+(point.token_name || ''),name:point.token_name || (point.token_id ? '令牌 #'+point.token_id : '未标记令牌')};
 }
 export const TREND_COLORS=['var(--accent)','var(--purple)','var(--blue)','var(--orange)','var(--chart-series-5)','var(--red)','var(--chart-series-7)','var(--chart-series-8)','var(--chart-series-9)','var(--chart-series-10)','var(--chart-series-11)','var(--chart-series-12)'];
+const groupNameOrder=new Intl.Collator('zh-CN',{numeric:true});
 export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,range:RangeQuery|undefined,now:Date,grouping:TrendGrouping,metric:TrendMetric,selected=''){
   const createSeries=createUsageSeriesFactory(days,status,range,now),total=createSeries();
   const groups=new Map<string,{key:string;name:string;series:ReturnType<typeof createSeries>|null;}>();
@@ -42,7 +43,7 @@ export function groupedTrend(points:QuotaPoint[],days:number,status:SiteStatus,r
   }
   const valid=total.finish();
   if(grouping==='total')return {rows:valid.map(row=>({...row,values:{} as Record<string,number|null>})),lines:[],options:[],combined:0};
-  const options=[...groups.values()].sort((a,b)=>a.name.localeCompare(b.name,'zh-CN',{numeric:true}) || a.key.localeCompare(b.key));
+  const options=[...groups.values()].sort((a,b)=>groupNameOrder.compare(a.name,b.name) || a.key.localeCompare(b.key));
   const names=new Map<string,number>();for(const option of options)names.set(option.name,(names.get(option.name) || 0)+1);
   const series=options.map((group,index)=>({id:'series'+index,key:group.key,name:names.get(group.name)!>1 ? group.name+' (#'+group.key.replace(/^id:/,'' )+')' : group.name,color:TREND_COLORS[index%TREND_COLORS.length],rows:group.series?.finish()}));
   let shown=series.filter((s):s is typeof s & {rows:typeof valid}=>!!s.rows);

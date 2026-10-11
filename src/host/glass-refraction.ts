@@ -5,7 +5,7 @@ const NS='http://www.w3.org/2000/svg';
 const PROPERTY='--lumi-glass-filter';
 const CONTAINERS='.content-scroll, .surface.panel:not(.modal), .stat-card, .tool-config-card, .model-card, .token-overview-card, .model-toolbar, .statistics-filter, .welcome-hero';
 const POPUPS='.modal, .toast, [data-popup-kind="popover"], .multi-popover, .recharts-default-tooltip, .donut-tooltip';
-const TARGETS='[data-lumi-glass], .sidebar, .segmented-thumb, .vendor-tabs > button.active, .favorite-filter.active, '+POPUPS+', .select-wrap select, '+CONTAINERS;
+const TARGETS='[data-lumi-glass], .sidebar, .segmented-thumb, .vendor-tabs > button.active, .favorite-filter.active, .model-choice.selected, '+POPUPS+', .select-wrap select, '+CONTAINERS;
 const installed=new WeakMap<HTMLElement,()=>void>();
 let sequence=0;
 

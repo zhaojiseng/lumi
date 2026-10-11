@@ -124,6 +124,7 @@ export class LocalUsageService {
           if(item.discarded){state.offset=item.end;state.skipPartial=!item.complete;continue;}
           let event:any;try{event=JSON.parse(item.line);}catch{if(item.complete)state.offset=item.end;else state.partialSize=info.size;continue;}
           state.offset=item.end;state.partialSize=undefined;
+          if(!event || typeof event!=='object' || Array.isArray(event))continue;
           if(tool==='codex'){
             if(event.type==='session_meta')state.session=event.payload?.id || state.session;if(event.type==='turn_context')state.model=event.payload?.model || state.model;
             if(event.type!=='event_msg' || event.payload?.type!=='token_count' || !event.payload.info)continue;
@@ -188,7 +189,7 @@ export class LocalUsageService {
     const duration=window.end_timestamp-window.start_timestamp+1,count=Math.min(30,duration);
     const edges=Array.from({length:count+1},(_,index)=>window.start_timestamp+Math.floor(index*duration/count));
     const points=new Map<string,LocalUsagePoint>();
-    const summaries=new Map<string,LocalSessionSummary>();let activeFile='',metadata:LocalSessionMetadata={};
+    const summaries=new Map<string,LocalSessionSummary>();let activeSessionId='',metadata:LocalSessionMetadata={};
     const sessions = new Map<string, Set<string>>();
     const codexRoot = this.respectEnvironment && process.env.CODEX_HOME ? path.resolve(process.env.CODEX_HOME) : path.join(this.home, '.codex');
     const claudeRoot = this.respectEnvironment && process.env.CLAUDE_CONFIG_DIR ? path.resolve(process.env.CLAUDE_CONFIG_DIR) : path.join(this.home, '.claude');
@@ -208,15 +209,15 @@ export class LocalUsageService {
       const seconds=timestamp/1000;let index=count-1;while(index>0 && seconds<edges[index])index--;
       const pointKey=JSON.stringify([tool,index,model]),point=points.get(pointKey) || {tool,created_at:edges[index],model,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,requests:0};
       point.inputTokens+=c.input;point.outputTokens+=c.output;point.cacheReadTokens+=c.cache;point.cacheWriteTokens+=c.write;point.requests++;points.set(pointKey,point);
-      const id=createHash('sha256').update(activeFile).digest('hex');
+      const id=activeSessionId;
       const summary=summaries.get(id) || {id,tool,model,startedAt:timestamp/1000,updatedAt:timestamp/1000,inputTokens:0,outputTokens:0,cacheReadTokens:0,cacheWriteTokens:0,requests:0};
       summary.startedAt=Math.min(summary.startedAt,timestamp/1000);if(timestamp/1000>=summary.updatedAt){summary.updatedAt=timestamp/1000;summary.model=model;}
-      summary.metadata={...metadata};summary.inputTokens+=c.input;summary.outputTokens+=c.output;summary.cacheReadTokens+=c.cache;summary.cacheWriteTokens+=c.write;summary.requests++;summaries.set(id,summary);this.sessionPages.register(id,activeFile,tool);this.sessionStore.register(id,activeFile,tool,metadata);
+      summary.inputTokens+=c.input;summary.outputTokens+=c.output;summary.cacheReadTokens+=c.cache;summary.cacheWriteTokens+=c.write;summary.requests++;summaries.set(id,summary);
     };
     let filesScanned = 0;
     for (const [tool, files] of [['codex', codexFiles], ['claude', claudeFiles]] as [Tool, string[]][]) {
       for (const file of files) {
-        activeFile=file;metadata={...titles.get(file)};
+        activeSessionId=createHash('sha256').update(file).digest('hex');metadata={...titles.get(file)};
         let previous: Counters = { input: 0, output: 0, cache: 0, write: 0 }; let model = 'unknown'; let session = path.basename(file);
         let codexSignature = '';
         const claudeMessages = new Map<string, { timestamp: number; model: string; count: Counters; session: string }>();
@@ -225,6 +226,7 @@ export class LocalUsageService {
           for await (const item of appendedLines(file,0,size,bytes)) {
             const line=item.line;
             let e: any; try { e = JSON.parse(line); } catch { continue; }
+            if(!e || typeof e!=='object' || Array.isArray(e))continue;
             metadata=updateSessionMetadata(tool,e,metadata);
             if (tool === 'codex') {
               if (e.type === 'session_meta') session = e.payload?.id || session;
@@ -255,9 +257,11 @@ export class LocalUsageService {
             }
           }
           if (tool === 'claude') for (const m of claudeMessages.values()) add('claude', m.timestamp, m.model, m.count, m.session);
-          const summary=summaries.get(createHash('sha256').update(file).digest('hex'));if(summary){summary.metadata={...metadata};this.sessionStore.register(summary.id,file,tool,metadata);}
           filesScanned++;
         } catch { warnings.push(`会话读取不完整：${path.basename(file)}`); }
+        // Register once with final metadata, including any usable prefix of a failed read.
+        const summary=summaries.get(activeSessionId);
+        if(summary){summary.metadata={...metadata};this.sessionPages.register(summary.id,file,tool);this.sessionStore.register(summary.id,file,tool,metadata);}
         progress.filesDone++;report({...progress});
       }
     }

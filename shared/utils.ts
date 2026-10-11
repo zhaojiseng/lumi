@@ -60,11 +60,15 @@ export function createUsageSeriesFactory(days: number, status: SiteStatus, range
   const resolved=resolveRange(range || days,now),duration=resolved.end_timestamp-resolved.start_timestamp+1,bucketCount=Math.min(30,duration);
   const edges=Array.from({length:bucketCount+1},(_,i)=>resolved.start_timestamp+Math.floor(i*duration/bucketCount));
   const buckets=edges.slice(0,-1).map((start,i)=>({start,end:edges[i+1]-1}));
-  const time=(ts:number) => new Date(ts*1000).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',...(duration<1800 ? {second:'2-digit'} : {}),hour12:false});
+  // Share locale formatters within this chart; resolve the current time zone on each rebuild.
+  const dateFormat=new Intl.DateTimeFormat('sv-SE');
+  const timeFormat=new Intl.DateTimeFormat('zh-CN',{hour:'2-digit',minute:'2-digit',...(duration<1800 ? {second:'2-digit'} : {}),hour12:false});
+  const date=(ts:number) => dateFormat.format(ts*1000);
+  const time=(ts:number) => timeFormat.format(ts*1000);
   const short=(ts:number) => {const d=new Date(ts*1000);return (d.getMonth()+1)+'/'+d.getDate();};
-  const template=buckets.map(({start,end}) => ({date:localDate(start),timestamp:start,end_timestamp:end,
+  const template=buckets.map(({start,end}) => ({date:date(start),timestamp:start,end_timestamp:end,
     label:duration/bucketCount<86400 ? short(start)+' '+time(start) : short(start),
-    tooltipLabel:localDate(start)+' '+time(start)+' – '+localDate(end)+' '+time(end),
+    tooltipLabel:date(start)+' '+time(start)+' – '+date(end)+' '+time(end),
     cost:0,tokens:0,requests:0,codex:0,claude:0,cacheInputTokens:0,cacheReadTokens:0,cacheHitRate:null as number|null,outputTokens:0,durationSeconds:0,speedSamples:0,speed:null as number|null,netOutputTokens:0,subsequentDurationSeconds:0,netSpeedSamples:0,netSpeed:null as number|null}));
   const c=currency(status);
   return ()=>{

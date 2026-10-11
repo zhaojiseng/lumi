@@ -52,6 +52,7 @@ export class LocalSessionPages {
         continue;
       }
       cursor.offset=item.end;
+      if(!event || typeof event!=='object' || Array.isArray(event))continue;
       let tokens:Counters,model:string,signature:string,context:number,recordId=input.sessionId+':'+item.end;
       if(entry.tool==='codex'){
         if(event.type==='turn_context'){

@@ -60,6 +60,23 @@ await reset();
 const surface=make('surface');zone.append(surface);await until(()=>has(surface),'Explicit surface did not receive refraction');await reset();
 const lens=make('lens');zone.append(lens);await until(()=>has(lens),'Explicit lens did not receive refraction');await reset();
 
+// Token model selections already consume the skin's local glass variable.
+// Only the selected, visible control owns a filter; plain skins stay unchanged.
+const choice=document.createElement('button');choice.className='glass model-choice';choice.textContent='Selected model';zone.append(choice);
+await paint();check(!has(choice),'Unselected model choice allocated refraction');
+choice.classList.add('selected');await until(()=>has(choice),'Selected model choice did not receive refraction');
+check(getComputedStyle(choice).backdropFilter.includes('url('),'Selected model choice did not consume its own filter');
+check(getComputedStyle(choice).filter==='none','Selected model choice applied a filter to its foreground text');
+const selectedFilter=ref(choice);
+choice.classList.remove('selected');await until(()=>!has(choice) && count()===0,'Deselected model choice retained a filter');
+choice.classList.add('selected');await until(()=>has(choice),'Reselected model choice did not restore refraction');
+check(ref(choice)!==selectedFilter,'Reselected model choice reused a released filter reference');
+choice.hidden=true;await until(()=>!has(choice) && count()===0,'Hidden model choice retained refraction');
+choice.hidden=false;await until(()=>has(choice),'Visible model choice did not restore refraction');
+choice.style.backdropFilter='none';await until(()=>!has(choice),'Plain model choice skin allocated an unused filter');
+choice.style.removeProperty('backdrop-filter');await until(()=>has(choice),'Restored model choice glass did not attach');
+await reset();check(!has(choice),'Detached model choice retained an inline filter reference');
+
 // A hidden node still has a layout box for visibility:hidden. Neither it nor a
 // viewport-clipped node may spend a live filter slot.
 const hidden=make();hidden.hidden=true;
@@ -119,7 +136,7 @@ fixture.dispose();check(count()===0 && !shell.querySelector('[data-lumi-glass-de
 check(original.style.getPropertyValue('--lumi-glass-filter')==='blur(1px)','Disposal discarded the original inline filter value');
 const afterDispose=fixture.frames;zone.append(make());await delay(80);check(fixture.frames===afterDispose,'Disposed runtime retained observers');
 check(!fixture.errors.length,'Glass runtime renderer errors '+fixture.errors.join(';'));
-return {explicit:true,visibility:true,popupPriority:true,textureReuse:true,idle:true,stylesheetRefresh:true,accessibility:true,disposal:true};
+return {explicit:true,modelChoices:true,visibility:true,popupPriority:true,textureReuse:true,idle:true,stylesheetRefresh:true,accessibility:true,disposal:true};
 }.toString()+')()');console.log('GLASS_RUNTIME_UI_OK '+JSON.stringify(result));win.destroy();app.exit(0);
 }).catch(error=>{console.error(error.stack||error);app.exit(1)});
 `);

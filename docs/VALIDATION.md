@@ -1,5 +1,25 @@
 # Lumi 验证记录
 
+## 1.0.2 · 发布前验证（2026-10-11）
+
+本机 Windows x64，Node.js 24.18.0、npm 11.16.0、Electron 44.5.0；本轮使用隔离 fixture、假凭据与本机 mock。
+
+- 本次严格 `typecheck`、`check:extensions` 和完整 `npm test` 通过：916 项，913 通过、3 项平台跳过、0 失败或取消。覆盖本地 JSONL 容错与逐文件索引注册、订阅用量撤销/强制刷新、趋势排序/日期格式以及模型选择控件真实玻璃生命周期；日志 `.test-data/release-102/{typecheck,check-extensions,test}.log`。趋势测试另在 UTC、America/New_York、Asia/Shanghai 下各 6/6 通过。
+- 本次 `npm run dist` 与隔离 `test:desktop` 通过，构建保留 65 份 npm 与 84 份 Rust 完整许可。`verify:release` 核验 78 个当前构建文件、核心原始字节、完整许可、更新元数据与本地数据排除；日志 `.test-data/release-102/{dist,desktop,verify}.log`。
+- 本机 Windows EXE `release/Lumi-1.0.2-x64.exe` 为 113237827 字节，SHA-256 `ff73dab9a57a1516c7183f264cf09909fd9ac9453dc0ddec66a9350a318a912a`。该散列只代表本机安装包，正式 CI 附件另行核验。
+- 本次 `npm audit` 0 个已知漏洞，结果 `.test-data/release-102/audit.json`。主程序版本清单、lockfile 根与渲染侧显示统一为 1.0.2；独立插件分别验证和发布。三平台 CI、macOS ARM64 原生构建/隔离启动/DMG 校验及公开附件须由标签工作流完成，本机结果不替代这些步骤。
+
+## 未发布开发增量 · 性能与稳定性优化（2026-10-11）
+
+- 趋势图复用中文数字排序器，在单次图表构建内复用日期/时间格式器；每次重建仍重新解析系统时区。原始 HEAD 与当前实现使用相同 10,000 条合成数据、5 次预热、21 次交替采样比较中位数，模型全部/单选为 9.65 → 5.34 ms、5.23 → 0.88 ms，令牌全部/单选为 19.58 → 11.71 ms、8.37 → 1.17 ms。四场景六指标共 24 组完整输出深度相等；仅代表本机算法基准，不代表整应用提速。脚本及结果：`.test-data/optimization-20261011/{compare-trends.mjs,benchmark.json}`。
+- 本地历史用量、浮窗增量读取和兼容详情分页跳过非对象 JSON 行，保留后续有效记录；路径散列和会话注册按文件执行。3,000 条用量夹具的详情索引注册次数从 3,001 次降至 1 次，合计、最终元数据及分页仍正确。新增 7 项回归先在原实现失败，修改后通过。
+- 订阅用量在停用后不再派发排队读取；强制刷新可替代普通读取，旧结果/旧错误不能回填；重复状态不再额外通知。新增 6 项回归覆盖撤销、重启、合并、强制刷新和错误处理。
+- Windows x64 / Node 24.18.0：`npm run typecheck`、`npm run check:extensions`、完整 `npm test` 通过，916 项中 913 通过、3 项平台跳过、0 失败；包含真实 Electron/Chromium 回归。`npm run build` 和构建后 `npm run test:desktop` 通过，65 份 npm 与 84 份 Rust 完整许可保留。日志：`.test-data/optimization-20261011/{main-tests,build,desktop}.log`。
+- 独立插件仓库的便笺保留加载期间输入，串行合并显式保存请求，并准确呈现未保存/失败状态；`check:notes` 9 项与 `check:notes-ui -- ../main` 8 项通过，全部 5 个插件的官方包校验通过。真实沙箱 Electron 使用官方 SDK 和隔离假存储，30 次连续保存最多 1 个并发写入，浅/深主题截图已检查；结果在 `../extensions/.cache/notes-ui/result.json`，不等同于真实宿主存储服务或其他平台的验证。
+- 经用户明确授权，折射宿主补齐 `.model-choice.selected` 目标，不增加 IPC 或权限；真实界面回归覆盖选择/取消、隐藏/恢复、无玻璃旧主题及卸载清理。`glass-refraction-ui` 与 `glass-refraction` 共 5 项通过、无跳过；最终 `npm run build` 与构建后 `npm run test:desktop` 再次通过。日志：`.test-data/optimization-20261011/{glass-final,build-final,desktop-final}.log`。
+- 相邻 Dreamy 主题修复模型卡片底色优先级、减少重复遮蔽并增强通透度，默认扭曲改为标准且保留已有选择。完整软件界面回归、硬件折射专项、六组实际外观/模型控件及四组无障碍弹层检查通过。以同一宿主只切换 HEAD 旧主题作基线，诊断背景模型卡片开关折射的平均 RGB 差由浅/深 20.98/16.00 增为 46.96/47.50；实际柔彩工作区均衡+标准模糊为 1.31/0.46 → 2.41/1.10。数字仅说明本机这些场景，侧栏变化不一致，不代表全界面提升比例。主题记录及日志入口在相邻插件 README。
+- 本轮使用隔离假数据，版本仍为 1.0.1；没有执行安装包打包、提交、推送或公开发布。macOS/Linux 未在本轮运行，Windows 结果不替代其他平台验证。独立便笺和主题修改及回归在相邻插件仓库分别维护。
+
 ## 1.0.1 · 公开发布验收（2026-10-11）
 
 - [Lumi 1.0.1](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.1) 已公开，发布时间 2026-10-11T04:26:26Z，标签固定提交 `a0d48a2552c39e7002896385b50cc02263c1fa75`。正式标签流程 [38110818508](https://github.com/zhaojiseng/lumi/actions/runs/38110818508) 第 2 次执行成功，Windows/Linux/macOS 检查、Windows x64 与 macOS ARM64 打包、隔离启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。

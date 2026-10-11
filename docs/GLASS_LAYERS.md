@@ -17,6 +17,8 @@
 
 新组件显式声明 `data-lumi-glass="background"`（独立背景伪元素）、`surface`（宽边缘容器）或 `lens`（选择文字透镜），无需假借已有组件类名。该属性仅声明宿主管理的本地几何滤镜，不允许任意 URL；皮肤仍需在相应背景层消费 `var(--lumi-glass-filter, blur(0px))`。旧组件选择器和 `--lumi-glass-surface:1` 保留兼容。
 
+令牌模型选择沿用 `.model-choice.selected` 接入：按钮选中且可见、皮肤启用背景滤镜时，宿主才提供其自身的位移图；取消选择、隐藏或卸载会释放引用。它使用平直中心的背景折射，不使用连续滑块的文字放大向量。未使用背景滤镜的旧主题保持原显示。
+
 ```html
 <div data-lumi-glass="background" class="message-preview">
   <div class="message-preview-content">用户消息</div>

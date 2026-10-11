@@ -527,7 +527,7 @@ Codex 桥接由宿主默认提供，不列入内置插件列表，也无需启�
 
 此接口从 Lumi 0.5.13 起提供，Lumi 1.0.1 保持兼容。界面插件可在 `:scope` 上声明无单位数值 `--lumi-glass-distortion`，单位为逻辑像素；宿主将值限制到 0–12，0 或无效值关闭效果。结合 `appearanceGroups` 和 `data-appearance-*` 可让用户选择强度。
 
-宿主仅为 `.sidebar`、`.segmented-thumb`、`.vendor-tabs > button.active`、`.favorite-filter.active`、`.modal`、`.toast`、`[data-popup-kind="popover"]`、`.multi-popover`、`.recharts-default-tooltip`、`.donut-tooltip` 及打开的 `.select-wrap select` 生成局部圆角位移图，向元素提供 `--lumi-glass-filter`。插件通过 `backdrop-filter: blur(2px) var(--lumi-glass-filter, blur(0px))` 消费滤镜；原生下拉在 `::picker(select)` 使用相同变量。中心保持平直，边缘按局部法线偏移；不要将滤镜应用到正文 `filter` 上。
+宿主为 `.sidebar`、`.segmented-thumb`、`.vendor-tabs > button.active`、`.favorite-filter.active`、`.model-choice.selected`、`.modal`、`.toast`、`[data-popup-kind="popover"]`、`.multi-popover`、`.recharts-default-tooltip`、`.donut-tooltip` 及打开的 `.select-wrap select` 等兼容目标生成局部圆角位移图，向元素提供 `--lumi-glass-filter`。插件通过 `backdrop-filter: blur(2px) var(--lumi-glass-filter, blur(0px))` 消费滤镜；原生下拉在 `::picker(select)` 使用相同变量。已选模型按钮仅在可见且背景滤镜启用时分配位移图，取消选择、隐藏或卸载即释放；没有背景滤镜的旧主题不受影响。中心保持平直，边缘按局部法线偏移；不要将滤镜应用到正文 `filter` 上。
 
 位移图由宿主本地生成，尺寸上限 384px，同一元素的几何资源复用，最多管理 96 个可见表面。尺寸、主题与选项变化后按事件更新；关闭效果、切换界面或卸载时释放引用。系统减少透明度或强制颜色时关闭折射。独立 iframe 预览保留静态材质；旧宿主使用 CSS fallback。插件依旧不能声明任意 `url(...)` 或脚本，宿主的内部滤镜引用不改变 CSS 校验边界。
 
