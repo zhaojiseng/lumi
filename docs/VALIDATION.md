@@ -1,5 +1,13 @@
 # Lumi 验证记录
 
+## 1.0.2 · 公开发布验收（2026-10-11）
+
+- [Lumi 1.0.2](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.2) 已公开，发布时间为北京时间 2026-10-11 16:13:58，标签固定提交 `1ca34fc9cdd28d4c4a621310c4ea3f4b412c7737`。正式标签流程 [38123445978](https://github.com/zhaojiseng/lumi/actions/runs/38123445978) 首次执行成功，三平台检查、Windows x64/macOS ARM64 打包、隔离桌面启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。
+- 正式 Node 测试三平台均 916 项，Windows 913 通过/3 跳过、Linux 904 通过/12 跳过、macOS 906 通过/10 跳过，全部 0 失败或取消。Rust `cargo test --locked` 本次 Windows 108 项、Linux/macOS 各 97 项通过，0 失败或忽略；日志 `.test-data/release-102/ci-{windows,linux,macos}.log`。
+- 六项公开附件完整：EXE、EXE blockmap、ARM64 DMG、源码 ZIP、latest.yml、SHA256SUMS.txt。下载的校验清单五条记录均与 GitHub 附件 digest 相同，清单自身及下载的源码/更新元数据/blockmap 字节摘要也验证通过；证据 `.test-data/release-102/{public-release,public-run,public-verification}.json`。公开源码 523 个文件与标签 Git 原始字节、本机源码 ZIP 内容逐字节一致；ZIP 元数据与散列可不同，公开源码散列为 `8292ccdf3c61627dc7e43065bf9fe1426b3a0f844953c8e206954c70dcf14f7a`。
+- 公开 CI EXE 为 113233272 字节，SHA-256 `94e78e89e15f70061dc0169e70d0fba0237a2a9aae8e6922a9f7ab464205f52c`；ARM64 DMG 为 132763817 字节，SHA-256 `53e892a65a9d02cd765f9de3920e12436cce106765d74aa00a2687676418a5a8`。下节本机安装包与正式 CI 构建分别记录。
+- 宿主公开并验收后，[梦幻界面 1.1.9](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.author.dreamy-v1.1.9)、[模型网关 1.0.2](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.lumi.gateway-v1.0.2) 和 [便笺 1.0.1](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.lumi.notes-v1.0.1) 分别公开，每个插件的 ZIP 与 .sha256 两项附件完整；草稿及公开下载字节、Git 原始字节和 GitHub digest 全部核对一致。插件保持独立分发，详细结果见相邻仓库 [发布验证记录](https://github.com/zhaojiseng/lumi-extensions/blob/main/docs/RELEASE_VALIDATION_2026-10-11.md)。未移动或覆盖既有公开标签及附件。
+
 ## 1.0.2 · 发布前验证（2026-10-11）
 
 本机 Windows x64，Node.js 24.18.0、npm 11.16.0、Electron 44.5.0；本轮使用隔离 fixture、假凭据与本机 mock。
