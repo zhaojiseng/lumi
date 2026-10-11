@@ -1,5 +1,13 @@
 # Lumi 验证记录
 
+## 1.0.1 · 公开发布验收（2026-10-11）
+
+- [Lumi 1.0.1](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.1) 已公开，发布时间 2026-10-11T04:26:26Z，标签固定提交 `a0d48a2552c39e7002896385b50cc02263c1fa75`。正式标签流程 [38110818508](https://github.com/zhaojiseng/lumi/actions/runs/38110818508) 第 2 次执行成功，Windows/Linux/macOS 检查、Windows x64 与 macOS ARM64 打包、隔离启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。
+- 第一次 1.0.1 macOS 执行的字体焦点断言失败，同一提交的主分支 macOS 执行还出现无诊断退出。仅重跑标签失败任务，未改该标签源码或原断言；macOS 最终 901 项、891 通过、10 平台跳过、0 失败，字体草稿/焦点、请求详情及多选动画实际通过，日志 `.test-data/release-101/macos-retry-passed.log`。两个仓库的 1.0.0 未公开标签保留。
+- 六项公开附件完整：EXE、EXE blockmap、ARM64 DMG、源码 ZIP、latest.yml、SHA256SUMS.txt。下载 SHA256SUMS 后五条记录均与 GitHub 附件 digest 相同，校验文件自身 digest 也验证通过；证据 `.test-data/release-101/{public-release,public-run,public-verification}.json`。公开源码 ZIP 中 521 个文件与标签 Git 原始字节、本机源码 ZIP 内容逐字节一致，仅 ZIP 条目时间元数据不同；证据 `.test-data/release-101/source-verification.json`，公开 ZIP 散列以附件为准。
+- 公开 CI EXE 为 113233006 字节，SHA-256 `8d9a3b63afdd1efb52f5de8e1db469ba8d470d794778342f1469da13c619127b`；ARM64 DMG 为 132763351 字节，SHA-256 `203dc97c1d25dc01eef9a78f4f7f7867380a20ec51fd35b134b351ee7a54bfb3`。CI 独立构建的公开包与下节本机安装包分别记录，不能互换散列。
+- [模型网关 1.0.1](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.lumi.gateway-v1.0.1) 在宿主公开并完成附件验收后公开，标签提交 `89066089c8f4c69508c41ded02840871947f7300`。ZIP 与 .sha256 两项完整，草稿下载与本地/提交字节/GitHub digest 一致，ZIP 59514 字节，SHA-256 `4134ddff31f2c5ceecda284ce0825f54a386b40a7969fe0fc2e915505c5ade85`。插件最低 Lumi 1.0.1，仍独立安装；固定宿主与详细验证见相邻仓库记录。未移动或覆盖既有公开标签与附件。
+
 ## 1.0.1 · 首次公开 1.x 修订验证（2026-10-11）
 
 - 主程序清单、lockfile 与两个渲染侧版本统一为 1.0.1；独立模型网关 1.0.1 声明最低 Lumi 1.0.1 / 扩展 API v1。内置 Rust 核心版本仍为 1.0.0，本修订未改运行时源码；原 1.0.0 本轮 Rust/Node 检查见下一节，不冒充本修订重跑结果。
