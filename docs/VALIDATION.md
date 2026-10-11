@@ -1,5 +1,12 @@
 # Lumi 验证记录
 
+## 1.0.3 · 公开发布验收（2026-10-11）
+
+- [Lumi 1.0.3](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.3) 已公开，发布时间为北京时间 2026-10-11 20:20:05，标签固定提交 `88f35054803f53bfe824d0f03e65e0a13ad4f5d3`。正式标签流程 [38138350138](https://github.com/zhaojiseng/lumi/actions/runs/38138350138) 首次执行成功，三平台检查、Windows x64/macOS ARM64 打包、隔离启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。
+- 三平台各 920 项测试，Windows 917 通过/3 平台跳过、Linux 908 通过/12 平台跳过、macOS 910 通过/10 平台跳过，均 0 失败。两平台安装包各匹配 78 个当前构建文件，完整许可与本地数据排除通过；原始日志和最终工作流状态保存在 `.test-data/release-103/{public-run.log,public-run.json}`。
+- 六项公开附件完整：EXE、EXE blockmap、ARM64 DMG、源码 ZIP、latest.yml、SHA256SUMS.txt。下载校验清单后五条记录均与 GitHub 附件 digest 相同，校验文件自身 digest 也验证通过；更新元数据为 1.0.3，公开源码 ZIP 的 523 个文件与标签本地 Git 归档内容逐文件一致。证据为 `.test-data/release-103/{public-release.json,public-verification.json}`。
+- 公开 CI EXE 为 113233444 字节，SHA-256 `c967d97c8ea66fbe435fd64e56efea9f78c9e739e9f0abec6bed97e3637b6223`；ARM64 DMG 为 132763517 字节，SHA-256 `b5e54942e280aa818ffe1a622f0c97012eadb8748ee505ac540230fdb2b5209b`。本机包与公开包分别记录，不互换散列。独立插件仓库及既有公开标签、附件未修改。
+
 ## 1.0.3 · 发布前验证（2026-10-11）
 
 - 应用清单、lockfile 根、主界面与浏览器适配版本统一为 1.0.3，依赖版本保持原样。修复详情和原版复现见下一节；本轮发布验证使用最终版本和隔离假数据。
