@@ -1,4 +1,5 @@
 body { background: var(--canvas); }
+::selection { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 .desktop-shell { gap: 14px; padding: 14px; }
 .surface { background: var(--panel); border: 1px solid var(--border); box-shadow: none; }
 .sidebar { background: var(--panel); border-radius: 14px; }
@@ -39,8 +40,10 @@ body { background: var(--canvas); }
 .section-heading h3 { font-size: 14px; font-weight: 600; }
 .button { background: var(--panel); border-color: var(--border); border-radius: 9px; color: var(--text); min-height: 36px; font-size: 12px; box-shadow: none; }
 .button:hover { background: var(--hover); }
-.button.primary { color: var(--accent-foreground); background: var(--accent); border-color: var(--accent); }
+.button.primary { color: var(--accent-foreground); background: var(--accent); border-color: var(--accent); box-shadow: var(--shadow-sm); }
 .button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.button.primary:active:not(:disabled) { box-shadow: none; }
+.button:active:not(.primary):not(.danger):not(.ghost):not(:disabled) { background: var(--hover-strong); }
 .button.ghost { background: transparent; border-color: transparent; }
 .button.ghost:hover { background: var(--hover); }
 .button.danger { color: var(--red); background: var(--red-soft); border-color: var(--red-soft); }
@@ -49,8 +52,9 @@ body { background: var(--canvas); }
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px;
 }
-.text-input { background: var(--input); border-color: var(--border); border-radius: 9px; min-height: 40px; color: var(--text); font-size: 12px; }
-.text-input:focus { background: var(--input); border-color: var(--accent); }
+.text-input { background: var(--input); border-color: var(--border); border-radius: 9px; min-height: 40px; color: var(--text); font-size: 12px; transition: border-color .18s, box-shadow .18s, background .18s; }
+.text-input:hover:not(:focus):not(:disabled) { border-color: var(--hover-strong); }
+.text-input:focus { background: var(--input); border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
 .text-input:disabled { background: var(--panel-soft); opacity: .65; }
 .search-input { background: var(--input); border-color: var(--border); color: var(--text-muted); border-radius: 9px; }
 .search-input input { background: transparent; color: var(--text); }
@@ -128,12 +132,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .form-step > span { background: var(--accent-soft); color: var(--accent); }
 .code-preview, .pricing-expression, .raw-detail pre { background: var(--panel-soft); color: var(--text); border-color: var(--border); }
 .modal-overlay { background: var(--overlay); }
-.modal.surface { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: none; }
+.modal.surface { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-modal); }
 .modal-heading h2 { color: var(--text); }
 .secure-login-icon { color: var(--accent); background: var(--accent-soft); }
 .login-error, .error-banner { color: var(--red); background: var(--red-soft); border-color: var(--red-soft); }
 .warning-banner, .http-permission, .sync-warnings { color: var(--orange); background: var(--orange-soft); border-color: var(--border); }
-.toast { color: var(--text); background: var(--panel); border-color: var(--border); border-radius: 10px; box-shadow: none; }
+.toast { color: var(--text); background: var(--panel); border-color: var(--border); border-radius: 10px; box-shadow: var(--surface-shadow); }
 .toast.success { color: var(--accent); background: var(--accent-soft); }
 .toast.error { color: var(--red); background: var(--red-soft); }
 .skeleton { background: var(--panel-soft); border-color: var(--border); animation: flat-pulse 1.5s ease-in-out infinite; }
@@ -145,7 +149,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .sidebar-site .site-switch select { background: var(--panel-soft); border-color: var(--border); border-radius: 8px; }
 .sidebar-site .site-switch::before { background: var(--accent); }
 @supports (appearance: base-select) {
-  .select-wrap select::picker(select) { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: none; }
+  .select-wrap select::picker(select) { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--surface-shadow); }
   .select-wrap select option { border-radius: 7px; }
   .select-wrap select option:checked { background: var(--choice-soft); border-color: var(--choice-soft); }
 }

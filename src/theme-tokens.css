@@ -45,7 +45,12 @@
   --chart-fill: #e7f1eb;
   --tooltip-bg: #ffffff;
   --overlay: rgba(18,29,24,.42);
-  --surface-shadow: 0 2px 10px rgba(18,29,24,.12);
+  --shadow-sm: 0 1px 2px rgba(18,29,24,.06);
+  --surface-shadow: 0 1px 2px rgba(18,29,24,.05),0 6px 18px rgba(18,29,24,.09);
+  --shadow-modal: 0 2px 8px rgba(18,29,24,.07),0 18px 48px rgba(18,29,24,.17);
+  --focus-ring: color-mix(in srgb, var(--accent) 18%, transparent);
+  --scrollbar-thumb: #c3d1c7;
+  --scrollbar-thumb-hover: #a3b8aa;
 }
 :root[data-theme=dark] {
   color-scheme: dark;
@@ -84,5 +89,10 @@
   --chart-fill: #2a4435;
   --tooltip-bg: #202b24;
   --overlay: rgba(0,0,0,.62);
-  --surface-shadow: 0 2px 12px rgba(0,0,0,.3);
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.32);
+  --surface-shadow: 0 1px 2px rgba(0,0,0,.3),0 6px 20px rgba(0,0,0,.36);
+  --shadow-modal: 0 2px 8px rgba(0,0,0,.34),0 20px 52px rgba(0,0,0,.55);
+  --focus-ring: color-mix(in srgb, var(--accent) 22%, transparent);
+  --scrollbar-thumb: #3c4b40;
+  --scrollbar-thumb-hover: #4d6051;
 }

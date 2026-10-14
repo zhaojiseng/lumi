@@ -38,11 +38,18 @@ app.whenReady().then(async()=>{
  const host=new ExtensionHost({directory:${JSON.stringify(path.join(directory,'packages'))},settingsDirectory:path.join(__dirname,'store'),cipher:{available:()=>true,encrypt:value=>value,decrypt:value=>value},sdk:Buffer.from(${JSON.stringify(sdk)}),uiCss:Buffer.from(${JSON.stringify(uiCss)}),context:()=>({theme:'light',locale:'zh-CN',site:{id:'fixture',name:'Fixture',url:'https://fixture.invalid'}}),scope:()=>'',read:async()=>null});
  await host.start();await host.setEnabled(${JSON.stringify(id)},true);const generation=host.statuses()[0].generation;
  protocol.handle('lumi-extension',async request=>{const asset=host.asset(request.url);if(request.url.endsWith('/slow.js'))await new Promise(r=>setTimeout(r,250));return asset ? new Response(new Uint8Array(asset.body),{headers:{'Content-Type':asset.type,'Content-Security-Policy':asset.csp,'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','X-Content-Type-Options':'nosniff'}}) : new Response('Unavailable',{status:404})});
- const win=new BrowserWindow({show:process.platform==='darwin',width:620,height:600,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});await win.loadFile(path.join(__dirname,'index.html'));
+ const win=new BrowserWindow({show:process.platform==='darwin',width:620,height:600,webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+ // Hardware capture needs a real compositor surface on Windows. Keep this
+ // opt-in fixture inactive so it does not steal the user's keyboard focus.
+ if(process.env.LUMI_GLASS_HARDWARE==='1' && process.platform!=='darwin')win.showInactive();
+ await win.loadFile(path.join(__dirname,'index.html'));
  const run=code=>win.webContents.executeJavaScript(code),frame=()=>win.webContents.mainFrame.frames.find(f=>f.url.startsWith('lumi-extension:'));
  // Concurrent macOS fixtures can occlude this window. capturePage wakes its
  // compositor, allowing a queued runtime frame to run without changing state.
- const until=async(fn,label)=>{const end=Date.now()+6000;while(!await fn()){if(Date.now()>end)throw Error(label+'; '+await frame()?.executeJavaScript('JSON.stringify({url:location.href,ready:document.readyState,body:!!document.body,theme:document.body?.dataset.theme,errors:window.fixture?.errors,violations:window.fixture?.violations})'));await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await new Promise(r=>setTimeout(r,20))}},check=async(code,label)=>{if(!await frame().executeJavaScript(code))throw Error(label)};
+ // A Windows Viz surface can still be initializing on the first wake-up;
+ // retry only that error within the readiness deadline. Pixel captures below
+ // remain strict and keep their original assertions.
+ const until=async(fn,label)=>{const end=Date.now()+6000;while(!await fn()){if(Date.now()>end)throw Error(label+'; '+await frame()?.executeJavaScript('JSON.stringify({url:location.href,ready:document.readyState,body:!!document.body,theme:document.body?.dataset.theme,errors:window.fixture?.errors,violations:window.fixture?.violations})'));await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true}).catch(error=>{if(!String(error).includes('UnknownVizError'))throw error});await new Promise(r=>setTimeout(r,20))}},check=async(code,label)=>{if(!await frame().executeJavaScript(code))throw Error(label)};
  const theme=(mode='light',appearance={})=>run('fixture.send({type:"ui-theme",uiTheme:'+JSON.stringify({id:'fixture.glass',css:${JSON.stringify(skin)},theme:mode,appearance})+'})');
  await run('fixture.start('+JSON.stringify('lumi-extension://${id}/'+generation+'/normal.html')+')');
  await until(()=>frame()?.executeJavaScript('!!document.querySelector("[data-lumi-glass-defs] filter")'),'SDK bundle did not attach a document-local filter');

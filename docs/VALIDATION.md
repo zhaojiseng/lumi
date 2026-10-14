@@ -1,5 +1,24 @@
 # Lumi 验证记录
 
+## 1.0.4 · 发布前验证（2026-10-14）
+
+- 应用清单、lockfile 根和两个渲染侧显示统一为 1.0.4；依赖版本未变。发布包含下节玻璃调度与真实预览，以及主窗口阴影、焦点、滚动条和光标反馈调整。
+- Windows x64 / Node 24.18.0：typecheck、check:extensions、最终完整 npm test、dist、构建后 test:desktop、verify:release 与 npm audit 通过。测试 921 项，918 通过、3 平台跳过、0 失败；audit 0 漏洞。日志位于 `.test-data/release-104/`，最终全量日志为 `test-final.log`。
+- 首次全量及独立复验发现新共享阴影让深色托盘圆角像素超出原透明边距；托盘单独保留原紧凑阴影后，原真实像素断言通过，最终完整测试再次通过。失败日志保留于 `test.log` 和 `theme-ui-recheck.log`，通过证据为 `theme-ui-fixed.log`；未放宽断言。
+- 本机完整 EXE `release/patch-104-20261014/Lumi-1.0.4-x64.exe` SHA-256 为 `5eea6b7f1c42e8df1af540ea02c8d5f449e73b60880337e50a065a7fb505e25f`，包内 78 个文件与当前构建匹配，65 份 npm 与 84 份 Rust 完整许可保留，不含本地数据。
+- 最终真实预览硬件回归通过浅深主题、各档真实像素、生产 CSP、隔离和释放恢复，日志 `preview-hardware.log`。Dream 1.1.10 官方校验、完整硬件 UI、36 场实色像素和 8 场市场硬件检查通过，日志在相邻仓库 `.cache/release-1110-*.log`。
+- 本条只记录本机结果；三平台 CI、macOS ARM64 原生构建与启动、DMG 校验和公开附件由标签工作流另行验收。本机包与 CI 公开包分别记录散列。
+
+## 未发布开发增量 · Dream 渲染调度与真实预览（2026-10-13）
+
+- 用户明确授权的范围为玻璃宿主调度、外观缩略预览及必要构建/回归。有限 opacity 入场提前注册，候选与几何复用、批次读取后统一写入；保留原位移算法、384px 纹理上限、32 项 LRU、96 个资源预算和模糊/强度 API。
+- 缩略预览复用宿主算法，以准确 SHA-256 同时授权父 CSP 和 opaque srcdoc，仅 `allow-scripts`，插件静态内容继续净化，无同源、IPC 或外联权限。每份外观快照使用独立文档，离屏卸载，`pagehide/pageshow` 释放/重建。实际 `dist/index.html` 散列与内嵌宿主脚本逐字节匹配，真正供给的 `dist-electron/lumi-extension-sdk.js` 与源码重新 bundle 一致。
+- Windows x64 / Node 24.18.0：typecheck、check:extensions、完整 `npm test`、build 与构建后隔离 `test:desktop` 通过。全量 921 项，918 通过、3 平台跳过、0 失败；构建保留 65 份 npm 与 84 份 Rust 完整许可。日志为 `.test-data/dreamy-render-final-{typecheck,host-extensions,test,build,desktop}.log`。末次桌面检查修正了仅烟雾测试分支的预览可见性等待，并保留、恢复和再次检查原草稿/焦点/滚动。
+- 正式 runtime 软件契约 16 组，opaque 功能 iframe 软件及硬件画面回归通过。真实缩略预览两主题关闭/轻微/明显档位均有像素差；去宿主脚本负对照、恶意 inline/external/connect/frame CSP 阻断、父/Node/API 隔离、page 生命周期、离屏拆卸与实色释放通过。硬件日志为 `.test-data/dreamy-render-final-preview-hardware.log`；软件结果包含在完整测试日志中。
+- 相邻独立 Dream 1.1.10 开发工作树官方校验、完整硬件 UI、36 场实色浮层像素检查及市场软件/硬件各 8 场通过。实色规则只把被不透明填充遮住的模糊半径设为零，保留 backdrop root；正文、填充内部和完整投影 RGBA 不变，局部圆角抗锯齿有小差异。市场用前景字形差分排除穿透背景纹理，保留 0.8 清晰度门限。
+- 性能对照及完整软件显示链路见相邻仓库 `../../extensions/docs/DREAMY_RENDERING.md`。同机诊断滚动脚本耗时约减少 58%，这不是 GPU 降幅；实色固定浮层背景滚动的 GPU 3D 均值分别降低 0.0935 / 0.1557 个百分点，每组 5 个有效样本，仅代表本机两个 6 秒观测。未测 GPU 硬件执行时间或显存，不承诺全界面通用降幅。
+- 本轮没有 macOS/Linux 验证、安装包、提交、推送或公开 Release。主程序版本仍为 1.0.3 开发工作树，独立 Dream 1.1.10 尚未发布。
+
 ## 1.0.3 · 公开发布验收（2026-10-11）
 
 - [Lumi 1.0.3](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.3) 已公开，发布时间为北京时间 2026-10-11 20:20:05，标签固定提交 `88f35054803f53bfe824d0f03e65e0a13ad4f5d3`。正式标签流程 [38138350138](https://github.com/zhaojiseng/lumi/actions/runs/38138350138) 首次执行成功，三平台检查、Windows x64/macOS ARM64 打包、隔离启动、包内文件/完整许可/原生架构与 DMG 校验、上传及公开发布全部完成。

@@ -1,4 +1,8 @@
 :root { line-height:1.4; background:transparent; }
+/* The native tray has only an 8px transparent inset. Keep its compact shadow
+   independent of the broader shadows used by main-window popups. */
+.tray-card { --surface-shadow:0 2px 10px rgba(18,29,24,.12); }
+:root[data-theme=dark] .tray-card { --surface-shadow:0 2px 12px rgba(0,0,0,.3); }
 * { box-sizing:border-box; } html,body,#root { height:100%; background:transparent; overflow:hidden; } body { margin:0; padding:0; } #root { display:flex; flex-direction:column; justify-content:flex-end; padding:8px 8px 0; } button { font:inherit; color:inherit; border:0; background:none; cursor:pointer; } button:disabled { cursor:default; opacity:.55; } button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; } p,h2,dl,dd { margin:0; } h2 { font-size:12px; font-weight:600; } h2 span { color:var(--muted); font-weight:400; margin-left:8px; }
 .tray-card { --soft:var(--panel-soft); --muted:var(--text-muted); --selected:var(--panel-strong); color:var(--text); display:flex; flex-direction:column; min-height:0; flex:1; max-height:calc(100vh - 8px); padding:16px; background:var(--panel); border:1px solid var(--border); border-radius:16px; box-shadow:var(--surface-shadow); opacity:0; transform:translateY(6px); pointer-events:none; transition:opacity .18s ease-out,transform .18s ease-out; }
 .tray-card[data-visibility=visible] { opacity:1; transform:translateY(0); pointer-events:auto; }

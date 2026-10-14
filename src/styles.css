@@ -37,6 +37,10 @@ input,select {
   color: var(--text);
 }
 
+input,textarea {
+  caret-color: var(--accent);
+}
+
 input::placeholder {
   color: var(--text-muted);
   font-size: 12px;
@@ -58,8 +62,12 @@ input[type=checkbox] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--panel);
+  background: var(--scrollbar-thumb, var(--border));
   border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover, var(--hover-strong));
 }
 
 h1,h2,h3,h4,p {
@@ -590,7 +598,7 @@ h1,h2,h3,h4 {
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--text-secondary);
-  transition: background .18s;
+  transition: background .18s, border-color .18s, color .18s, box-shadow .18s;
   white-space: nowrap;
 }
 
@@ -877,7 +885,7 @@ h1,h2,h3,h4 {
   font-size: 11px;
   font-weight: 400;
   border-radius: 6px;
-  transition: background .2s;
+  transition: background .2s, color .2s;
 }
 
 .segmented button.active {

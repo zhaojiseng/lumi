@@ -450,7 +450,16 @@ async function start() {
         await until(()=>shell.dataset.appearanceAccent==='rose' && [...document.querySelectorAll('.theme-preview iframe')].every(frame=>frame.srcdoc.includes('data-appearance-accent="rose"')),'appearance selection');
         let appearanceSaved=false;for(let i=0;i<50;i++){appearanceSaved=(await window.lumi.bootstrap()).preferences.interfaceSelections['extension.lumi.compact']?.accent==='rose';if(appearanceSaved)break;await new Promise(r=>setTimeout(r,20));}
         let invalidAppearance=false;try{await window.lumi.updatePreferences({interfaceSelection:{interfaceId:'extension.lumi.compact',values:{accent:'unknown'}}});}catch{invalidAppearance=true;}
-        const checks={saved,orderSaved,invalidOrder,changedInventory,appearanceSaved,invalidAppearance,appearancePreviews:document.querySelectorAll('.theme-preview iframe').length===3,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
+        const checks={saved,orderSaved,invalidOrder,changedInventory,appearanceSaved,invalidAppearance,appearancePreviews:false,settingsRetained:document.querySelector('.settings-page')===settings,draftRetained:input.value==='34.5',focusRetained:document.activeElement===input,scrollRetained:scroll.scrollTop===80,compactWidth:document.querySelector('.sidebar').getBoundingClientRect().width<width};
+        // Preview documents exist only while visible. Keep the draft/focus/scroll
+        // checks above independent of this deliberate preview inspection.
+        const inspectionScroll=scroll.scrollTop,inspectionFocus=document.activeElement;
+        document.querySelector('.appearance-settings').scrollIntoView({block:'start'});
+        await until(()=>document.querySelectorAll('.theme-preview.live iframe').length===3 && [...document.querySelectorAll('.theme-preview.live iframe')].every(frame=>frame.contentDocument===null && frame.getAttribute('sandbox')==='allow-scripts' && frame.srcdoc.includes('data-appearance-accent="rose"') && frame.srcdoc.includes("script-src 'sha256-")),'visible isolated appearance previews');
+        checks.appearancePreviews=true;
+        scroll.scrollTop=inspectionScroll;inspectionFocus.focus({preventScroll:true});
+        checks.settingsRetained &&=document.querySelector('.settings-page')===settings;
+        checks.draftRetained &&=input.value==='34.5';checks.focusRetained &&=document.activeElement===inspectionFocus;checks.scrollRetained &&=scroll.scrollTop===inspectionScroll;
         document.querySelector('.extension-manager .button:last-child').click();
         await new Promise(r=>setTimeout(r,20));
         await until(()=>!document.querySelector('.extension-manager .button:last-child').disabled,'reload');
