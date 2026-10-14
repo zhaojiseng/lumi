@@ -135,7 +135,15 @@ export function installGlassRefraction(shell:HTMLElement){
     const targets=candidates
       .filter(visible)
       .filter(element=>element.hasAttribute('data-lumi-glass') || element.matches(POPUPS) || !element.matches(CONTAINERS) || styleOf(element).getPropertyValue('--lumi-glass-surface').trim()==='1')
-      .filter(element=>element.hasAttribute('data-lumi-glass') || styleOf(element).backdropFilter!=='none' || backgroundOf(element).backdropFilter!=='none' || element instanceof HTMLSelectElement)
+      // Chromium on macOS may expose the composited declaration only through
+      // the WebKit alias while the standards property still reports `none`.
+      // Keep both forms in the consumer probe so preview/runtime initialization
+      // does not depend on the platform's computed-style alias.
+      .filter(element=>{
+        if(element.hasAttribute('data-lumi-glass') || element instanceof HTMLSelectElement)return true;
+        const style=styleOf(element),background=backgroundOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
+        return style.backdropFilter!=='none' || style.webkitBackdropFilter!=='none' || background.backdropFilter!=='none' || background.webkitBackdropFilter!=='none';
+      })
       .sort((a,b)=>priority(b)-priority(a))
       .slice(0,96);
     const snapshots:Snapshot[]=[];
