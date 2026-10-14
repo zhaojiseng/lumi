@@ -1,5 +1,14 @@
 # Lumi 验证记录
 
+## 1.0.4 · 公开发布验收（2026-10-14）
+
+- [Lumi 1.0.4](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.4) 已公开，发布时间为北京时间 2026-10-14 09:27:48，标签固定提交 `8cd7184454f1180779c7cc82f3e9d4f2d1366fc5`。最终标签流程 [38494888745](https://github.com/zhaojiseng/lumi/actions/runs/38494888745) 成功：三平台检查、Windows x64/macOS ARM64 打包、隔离启动、包内构建文件/完整许可/原生架构及 DMG 校验、上传与公开发布完成。
+- 三平台均 921 项测试，Windows 918 通过/3 平台跳过、Linux 909 通过/12 平台跳过、macOS 911 通过/10 平台跳过，均 0 失败。最终本机完整复验同为 918 通过/3 跳过/0 失败，日志 `.test-data/release-104/test-final-media.log`。两平台安装包各匹配 78 个构建文件，完整许可及本地数据排除通过；最终日志为 `.test-data/release-104/{public-run.log,public-run.json,ci-windows.log,ci-linux.log,ci-macos.log}`。
+- 初次远程预览失败来自 macOS runner 的原生“减少透明度”偏好，日志确认两份 opaque 预览均为 `reduced: true`；产品按设计关闭折射。最终 fixture 在子文档内控制两类辅助显示媒体查询，通过真实 page 生命周期重新安装，并分别验证普通折射、减少透明度/强制颜色释放与恢复；保留生产脚本/CSP、真实像素、负对照及隔离断言。文档切换等待也已修复。排查时试验的产品滤镜回退已全部撤回，最终 runtime 与发布前已验证实现逐字节一致；失败日志留存，不作为成功证据。
+- 六项公开附件完整。下载后的 SHA256SUMS 五条记录均与 GitHub 附件 digest 相同，清单自身 digest 也通过；更新元数据为 1.0.4，公开源码 ZIP 的 527 个文件与标签本地 Git 归档逐文件一致。证据为 `.test-data/release-104/{public-release.json,public-verification.json}`。
+- 公开 EXE 为 113237449 字节，SHA-256 `c93056da6b5972a4a1ded667df43cac6175243e33479294ce9b738c9c60d0c4c`；ARM64 DMG 为 132774241 字节，SHA-256 `d1ef08708016491561f5e4cae74e4bf819bb7c32c9908f2a49b2dccd1ce63ce4`。本机包与公开包分别记录，不互换散列。
+- 宿主公开并验收后，[梦幻界面 1.1.10](https://github.com/zhaojiseng/lumi-extensions/releases/tag/extension.author.dreamy-v1.1.10) 已独立公开，ZIP 与 `.sha256` 两项附件完整。草稿及公开下载字节、Git 原始字节与 GitHub digest 相符；详见独立插件仓库的 [发布验收记录](https://github.com/zhaojiseng/lumi-extensions/blob/main/docs/RELEASE_VALIDATION_2026-10-14.md)。
+
 ## 1.0.4 · 发布前验证（2026-10-14）
 
 - 应用清单、lockfile 根和两个渲染侧显示统一为 1.0.4；依赖版本未变。发布包含下节玻璃调度与真实预览，以及主窗口阴影、焦点、滚动条和光标反馈调整。
