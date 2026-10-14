@@ -46,7 +46,7 @@ const win=new BrowserWindow({width:1000,height:380,useContentSize:true,show:proc
 if(process.platform==='win32')win.showInactive();
 const requests=[];win.webContents.session.webRequest.onBeforeRequest((details,callback)=>{if(/^https?:/.test(details.url))requests.push(details.url);callback({cancel:/^https?:/.test(details.url)});});
 await win.loadFile(path.join(__dirname,'index.html'));
-const media=async(reduced=false,forced=false)=>Promise.all(frames().map(f=>f.executeJavaScript('setFixtureMedia("(prefers-reduced-transparency: reduce)",'+reduced+');setFixtureMedia("(forced-colors: active)",'+forced+')')));
+const media=async(reduced=false,forced=false)=>until(async()=>frames().length===2 && (await Promise.all(frames().map(f=>inspect(f,fixtureMedia+';(()=>{if(typeof setFixtureMedia!=="function")return false;setFixtureMedia("(prefers-reduced-transparency: reduce)",'+reduced+');setFixtureMedia("(forced-colors: active)",'+forced+');return true})()')))).every(Boolean),'preview media control document not ready');
 const run=code=>win.webContents.executeJavaScript(code),frames=()=>win.webContents.mainFrame.frames.filter(frame=>!frame.detached);
 const inspect=(frame,code)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>resolve(false),1000);timer.unref();frame.executeJavaScript(code).then(value=>{clearTimeout(timer);resolve(value);},error=>{clearTimeout(timer);if(frame.detached || /disposed|destroyed/.test(String(error)))resolve(false);else reject(error);});});
 const check=(value,label)=>{if(!value)throw Error(label);};
@@ -60,6 +60,7 @@ const ready=async strength=>until(async()=>{if(frames().length!==2)return false;
 const paint=async()=>{await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');await win.webContents.capturePage(undefined,{stayHidden:true,stayAwake:true});await run('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');};
 const shots={};
 for(const strength of ['off','mild','strong']){await run('fixture.render('+JSON.stringify(strength)+')');await ready(strength);await paint();shots[strength]=[];for(const x of [0,500])shots[strength].push((await win.webContents.capturePage({x,y:0,width:480,height:300},{stayHidden:true,stayAwake:true})).toBitmap());}
+console.log('APPEARANCE_PREVIEW_NATIVE_MEDIA '+JSON.stringify(states.map(s=>s.nativeMedia)));
 const difference=(a,b)=>{let count=0;for(let i=0;i<a.length;i+=4)if(Math.max(Math.abs(a[i]-b[i]),Math.abs(a[i+1]-b[i+1]),Math.abs(a[i+2]-b[i+2]))>3)count++;return count;};
 const pixels=shots.off.map((off,index)=>({mode:index ? 'dark' : 'light',offMild:difference(off,shots.mild[index]),mildStrong:difference(shots.mild[index],shots.strong[index])}));
 check(pixels.every(p=>p.offMild>50 && p.mildStrong>50),'preview refraction pixels missing '+JSON.stringify(pixels));
