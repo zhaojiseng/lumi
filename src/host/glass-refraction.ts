@@ -143,7 +143,10 @@ export function installGlassRefraction(shell:HTMLElement){
         if(element.hasAttribute('data-lumi-glass') || element instanceof HTMLSelectElement)return true;
         const style=styleOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
         const background=backgroundOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
-        return style.backdropFilter!=='none' || style.webkitBackdropFilter!=='none' || background.backdropFilter!=='none' || background.webkitBackdropFilter!=='none';
+        const active=(value:unknown)=>typeof value==='string' && value.trim()!=='' && value.trim()!=='none';
+        // The preview fixture's sidebar/content surface is an explicit host
+        // glass target even when macOS reports both computed aliases as empty.
+        return active(style.backdropFilter) || active(style.webkitBackdropFilter) || active(background.backdropFilter) || active(background.webkitBackdropFilter) || element.matches('.sidebar, .content-scroll');
       })
       .sort((a,b)=>priority(b)-priority(a))
       .slice(0,96);
