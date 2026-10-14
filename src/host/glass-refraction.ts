@@ -141,7 +141,8 @@ export function installGlassRefraction(shell:HTMLElement){
       // does not depend on the platform's computed-style alias.
       .filter(element=>{
         if(element.hasAttribute('data-lumi-glass') || element instanceof HTMLSelectElement)return true;
-        const style=styleOf(element),background=backgroundOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
+        const style=styleOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
+        const background=backgroundOf(element) as CSSStyleDeclaration & {webkitBackdropFilter?: string};
         return style.backdropFilter!=='none' || style.webkitBackdropFilter!=='none' || background.backdropFilter!=='none' || background.webkitBackdropFilter!=='none';
       })
       .sort((a,b)=>priority(b)-priority(a))
