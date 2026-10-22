@@ -24,8 +24,8 @@ async function fixture(t:test.TestContext){
 }
 function remote(files:Map<string,Buffer>,id=notes){
   const tree=[...files].map(([name,bytes])=>({path:'plugins/'+id+'/'+name,type:'blob',mode:'100644',size:bytes.length,sha:blob(bytes)}));
-  let current=revision,corrupt='',failure='',calls:string[]=[];
-  const transport:MarketRead=async(url,limit,signal)=>{
+  let current=revision,corrupt='',failure='',calls:string[]=[],downloaded=0;
+  const read:MarketRead=async(url,limit,signal)=>{
     calls.push(url);assert.equal(signal.aborted,false);
     if(url.includes(failure) && failure)throw new Error('fixture offline');
     if(url.endsWith('/commits/main'))return Buffer.from(JSON.stringify({sha:current}));
@@ -34,7 +34,8 @@ function remote(files:Map<string,Buffer>,id=notes){
     const name=url.slice(prefix.length),value=files.get(name);assert.ok(value,'unexpected remote file '+name);assert.ok(value.length<=limit);
     return name===corrupt ? Buffer.from('corrupt') : value;
   };
-  return {tree,transport,calls,revision:(value:string)=>{current=value;},corrupt:(name:string)=>{corrupt=name;},fail:(value:string)=>{failure=value;}};
+  const transport:MarketRead=async(...args)=>{const bytes=await read(...args);downloaded+=bytes.length;return bytes;};
+  return {tree,transport,calls,bytes:()=>downloaded,revision:(value:string)=>{current=value;},corrupt:(name:string)=>{corrupt=name;},fail:(value:string)=>{failure=value;}};
 }
 test('market catalogs pin commit/blob identities, cache reads and include isolated theme previews',async t=>{
   const f=await fixture(t),theme=(await readExtensionPackage(path.join(f.shipped,compact))).files,r=remote(theme,compact),market=new ExtensionMarket(f.host,r.transport);t.after(()=>market.dispose());
@@ -57,6 +58,43 @@ test('market installation overrides a shipped sample, disables only its target a
   const removed=await f.host.remove(notes);assert.equal(removed.plugins.find(pkg=>pkg.manifest.id===notes)!.removable,false);assert.equal(f.host.statuses().find(s=>s.manifest.id===notes)!.state,'disabled');
   await f.host.setEnabled(notes,true);assert.equal(await f.host.request({id:notes,generation:f.host.statuses().find(s=>s.manifest.id===notes)!.generation!,view:'card',method:'storage.read',input:{key:'note'}}),'preserved draft');
   await assert.rejects(f.host.remove(compact),/只能卸载/);
+});
+
+test('market refresh and installation reuse verified content across immutable revisions',async t=>{
+  const f=await fixture(t),theme=new Map((await readExtensionPackage(path.join(f.shipped,compact))).files),r=remote(theme,compact),market=new ExtensionMarket(f.host,r.transport);t.after(()=>market.dispose());
+  const [first,parallel]=await Promise.all([market.read(),market.read()]);
+  const initial={requests:r.calls.length,bytes:r.bytes()};
+  first.plugins[0].manifest.name='caller mutation';assert.notEqual(parallel.plugins[0].manifest.name,'caller mutation');
+  let before=r.calls.length;const initialBytes=r.bytes();await market.read({force:true});
+  assert.deepEqual(r.calls.slice(before).map(url=>url.slice(url.lastIndexOf('/'))),['/main'],'unchanged commit needs only a head check');
+  t.diagnostic(JSON.stringify({fixture:'compact market unchanged refresh',before:initial,after:{requests:r.calls.length-before,bytes:r.bytes()-initialBytes}}));
+  r.revision('2'.repeat(40));before=r.calls.length;await market.read({force:true});
+  assert.equal(r.calls.length-before,2,'new commit with unchanged blobs reads only head and tree');
+  const cssName=parallel.plugins[0].manifest.interface!.stylesheet,css=Buffer.concat([theme.get(cssName)!,Buffer.from('\n/* updated fixture */')]);
+  theme.set(cssName,css);Object.assign(r.tree.find(node=>node.path.endsWith('/'+cssName))!,{sha:blob(css),size:css.length});
+  const latest='3'.repeat(40);r.revision(latest);before=r.calls.length;
+  const changed=await market.read({force:true});assert.equal(r.calls.length-before,3,'only the changed stylesheet is downloaded');assert.match(changed.plugins[0].preview!.css,/updated fixture/);
+  await market.install({id:compact,revision:latest});
+  const rawCalls=r.calls.filter(url=>url.startsWith('https://raw.githubusercontent.com/'));
+  assert.equal(rawCalls.filter(url=>url.endsWith('/plugin.json')).length,1,'installation reuses the preview manifest');
+  assert.equal(rawCalls.filter(url=>url.endsWith('/'+cssName)).length,2,'installation reuses the latest preview stylesheet');
+  assert.equal(rawCalls.length,new Set([...theme.values()].map(blob)).size+1,'each unique package blob downloads once, plus the old stylesheet');
+  before=r.calls.length;await market.install({id:compact,revision:latest});assert.equal(r.calls.length,before,'retrying installation needs no downloads');
+});
+
+test('an incomplete catalog retries failed files even when the commit is unchanged',async t=>{
+  const f=await fixture(t),r=remote(f.files),market=new ExtensionMarket(f.host,r.transport);t.after(()=>market.dispose());
+  r.fail('/plugin.json');const failed=await market.read();assert.equal(failed.plugins.length,0);assert.equal(failed.diagnostics.length,1);
+  r.fail('');const recovered=await market.read({force:true});assert.equal(recovered.plugins.length,1);assert.equal(recovered.diagnostics.length,0);
+  assert.equal(r.calls.filter(url=>url.endsWith('/plugin.json')).length,2);
+});
+
+test('disposing the market rejects an in-flight unchanged-revision refresh',async t=>{
+  const f=await fixture(t),r=remote(f.files);let hold=false,entered!:()=>void,release!:()=>void;
+  const started=new Promise<void>(resolve=>entered=resolve),wait=new Promise<void>(resolve=>release=resolve);
+  const market=new ExtensionMarket(f.host,async(...args)=>{const bytes=await r.transport(...args);if(hold){entered();await wait;}return bytes;});t.after(()=>market.dispose());
+  await market.read();hold=true;const pending=market.read({force:true}),rejected=assert.rejects(pending,/正在退出/);
+  await started;market.dispose();release();await rejected;await assert.rejects(market.read(),/正在退出/);
 });
 test('failed or corrupt downloads and undeclared IDs never replace an active installed plugin',async t=>{
   const f=await fixture(t),r=remote(f.files),market=new ExtensionMarket(f.host,r.transport);t.after(()=>market.dispose());await f.host.setEnabled(notes,true);

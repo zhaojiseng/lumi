@@ -87,6 +87,23 @@ test('token curve caches isolate cookie sessions and a changed site address',asy
   }finally{await f.close();await other.close();}
 });
 
+test('forced catalog refresh preserves complete history, derived usage and token inventory caches',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:new Date(2026,9,23,12,0,0).getTime()});
+  const f=await fixture();try{
+    const original=await f.api.tokenUsage(1);await f.api.usageQuality(1);await f.api.tokens();
+    const input={siteId:f.site.id,siteUrl:f.site.url};await f.api.readCatalog(input);
+    const before=f.seen.length;
+    await f.api.readCatalog({...input,force:true});
+    assert.deepEqual(f.seen.slice(before).map(row=>row.path).sort(),['/api/perf-metrics/summary','/api/pricing','/api/status','/api/user/self']);
+    const after=f.seen.length;
+    assert.deepEqual(await f.api.tokenUsage(1),original);await f.api.usageQuality(1);await f.api.tokens();
+    assert.equal(f.seen.length,after,'catalog refresh must not redownload unrelated records or tokens');
+    assert.equal(f.seen.filter(row=>row.path==='/api/log/self').length,2);
+    await f.api.dashboard(1,true);await f.api.tokenUsage(1);
+    assert.ok(f.seen.filter(row=>row.path==='/api/log/self').length>2,'explicit usage refresh still invalidates history');
+  }finally{f.api.close();await f.close();}
+});
+
 test('efficiency metrics share complete logs with token curves and refresh on manual invalidation',async()=>{
   const f=await fixture();try{
     const [quality,curve]=await Promise.all([f.api.usageQuality(1),f.api.tokenUsage(1)]);

@@ -1,8 +1,8 @@
-import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {EXTENSION_MARKET_REPOSITORY,EXTENSION_MARKET_URL,compareExtensionVersions,type ExtensionMarketCatalog,type ExtensionMarketItem,type ExtensionMarketInstall} from '../../shared/contracts/extension-market';
 import {extensionId,parseExtensionManifest,safeExtensionPath} from '../../shared/extension-manifest';
 import type {ExtensionHost} from './host';
+import {MarketFileCache} from './market-file-cache';
 
 const api='https://api.github.com/repos/'+EXTENSION_MARKET_REPOSITORY;
 const raw='https://raw.githubusercontent.com/'+EXTENSION_MARKET_REPOSITORY;
@@ -44,26 +44,30 @@ export function marketPackageFiles(input:unknown):Map<string,TreeFile[]>{
 }
 export class ExtensionMarket {
   private controller=new AbortController();private snapshot?:ExtensionMarketCatalog;private entries=new Map<string,PackageEntry>();private pending?:Promise<ExtensionMarketCatalog>;private installing=false;
+  private files=new MarketFileCache();
   constructor(private host:ExtensionHost,private transport:MarketRead=readMarketResource){}
   private signal(){return AbortSignal.any([this.controller.signal,AbortSignal.timeout(15000)]);}
   private async json(url:string){return JSON.parse((await this.transport(url,4*1024*1024,this.signal())).toString('utf8'));}
   private async file(revision:string,id:string,file:TreeFile,limit=2*1024*1024){
     if(file.size>limit)throw new Error('市场插件文件超过大小限制。');
-    const bytes=await this.transport(raw+'/'+revision+'/plugins/'+id+'/'+file.name,limit,this.signal());
-    const digest=createHash('sha1').update('blob '+bytes.length+'\0').update(bytes).digest('hex');
-    if(bytes.length!==file.size || digest!==file.sha)throw new Error('插件文件校验失败，请刷新市场后重试。');
-    return bytes;
+    return this.files.get(file,()=>this.transport(raw+'/'+revision+'/plugins/'+id+'/'+file.name,limit,this.signal()));
   }
   read(input:{force?:boolean}={}):Promise<ExtensionMarketCatalog>{
     if(this.controller.signal.aborted)return Promise.reject(new Error('插件市场正在退出。'));
-    if(this.pending)return this.pending;
+    if(this.pending)return this.pending.then(catalog=>structuredClone(catalog));
     if(!input.force && this.snapshot && Date.now()-this.snapshot.fetchedAt<300000)return Promise.resolve(structuredClone(this.snapshot));
     const pending=this.load();this.pending=pending;
     void pending.finally(()=>{if(this.pending===pending)this.pending=undefined;}).catch(()=>{});
-    return pending;
+    return pending.then(catalog=>structuredClone(catalog));
   }
   private async load(){
-    const revision=sha.parse((await this.json(api+'/commits/main')).sha),packages=marketPackageFiles(await this.json(api+'/git/trees/'+revision+'?recursive=1'));
+    const revision=sha.parse((await this.json(api+'/commits/main')).sha);
+    if(this.controller.signal.aborted)throw new Error('插件市场正在退出。');
+    // Retry incomplete catalogs, but a complete snapshot at the same commit is immutable.
+    if(this.snapshot?.revision===revision && !this.snapshot.diagnostics.length){
+      this.snapshot={...this.snapshot,fetchedAt:Date.now()};return this.snapshot;
+    }
+    const packages=marketPackageFiles(await this.json(api+'/git/trees/'+revision+'?recursive=1'));
     const entries=new Map<string,PackageEntry>(),diagnostics:ExtensionMarketCatalog['diagnostics']=[];
     for(const [id,files] of packages){
       try{
@@ -83,7 +87,7 @@ export class ExtensionMarket {
     }
     if(this.controller.signal.aborted)throw new Error('插件市场正在退出。');
     const catalog={revision,fetchedAt:Date.now(),plugins:[...entries.values()].map(entry=>entry.item),diagnostics};
-    this.entries=entries;this.snapshot=catalog;return structuredClone(catalog);
+    this.entries=entries;this.snapshot=catalog;return catalog;
   }
   async install(input:ExtensionMarketInstall){
     if(this.installing)throw new Error('插件正在安装，请稍后再试。');
@@ -101,5 +105,5 @@ export class ExtensionMarket {
       return await this.host.installFiles(input.id,files);
     }finally{this.installing=false;}
   }
-  dispose(){this.controller.abort();this.entries.clear();this.snapshot=undefined;}
+  dispose(){this.controller.abort();this.files.dispose();this.entries.clear();this.snapshot=undefined;}
 }

@@ -53,10 +53,16 @@ export function InterfaceHost(props:InterfaceShellProps){
   const {extensions,statuses}=usePluginSettings(),[failure,setFailure]=useState('');
   const style=extensions?.interfaceStyle;
   useLayoutEffect(()=>{
-    const base=new CSSStyleSheet();base.replaceSync(defaultInterfaceLayout);let extra:CSSStyleSheet|undefined;
+    const base=new CSSStyleSheet();base.replaceSync(defaultInterfaceLayout);
+    document.adoptedStyleSheets=[...document.adoptedStyleSheets,base];
+    return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>sheet!==base);};
+  },[]);
+  useLayoutEffect(()=>{
+    let extra:CSSStyleSheet|undefined;
     try{if(style)extra=scopedInterfaceSheet(style);setFailure('');}catch(error){setFailure(error instanceof Error ? error.message : '界面插件无法加载。');}
-    const ours=[base,...extra ? [extra] : []];document.adoptedStyleSheets=[...document.adoptedStyleSheets,...ours];
-    return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>!ours.includes(sheet));};
+    if(!extra)return;
+    document.adoptedStyleSheets=[...document.adoptedStyleSheets,extra];
+    return()=>{document.adoptedStyleSheets=document.adoptedStyleSheets.filter(sheet=>sheet!==extra);};
   },[style?.id,style?.css]);
   useLayoutEffect(()=>{applyDocumentTypography(document,props.preferences);},[props.preferences.fontSize,props.preferences.fontFamily,style?.id,style?.css]);
   useLayoutEffect(()=>()=>disposeDocumentTypography(document),[]);

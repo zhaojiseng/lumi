@@ -7,6 +7,7 @@ import { publicEncrypt, randomBytes, createCipheriv, randomUUID, createHash } fr
 import { normalizeCatalog, availableGroups } from '../../../shared/catalog';
 import {publishedServiceTiers,validServiceTier} from '../../../shared/pricing';
 import {tokenSettings} from './token-controls';
+import {newApiReadTtl,newApiWriteEffect} from './cache-policy';
 import {DEFAULT_SITE_URL} from '../../../shared/types';
 import {ReadCache} from '../../../electron/services/read-cache';
 import {UsageLogCache,USAGE_HISTORY_TTL,USAGE_LIVE_TTL,type CachedUsageLogs,type UsageWindow} from '../../../electron/services/usage-log-cache';
@@ -44,6 +45,11 @@ export class NewApiClient {
     this.refreshes = owner?.refreshes || new Map(); this.provisions = owner?.provisions || new Map(); this.challenges = owner?.challenges || new Map();
   }
   private invalidate(prefix:string){this.cache.invalidate(prefix);this.usageLogs.invalidate(prefix);this.trends.invalidate(prefix);}
+  private invalidateTokenReads(prefix:string){
+    // Renames can affect historical token labels: retain only unrelated site metadata.
+    for(const endpoint of ['/api/token/','/api/user/self','/api/log/self','/api/log/self/stat','/api/data/self','derived'])this.cache.invalidate(prefix+endpoint+'\0');
+    this.usageLogs.invalidate(prefix);this.trends.invalidate(prefix);
+  }
   private usageScope(scope:Scope,secret:SiteSecret){return scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');}
   close(){this.lifetime.closed=true;this.lifetime.controller.abort();this.invalidate('');this.challenges.clear();}
   private scope() { const site = structuredClone(this.store.activeSite()); return new NewApiClient(this.store, { site, secret: this.store.credentials(site.id), preferences: structuredClone(this.store.preferences) }, this.owner || this); }
@@ -120,7 +126,7 @@ export class NewApiClient {
     this.checkScope(scope);
     const prefix=scope.site.id+'\0'+scope.site.url+'\0';
     if (options.public) {
-      const result=await this.cache.get(prefix+'public:'+endpoint,300000,async()=>(await this.raw(scope,endpoint,options)).json);
+      const result=await this.cache.get(prefix+endpoint+'\0public',300000,async()=>(await this.raw(scope,endpoint,options)).json);
       this.checkScope(scope);return result;
     }
     let secret = await this.validSecret(scope);
@@ -129,16 +135,17 @@ export class NewApiClient {
       try {return (await this.raw(scope,endpoint,{...options,secret,authenticated:true})).json;}
       catch(e){if(e instanceof ApiError && e.status===401 && secret.sessionAuth){secret=await this.refreshSecret({...scope,secret});return (await this.raw(scope,endpoint,{...options,secret,authenticated:true})).json;}throw e;}
     };
-    const ttl=endpoint==='/api/pricing' ? 300000 : endpoint==='/api/data/self' || endpoint==='/api/log/self/stat' || endpoint.startsWith('/api/perf-metrics') ? 60000 : endpoint==='/api/token/' || endpoint==='/api/user/self' ? 30000 : endpoint==='/api/log/self' ? 15000 : 0;
+    const ttl=newApiReadTtl(endpoint,options.query);
     let result:any;
     if((options.method || 'GET')==='GET' && options.body===undefined && options.cache!==false && ttl){
       const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
       const entries=Object.entries(options.query || {}).filter(([,v])=>v!==undefined && v!=='').map(([key,value])=>[key,endpoint!=='/api/log/self' && key==='end_timestamp' && typeof value==='number' && value>=Date.now()/1000-60 ? Math.floor(value/60)*60 : value]).sort(([a],[b])=>String(a).localeCompare(String(b)));
-      result=await this.cache.get(prefix+identity+':'+endpoint+JSON.stringify(entries),ttl,load);
+      result=await this.cache.get(prefix+endpoint+'\0'+identity+'\0'+JSON.stringify(entries),ttl,load);
     }else{
-      const mutation=(options.method || 'GET')!=='GET';
-      if(mutation)this.invalidate(prefix);
-      try{result=await load();}finally{if(mutation)this.invalidate(prefix);}
+      const effect=newApiWriteEffect(endpoint,options.method || 'GET',options.body!==undefined);
+      const invalidate=()=>{if(effect==='tokens')this.invalidateTokenReads(prefix);else if(effect==='all')this.invalidate(prefix);};
+      invalidate();
+      try{result=await load();}finally{invalidate();}
     }
     this.checkScope(scope);await this.validSecret(scope);
     return result;
@@ -215,7 +222,8 @@ export class NewApiClient {
     const scope=this.current();
     const assertActive=()=>{this.checkScope(scope);const site=this.store.activeSite();if(site.id!==input.siteId || site.url!==input.siteUrl || scope.site.id!==input.siteId || scope.site.url!==input.siteUrl)throw new Error('当前站点已切换，请重新读取模型目录。');};
     assertActive();
-    if(input.force)this.invalidate(scope.site.id+'\0');
+    // Catalog refresh does not change consumption history or derived usage snapshots.
+    if(input.force)for(const endpoint of ['/api/status','/api/pricing','/api/perf-metrics/summary','/api/user/self'])this.cache.invalidate(scope.site.id+'\0'+scope.site.url+'\0'+endpoint+'\0');
     const empty:ModelCatalog={models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]};
     if(!scope.secret.accessToken && !scope.secret.cookies?.length){
       const status=await this.status();assertActive();
@@ -308,7 +316,7 @@ export class NewApiClient {
     const scope=this.current(),secret=await this.validSecret(scope);
     const identity=createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex');
     // Keep today's key stable across minute refreshes; detailed metrics refresh every five minutes.
-    const key=scope.site.id+'\0'+scope.site.url+'\0'+identity+':quality:'+JSON.stringify([isRollingRange(query) ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(query).range,statisticsFilters(query)]);
+    const key=scope.site.id+'\0'+scope.site.url+'\0derived\0'+identity+':quality:'+JSON.stringify([isRollingRange(query) ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(query).range,statisticsFilters(query)]);
     const value=await this.cache.get(key,300000,async()=>(await this.tokenUsage(query)).quality);
     this.checkScope(scope);await this.validSecret(scope);return value;
   }
@@ -397,7 +405,7 @@ export class NewApiClient {
   async menuBarDetails(selection:MenuBarSelection=DEFAULT_MENU_BAR_SELECTION):Promise<MenuBarDetails>{
     if(!this.snapshot)return this.scope().menuBarDetails(selection);
     const scope=this.current(),secret=await this.validSecret(scope),window=timeRange(selection.range || selection.days);
-    const key=scope.site.id+'\0'+scope.site.url+'\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex')+':menuDetails:'+JSON.stringify([selection.range==='24h' ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(selection.range || selection.days).range,selection.tool,scope.preferences.managedTokens,scope.preferences.bindings]);
+    const key=scope.site.id+'\0'+scope.site.url+'\0derived\0'+createHash('sha256').update(JSON.stringify([secret.userId,secret.sessionId,secret.accessToken,secret.cookies])).digest('hex')+':menuDetails:'+JSON.stringify([selection.range==='24h' ? ['24h',new Date().toLocaleDateString('sv-SE')] : resolveRange(selection.range || selection.days).range,selection.tool,scope.preferences.managedTokens,scope.preferences.bindings]);
     const details=await this.cache.get(key,300000,async()=>{
       const [complete,tokens]=await Promise.all([this.completeLogs(selection.range || selection.days,2,window),selection.tool==='all' ? Promise.resolve([]) : this.tokens()]);
       const tracked=trackedToolTokenNames(scope.preferences,scope.site.id,tokens).filter(t=>t.tool===selection.tool);
