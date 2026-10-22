@@ -1,5 +1,13 @@
 # Lumi 验证记录
 
+## 1.0.5 · 公开发布验收（2026-10-23）
+
+- [Lumi 1.0.5](https://github.com/zhaojiseng/lumi/releases/tag/v1.0.5) 已公开，发布时间为北京时间 2026-10-23 03:32:18，标签固定提交 `1db47de6ab5f5e097cba6b296e7e057c710aa954`。标签流程 [39839237646](https://github.com/zhaojiseng/lumi/actions/runs/39839237646) 六项任务全部成功：三平台检查、Windows x64/macOS ARM64 打包及公开发布完成。
+- 三平台均为 936 项测试：Windows 933 通过/3 平台跳过、Linux 924 通过/12 平台跳过、macOS 926 通过/10 平台跳过，均 0 失败；Rust 核心测试、类型检查、插件校验、凭据检查、构建和依赖审计通过。两平台隔离启动及包校验通过，各匹配 78 个构建文件，完整许可、原生架构与 DMG 校验由对应平台执行。远程日志为 `.test-data/release-105/public-run.log`。
+- 六项公开附件已全部下载。SHA256SUMS 五条记录与实际文件和 GitHub 附件 digest 一致，清单自身 digest 也通过；更新元数据版本为 1.0.5，EXE 大小及 SHA-512 匹配。公开源码 ZIP 的 534 个文件与本地标签 Git 归档逐文件一致，远程附注标签对象与本地相同。证据为 `.test-data/release-105/{public-release.json,tag-run.json,tag-jobs.json,public-tag.json,public-verification.json}`。
+- 公开 EXE 为 113238192 字节，SHA-256 `d23075452eb4837030f85fd16c1f41c1ecea2b0c180472d260cb6899ca7780a9`；ARM64 DMG 为 132775605 字节，SHA-256 `55d9f545c22f90be6b5d83e1d05411892de1fdafb6aefb6ef9b04118c053c9aa`。本机包和公开包分别记录，不互换散列。
+- 独立插件仓库提交 `bc38aef145be3f842ee35ee61374b31faaf3f28c` 已推送，仅包含基准工具和宿主优化说明；插件目录包不变，浮梦保持 1.1.10，不创建重复插件 Release。
+
 ## 1.0.5 · 本地发布前验证（2026-10-23）
 
 - 版本清单、lockfile 根、主界面及浏览器适配版本统一为 1.0.5。包含 NewAPI 分级失效与历史汇总、插件市场有界文件复用，以及主题纯位移图和样式表生命周期优化；独立插件包不变。
