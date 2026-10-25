@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Lumi is an Electron + React + TypeScript desktop client for New API. It displays account usage and published model pricing, reads local Codex/Claude sessions, and directly configures Codex CLI and Claude Code CLI (not Claude Desktop). The UI and primary documentation are Chinese. Published desktop targets are Windows x64 and macOS Apple Silicon ARM64; Linux is covered by checks but has no supported release package.
+Lumi is an Electron + React + TypeScript desktop client for New API. It displays account usage and published model pricing, reads local Codex/Claude sessions, and directly configures Codex CLI and Claude Code CLI (not Claude Desktop). Since 1.0.1 it also ships a built-in local model-gateway core (Rust, `native/gateway-runtime`) managed from the independent gateway extension. The UI and primary documentation are Chinese. Published desktop targets are Windows x64 and macOS Apple Silicon ARM64; Linux is covered by checks but has no supported release package.
 
 ## Commands
 
-Run commands from the repository root. Use Node.js 24+ and npm 11+; `.nvmrc` and `package.json` record the toolchain. Node 24 is also needed for built-in SQLite support.
+Run commands from the repository root. Use Node.js 24+ and npm 11+; `.nvmrc` and `package.json` record the toolchain. Node 24 is also needed for built-in SQLite support. Source development additionally needs Rust 1.85+ and platform C build tools: `pretest` and `npm run build` compile the pinned gateway core in `native/gateway-runtime` with locked Cargo dependencies only.
 
 ```bash
 npm ci --ignore-scripts
@@ -26,6 +26,7 @@ This is the controlled install sequence used by CI. `setup:electron` downloads t
 | `npm test` | Runs `pretest`, then `tsx --test --test-concurrency=4 tests/*.test.ts` using Node's built-in test runner. No production build is required. |
 | `npm run build` | Typecheck → Vite renderer build → esbuild Electron/native build → dependency-license generation. |
 | `npm run preview` | Previews the built renderer after a build. |
+| `npm run bench:render` | Local rendering benchmark over a fixed synthetic dataset; independent of `npm test` and builds. |
 | `npm run test:desktop` | Hidden Electron smoke of the checkout; run `npm run build` first and leave `LUMI_DEV_URL` unset. |
 | `npm run dist` | Rebuilds and creates the platform installer; local packaging does not publish. |
 | `npm run dist:dir` | Rebuilds and creates an unpacked application directory. |
@@ -72,6 +73,7 @@ Pre-commit checks staged changes; pre-push checks the reachable history of pushe
 - **App state:** `src/App.tsx` owns `AppContext`, lazy page navigation (no router), bootstrap, dashboard queries, and preference updates. Bootstrap returns local settings first; tool config inspection follows asynchronously. Preferences update optimistically but persist through a serialized queue. Request/version guards reject stale results: range changes within one account retain the prior dashboard until replacement, while account changes clear it immediately. Preserve those distinctions when adding async work.
 - **Site selections:** `src/selections.ts` and `shared/selections.ts` route persisted page/filter choices through `{selection: {siteId, values}}`. Use the explicit site-scoped patch rather than separate component storage. Account/site scope must also govern caches, config previews, and panel snapshots, not just React page keys.
 - **Desktop surfaces:** `widget.html`/`src/widget.tsx` and `tray.html`/`src/tray.tsx` are separate renderers with restricted preloads, not consumers of the main AppContext. They receive formatted usage snapshots and limited actions, never the main window's account/config privileges. macOS uses a Swift/AppKit menu-bar helper with constrained stdin/stdout messages; it does not read credentials or contact sites. Windows and macOS updater services are separate from the New API account client.
+- **Gateway core:** `native/gateway-runtime` is a self-contained Rust crate compiled by `pretest` and `npm run build`, then packaged into `resources/native`. The host drives it through fixed private subprocess pipes (`initialize-private` / `configure-private`); management identity and routing credentials use Windows DPAPI / macOS Keychain, and recorded bodies are encrypted with random AES-GCM keys. The initial implementation came from `sources/gateway-runtime` in the extensions repository — when updating the core, keep both checkouts' sources and regressions in sync (see `native/gateway-runtime/README.md`).
 - **Styling:** `src/main.tsx` imports global cascade layers in order: `styles.css` → `workbench.css` → `select.css` → `theme.css` → `updates-trends.css` → `filters-tools-motion.css` → `platform-logs.css`. Later layers intentionally override earlier ones. Widget/tray have their own styles. Reuse `src/components/BrandIcon.tsx` for existing model/tool brand assets.
 
 ## Data and lifecycle invariants
@@ -83,7 +85,7 @@ Pre-commit checks staged changes; pre-push checks the reachable history of pushe
 Reuse `shared/range.ts`, `statistics.ts`, `trends.ts`, `logs.ts`, `usage-quality.ts`, and pricing/catalog helpers rather than recreating calculations in pages:
 
 - Models are ORed within their filter, token IDs are ORed within theirs, and the two dimensions are ANDed. Overview usage, efficiency, activity, and trends share the selected range/filter; account balance is separate.
-- Accurate filtered/minute statistics and current overview trends use complete consumption logs, bounded at 10,000 records. Exceeding the limit, missing required token IDs, or inconsistent pagination must fail rather than extrapolate from a partial page. Current overview trends use exact timestamps in at most 30 segments; do not replace them with older hourly aggregates. Menu-bar sampling has distinct semantics.
+- Accurate filtered/minute statistics, current overview trends, curves and menu-bar details use complete consumption logs with full pagination and no record cap (the former 10,000-record / 101-page limits were removed). Missing required token IDs, duplicate IDs, or inconsistent pagination must still fail rather than extrapolate from a partial page. The 10,000-record cap now applies only to CSV export (`allLogs`), and the default widget history search keeps its own 2,000-record bound. Current overview trends use exact timestamps in at most 30 segments; do not replace them with older hourly aggregates. Menu-bar sampling has distinct semantics.
 - Input + output totals must not add cache categories again. Cache hit rate is summed eligible cache-read tokens / corresponding input tokens; throughput is summed output tokens / summed valid duration, including first-token wait. Missing/invalid observations remain unknown, with valid-sample coverage, not zero or an average of per-row percentages.
 - Pricing comes from published site rules, channels, and restricted-AST expressions. Preserve conditional/per-request/cache/media distinctions; missing multipliers or required variables mean unknown pricing, not an assumed multiplier of one. Do not hardcode model-name prices/cache TTLs or execute pricing expressions as scripts.
 
