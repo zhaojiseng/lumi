@@ -84,14 +84,15 @@ test('provider restart invalidates actual previews without deleting backups or C
   await host.setEnabled('provider.newapi',false);assert.equal(host.isEnabled('feature.tool-config'),true);assert.ok(Array.isArray(await config.inspect()));await host.setEnabled('provider.newapi',true);
   await assert.rejects(config.apply(preview.id),/预览.*失效|重新预览/);assert.deepEqual(await config.backups(),[]);await assert.rejects(readFile(path.join(root,'.claude','settings.json')),e=>e instanceof Error && 'code' in e && e.code==='ENOENT');
 });
-test('widget and tray are independent projections; display switches retain underlying data',async t=>{
+test('surface plugins project shared presentation; display switches retain underlying data',async t=>{
   const {root,store}=await fixture(t),host=await createBuiltinPlugins(store,{localHome:root});t.after(()=>host.dispose());await host.setEnabled('surface.widget',true);
-  const widget=host.port('surface.widget','widget.project'),tray=host.port('surface.tray','tray.project');await host.setView('provider.newapi','workbench',false);await host.setView('provider.newapi','usage',false);
-  assert.equal((await widget.loadWidget()).loggedIn,false);assert.equal((await tray.loadMenu()).siteId,store.activeSite().id);const old=host.require('surface.widget','widget.project');
-  await host.setEnabled('surface.widget',false);assert.throws(()=>old.loadWidget(),/active/i);assert.equal((await tray.loadMenu()).siteId,store.activeSite().id);await host.setEnabled('surface.widget',true);
-  await host.setEnabled('surface.tray',false);assert.equal((await widget.loadWidget()).loggedIn,false);assert.throws(()=>tray.loadMenu(),/未启用/);
-  await host.setEnabled('provider.newapi',false);await assert.rejects(widget.loadWidget(),/active/i);assert.equal((await host.require('source.local-sessions','localSessions.read').scan(7)).filesScanned,0);
-  await host.setEnabled('provider.newapi',true);assert.equal((await widget.loadWidget()).siteId,store.activeSite().id);
+  const usage=host.port('feature.usage','usage.present'),workbench=host.port('feature.workbench','workbench.present');await host.setView('provider.newapi','workbench',false);await host.setView('provider.newapi','usage',false);
+  assert.equal((await usage.loadWidget()).loggedIn,false);assert.equal((await workbench.loadMenu()).siteId,store.activeSite().id);
+  const oldControl=host.require('surface.widget','surface.control');
+  await host.setEnabled('surface.widget',false);assert.throws(()=>oldControl.refresh(),/active/i);assert.equal((await workbench.loadMenu()).siteId,store.activeSite().id);await host.setEnabled('surface.widget',true);
+  await host.setEnabled('surface.tray',false);assert.equal((await usage.loadWidget()).loggedIn,false);assert.throws(()=>host.require('surface.tray','surface.control'),/未启用/);await host.setEnabled('surface.tray',true);
+  await host.setEnabled('provider.newapi',false);await assert.rejects(usage.loadWidget(),/active/i);assert.equal((await host.require('source.local-sessions','localSessions.read').scan(7)).filesScanned,0);
+  await host.setEnabled('provider.newapi',true);assert.equal((await usage.loadWidget()).siteId,store.activeSite().id);
   for(const file of ['plugins/surface.widget/main.ts','plugins/surface.tray/main.ts'])assert.doesNotMatch(await readFile(file,'utf8'),/provider\.newapi|localWidgetPricing/);
 });
 test('shutdown drains mutations and immediately rejects new commands',async t=>{

@@ -17,14 +17,12 @@ export interface BuiltinCapabilityMap {
   'desktopUsage.read':DesktopUsageCapability;
   'localSessions.read':LocalSessionsCapability;
   'toolConfig.build':ToolConfigAdapter;
-  'widget.project':UsagePresentationCapability;
-  'tray.project':WorkbenchPresentationCapability;
   'subscriptionUsage.read':SubscriptionUsageCapability;
   'workbench.present':WorkbenchPresentationCapability;
   'usage.present':UsagePresentationCapability;
   'surface.control':DesktopSurfaceControl;
 }
-export const BUILTIN_CAPABILITY_IDS:readonly (keyof BuiltinCapabilityMap)[]=['catalog.read','account.session','online.usage','tokens.manage','toolCredential.provision','desktopUsage.read','localSessions.read','toolConfig.build','widget.project','tray.project','subscriptionUsage.read','workbench.present','usage.present','surface.control'];
+export const BUILTIN_CAPABILITY_IDS:readonly (keyof BuiltinCapabilityMap)[]=['catalog.read','account.session','online.usage','tokens.manage','toolCredential.provision','desktopUsage.read','localSessions.read','toolConfig.build','subscriptionUsage.read','workbench.present','usage.present','surface.control'];
 
 export type PluginCapabilityId<Capabilities extends object = BuiltinCapabilityMap> = Extract<keyof Capabilities, string>;
 

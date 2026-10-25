@@ -28,7 +28,7 @@ function App(){
   const [preferences,setPreferences]=useState(prefs),[page,setPage]=useState('tools'),[formula,setFormula]=useState(expression);fixture.preferences=preferences;fixture.page=setPage;fixture.formula=setFormula;
   fixture.site=id=>setPreferences(current=>({...current,activeSiteId:id}));
   const dashboard={status:{system_name:'Fixture',quota_per_unit:500000},user:{id:1},fetchedAt:1,catalog:{models:[{...base,model_name:'tiered',billing_mode:'tiered_expr',billing_expr:formula},{...base,model_name:'plain'},{...base,model_name:'variant',billing_plugin_variants:[{plugin_key:'flex',plugin_name:'Flex provider',billing_expr:'p*(param("service_tier")=="flex" ? .5 : 1)'}]}],groupRatio:{standard:.3},usableGroups:{standard:'测试渠道'},autoGroups:[],vendors:[]}};
-  const context={preferences,dashboard,bootstrap:{preferences,desktop:true,configs:[],version:'fixture'},page,setPage,updatePreferences:async patch=>setPreferences(current=>applyPreferencePatch(current,patch)),reloadBootstrap:async()=>{},toast:()=>{},openLogin:()=>{}};
+  const context={preferences,configs:[],dashboard,bootstrap:{preferences,desktop:true,version:'fixture'},page,setPage,updatePreferences:async patch=>setPreferences(current=>applyPreferencePatch(current,patch)),reloadBootstrap:async()=>{},toast:()=>{},openLogin:()=>{}};
   return <AppContext.Provider value={context}><ToolConfigViewsProvider value={[codexConfigView,claudeConfigView]}>{page==='settings' ? <ToolPluginSettings definition={codexConfigView}/> : <Tools/>}</ToolConfigViewsProvider></AppContext.Provider>;
 }
 createRoot(document.getElementById('root')).render(<App/>);

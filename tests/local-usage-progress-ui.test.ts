@@ -48,7 +48,7 @@ async function harness(){
   preferences.sites[0]={...preferences.sites[0],url:'https://fixture.invalid',userId:1,accessTokenConfigured:true};
   preferences.sourceSelections={'source.local-sessions':{range:structuredClone(query.range)}};
   const app:AppState={
-    preferences,bootstrap:{preferences,desktop:true,version:'0.4.31',secureStorage:true,configs:[]},
+    preferences,configs:[],bootstrap:{preferences,desktop:true,version:'0.4.31',secureStorage:true},
     dashboard:{status:{system_name:'Fixture',quota_per_unit:500000},user:{id:1,username:'fixture',display_name:'Fixture',quota:0,used_quota:0,request_count:0,group:'standard'},
       logs:{items:[],total:0,page:1,pageSize:15},series:[],stat:null,tokens:[],warnings:[],fetchedAt:new Date(2026,8,1).getTime(),days:7,
       catalog:{models:[],groupRatio:{},usableGroups:{},autoGroups:[],vendors:[]}},

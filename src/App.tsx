@@ -19,13 +19,13 @@ import {applyPreferencePatch, selectionValue} from '../shared/selections';
 import {resolveRange} from '../shared/range';
 import {refreshSeconds} from '../shared/refresh';
 import {catalogChangesStorageKey,getCatalogChanges,observeCatalogChanges,subscribeCatalogChanges} from '../shared/catalog-changes';
-import { DEFAULT_PREFERENCES, type Bootstrap, type RangeQuery, type StatisticsQuery, type Page, type Preferences, type PreferencePatch } from '../shared/types';
+import { DEFAULT_PREFERENCES, type Bootstrap, type RangeQuery, type StatisticsQuery, type Page, type Preferences, type PreferencePatch, type ToolConfigState } from '../shared/types';
 import { Button, Skeleton } from './components/ui';
 const SettingsPage = lazy(() => import('./pages/Settings'));
 const legacyNav:readonly NavigationItem[] = [
   { id: 'settings', label: '设置', icon: Settings, hint: '让工作台更顺手',section:'settings' },
 ];
-const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '1.0.5', configs: [], secureStorage: false };
+const initialBootstrap: Bootstrap = { preferences: structuredClone(DEFAULT_PREFERENCES), desktop: !!window.lumi, version: '1.0.5', secureStorage: false };
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }> {
   state = { error: '' };
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -33,6 +33,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: string }
 }
 export default function App() {
   const [bootstrap, setBootstrap] = useState<Bootstrap>(initialBootstrap);
+  const [configs, setConfigs] = useState<ToolConfigState[]>([]);
   const [preferences, setPreferences] = useState<Preferences>(initialBootstrap.preferences);
   const [page, setPage] = useState<Page>('overview');
   const plugins=usePluginHost();
@@ -81,8 +82,8 @@ export default function App() {
   const reloadBootstrap = useCallback(async () => {
     const request=++bootstrapVersion.current,b=await bridge.bootstrap();
     if(request!==bootstrapVersion.current)return;
-    setBootstrap(previous=>({...b,configs:previous.configs}));setPreferences(b.preferences);
-    void bridge.inspectConfigs().then(configs=>{if(request===bootstrapVersion.current)setBootstrap(previous=>({...previous,configs}));}).catch(()=>{});
+    setBootstrap(b);setPreferences(b.preferences);
+    void bridge.inspectConfigs().then(next=>{if(request===bootstrapVersion.current)setConfigs(next);}).catch(()=>{});
   }, []);
   useEffect(() => { reloadBootstrap().then(() => setReady(true)).catch(e => setBootstrapError(e.message)); return () => { clearTimeout(toastTimer.current); }; }, [reloadBootstrap]);
   useEffect(()=>bridge.onRefresh(()=>{setRefreshEpoch(epoch=>epoch+1);void refresh(true);}),[refresh]);
@@ -136,7 +137,7 @@ export default function App() {
     return result;
   },[contributions,preferences.activeSiteId,accountKey]);
   const content=useMemo(()=><ErrorBoundary><RendererPageSwap identity={visiblePage} accountKey={accountKey} statuses={plugins.statuses}><Suspense fallback={<Skeleton/>}>{pages[visiblePage]}</Suspense></RendererPageSwap></ErrorBoundary>,[visiblePage,accountKey,plugins.statuses,pages]);
-  const appState=useMemo<AppState>(()=>({openLogin,bootstrap,preferences,dashboard,page:visiblePage,setPage:navigatePage,days,setDays,overviewQuery,setOverviewQuery,statisticsQuery:dashboardQuery,loading,error,refresh,updatePreferences,setPreferences,reloadBootstrap,toast,configureModel}),[openLogin,bootstrap,preferences,dashboard,visiblePage,navigatePage,days,setDays,overviewQuery,setOverviewQuery,dashboardQuery,loading,error,refresh,updatePreferences,reloadBootstrap,toast,configureModel]);
+  const appState=useMemo<AppState>(()=>({openLogin,bootstrap,configs,preferences,dashboard,page:visiblePage,setPage:navigatePage,days,setDays,overviewQuery,setOverviewQuery,statisticsQuery:dashboardQuery,loading,error,refresh,updatePreferences,setPreferences,reloadBootstrap,toast,configureModel}),[openLogin,bootstrap,configs,preferences,dashboard,visiblePage,navigatePage,days,setDays,overviewQuery,setOverviewQuery,dashboardQuery,loading,error,refresh,updatePreferences,reloadBootstrap,toast,configureModel]);
   const workbench=useMemo(()=>({cards:workbenchContributions(plugins.statuses,registry),siteScope:accountKey,refreshInterval:preferences.refreshInterval,refreshEpoch}),[plugins.statuses,registry,accountKey,preferences.refreshInterval,refreshEpoch]);
   const usage=useMemo(()=>({views:usageContributions(plugins.statuses,registry),siteScope:accountKey}),[plugins.statuses,registry,accountKey]);
   const sourceError=useCallback((message:string)=>toast(message,'error'),[toast]);

@@ -177,7 +177,7 @@ test('Chromium plugin switches preserve Settings drafts, focus, scroll and dialo
       fixture.setEnabled=plugins.settings.setEnabled;fixture.setView=plugins.settings.setView;
       const catalog=useCatalogHost({scope:visible==='models' ? {accountKey:account,siteId:site,siteUrl:'https://fixture.invalid'} : null,refreshInterval:30});
       const preferences=DEFAULT_PREFERENCES,noop=()=>{};
-      const app={preferences,bootstrap:{preferences,desktop:false,version:'fixture',secureStorage:false,configs:[]},dashboard:null,page:visible,setPage,
+      const app={preferences,configs:[],bootstrap:{preferences,desktop:false,version:'fixture',secureStorage:false},dashboard:null,page:visible,setPage,
         openLogin:noop,updatePreferences:async()=>{},setPreferences:noop,reloadBootstrap:async()=>{},refresh:async()=>{},toast:noop};
       return <AppContext.Provider value={app}><PluginSettingsProvider value={plugins.settings}><CatalogProvider value={catalog}><UpdateDialogProvider>
         <div id="navigation">{rendererNavigation([],plugins.statuses).map(item=>item.id).join(',')}</div>

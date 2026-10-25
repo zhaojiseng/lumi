@@ -24,7 +24,7 @@ const bridge: LumiBridge = {
   toolRuntimes:force=>call('toolRuntimes',force),installTool:tool=>call('installTool',tool),
   onToolRuntime:listener=>{const receive=(_event:Electron.IpcRendererEvent,state:Parameters<typeof listener>[0])=>listener(state);ipcRenderer.on('lumi:toolRuntime',receive);return()=>{ipcRenderer.removeListener('lumi:toolRuntime',receive);};},
   loginInfo:() => call('loginInfo'),login:p => call('login',p),verifyLogin:p => call('verifyLogin',p),browserLogin:() => call('browserLogin'),logout:id => call('logout',id),
-  updatePreferences: p => call('preferences', p), modelHealth:model => call('modelHealth',model), dashboard: (query,force) => call('dashboard', {query,force}), logs: q => call('logs', q), localUsage: (query,requestId) => call('localUsage',requestId ? {query,requestId} : query),
+  updatePreferences: p => call('preferences', p), modelHealth:model => call('modelHealth',model), dashboard: (query,force) => call('dashboard', {query,force}), logs: q => call('logs', q), localUsage: (query,requestId) => call('localUsage', {query,requestId}),
   onLocalUsageProgress:listener=>{const receive=(_event:Electron.IpcRendererEvent,progress:Parameters<typeof listener>[0])=>listener(progress);ipcRenderer.on('lumi:localUsageProgress',receive);return()=>ipcRenderer.removeListener('lumi:localUsageProgress',receive);},
   localSessionDetails:input=>call('localSessionDetails',input),
   loadLocalSession:input=>call('loadLocalSession',input),

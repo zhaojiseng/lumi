@@ -245,10 +245,10 @@ export class NewApiClient {
   async logs(q: LogQuery, window?: {start_timestamp:number;end_timestamp:number}): Promise<LogPage> {
     if (!this.snapshot) return this.scope().logs(q,window);
     if(q.models?.length || q.tokenIds?.length){
-      const rows=filterLogs((await this.completeLogs(q.range || q.days,0)).rows,q).filter(row=>(!q.type || row.type===q.type) && (!q.model || row.model_name===q.model) && (!q.tokenName || row.token_name===q.tokenName));
+      const rows=filterLogs((await this.completeLogs(q.range || q.days,0)).rows,q).filter(row=>!q.type || row.type===q.type);
       return {items:structuredClone(rows.slice((q.page-1)*q.pageSize,q.page*q.pageSize)),total:rows.length,page:q.page,pageSize:q.pageSize};
     }
-    const j = await this.request('/api/log/self', { query: { ...(window || timeRange(q.range || q.days)), p: q.page, page_size: q.pageSize, type: q.type || 0, model_name: q.model, token_name: q.tokenName } });
+    const j = await this.request('/api/log/self', { query: { ...(window || timeRange(q.range || q.days)), p: q.page, page_size: q.pageSize, type: q.type || 0 } });
     // New API changed from an array to a paginated DTO; accept both shapes.
     const data = j.data;
     const items: UsageLog[] = Array.isArray(data) ? data : data?.items || [];
@@ -553,14 +553,30 @@ export class NewApiClient {
   async updateToken(input:UpdateTokenInput):Promise<void> {
     if(!this.snapshot)return this.scope().updateToken(input);
     if(!Number.isSafeInteger(input.id) || input.id<=0)throw new Error('无效令牌 ID。');
-    const catalog=await this.catalog(),settings=tokenSettings(input,catalog);
+    if(!Object.keys(input).some(key=>key!=='id' && key!=='enabled')){
+      if(input.enabled===undefined)throw new Error('没有需要更新的令牌设置。');
+      return this.toggleToken(input.id,input.enabled);
+    }
+    const catalog=await this.catalog();
     const current=(await this.tokens()).find(t=>t.id===input.id);
     if(!current)throw new Error('令牌不存在，请刷新后重试。');
+    const merged:Omit<CreateTokenInput,'tool'>={
+      name:input.name ?? current.name,
+      group:input.group ?? current.group,
+      unlimited:input.unlimited ?? current.unlimited_quota,
+      quota:input.quota ?? current.remain_quota,
+      models:input.models ?? (current.model_limits_enabled ? current.model_limits || '' : ''),
+      expiredTime:input.expiredTime ?? (current.expired_time || -1),
+      allowIps:input.allowIps ?? (current.allow_ips || ''),
+      crossGroupRetry:input.crossGroupRetry ?? current.cross_group_retry,
+    };
+    const settings=tokenSettings(merged,catalog);
     const scope=this.current(),managed=scope.preferences.managedTokens.some(t=>t.siteId===scope.site.id && t.id===input.id) || scope.preferences.bindings.some(b=>b.siteId===scope.site.id && (b.tokenId===input.id || b.tokenName===current.name));
     if(managed && settings.name!==current.name)throw new Error('工具专用令牌名称需保留，以维护历史消费归属。');
     const checkAccount=()=>{this.checkScope(scope);const secret=this.store.credentials(scope.site.id);if(secret.userId!==scope.secret.userId || secret.sessionId!==scope.secret.sessionId || (scope.secret.userId===undefined && secret.accessToken!==scope.secret.accessToken))throw new Error('登录账户已变更，请重新打开令牌控制。');};
     checkAccount();
     await this.request('/api/token/',{method:'PUT',body:{id:input.id,...settings}});
+    if(input.enabled!==undefined)await this.request('/api/token/',{method:'PUT',query:{status_only:true},body:{id:input.id,status:input.enabled ? 1 : 2}});
     checkAccount();
     if(managed)await this.store.syncTokenSettings(scope.site.id,scope.site.url,input.id,current.name,settings.group);
   }

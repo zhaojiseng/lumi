@@ -752,19 +752,25 @@ export interface NativeMenuBarState {
   type:'state';schemaVersion:1;phase:string;siteName:string;accountLabel:string;days:number;tool:string;
   contents:('balance'|'totals'|'tokenDetail'|'efficiency'|'chart'|'models')[];
   totalsCaption?:string;viewKey?:string;
+  typography?:{fontSize:number;fontFamily:'system'|'sans'|'serif'|'mono'};
+  theme?:'light'|'dark';
+  palette?:SurfacePalette;
   balance:string;cost:string;tokens:string;requests:string;tokenDetail:string;cacheDetail:string;
   cacheHitRate:string;tokenSpeed:string;message:string;updatedLabel:string;canRefresh:boolean;chartCaption:string;
   chart:{label:string;value:number;cost:string;tokens:string;requests:string}[]|null;
   models:{name:string;cost:string;share:number}[];modelsMessage:string;
 }
 export interface WidgetModel {name:string;cost:string;requests:string;input:string;output:string;cacheRead:string;cacheWrite:string;}
+export type SurfaceColor=[number,number,number,number];
+export type SurfacePalette=Record<'panel'|'panel-strong'|'panel-soft'|'text'|'text-secondary'|'text-muted'|'accent'|'accent-hover'|'accent-soft'|'border'|'line'|'hover'|'hover-strong'|'blue'|'blue-soft'|'purple'|'purple-soft'|'orange'|'orange-soft'|'red'|'red-soft',SurfaceColor>;
 export interface WidgetState {
+  typography?:{fontSize:number;fontFamily:'system'|'sans'|'serif'|'mono'};material?:'acrylic'|'liquid-glass'|'vibrancy'|'opaque';palette?:SurfacePalette;
   phase:'idle'|'loading'|'ready'|'error';enabled:boolean;siteName:string;balance:string;cost:string;minuteLabel:string;historical:boolean;
   models:WidgetModel[];latestModel?:WidgetModel;message:string;updatedAt:number;viewKey:string;dataKey:string;theme:'light'|'dark';
   animation?:'slide-up'|'slide-down'|'blur'|'fade'|'scale'|'none';source?:'api'|'local';
 }
 export interface SubscriptionWindow {usedPercent:number|null;remainingPercent:number|null;durationMinutes:number|null;resetsAt:number|null;}
-export interface CodexBridgeStatus {installed:boolean;state:'starting'|'ready'|'exited';detail?:string;}
+export interface CodexBridgeStatus {installed:boolean;version?:string;state:'starting'|'ready'|'exited';detail?:string;}
 export interface CodexBridgeMessage {id?:number|string;method?:string;params?:unknown;result?:unknown;error?:{code?:number;message?:string;data?:unknown};}
 export interface CodexBridgeSdk {
   status():Promise<CodexBridgeStatus>;

@@ -36,7 +36,7 @@ function Host(){
  fixture.setEnabled=(id,enabled)=>setStatuses(all=>all.map(status=>status.manifest.id===id ? {...status,state:enabled ? 'active' : 'disabled',generation:status.generation+1} : status));
  fixture.enabledTools=['codex','claude'].filter(tool=>statuses.some(status=>status.manifest.id==='adapter.tool.'+tool && status.state==='active'));
  const items=settingsGroups(statuses.map(status=>status.manifest)).map(group=>({...group,status:statuses.find(status=>status.manifest.id===group.id)}));
- const app={preferences,bootstrap:{preferences,desktop:true,secureStorage:true,version:'fixture',configs:[]},dashboard,page,setPage,openLogin:()=>{},updatePreferences:async patch=>setPreferences(current=>applyPreferencePatch(current,patch)),toast:(message,kind)=>fixture.notices.push({message,kind}),reloadBootstrap:async()=>{}};
+ const app={preferences,configs:[],bootstrap:{preferences,desktop:true,secureStorage:true,version:'fixture'},dashboard,page,setPage,openLogin:()=>{},updatePreferences:async patch=>setPreferences(current=>applyPreferencePatch(current,patch)),toast:(message,kind)=>fixture.notices.push({message,kind}),reloadBootstrap:async()=>{}};
  return <AppContext.Provider value={app}><PluginSettingsProvider value={{items,statuses,loading:false,busyId:null,error:'',setEnabled:async()=>{},setView:async()=>{}}}><ToolConfigViewsProvider value={toolConfigContributions(statuses)}>{page==='settings' ? <PluginSettingsSection/> : <Tools/>}</ToolConfigViewsProvider></PluginSettingsProvider></AppContext.Provider>;
 }
 createRoot(document.getElementById('root')).render(<Host/>);`},bundle:true,platform:'browser',format:'esm',write:false,loader:{'.css':'empty','.svg':'text'},define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});

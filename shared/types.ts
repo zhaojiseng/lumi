@@ -72,7 +72,7 @@ export interface DateRange { startDate: string; endDate: string; startTime?: str
 export type RangeQuery = number | '24h' | DateRange;
 export interface StatisticsQuery { range: RangeQuery; models?: string[]; tokenIds?: number[]; }
 export type DashboardQuery = RangeQuery | StatisticsQuery;
-export interface LogQuery { range?: RangeQuery; days: number; page: number; pageSize: number; model?: string; tokenName?: string; models?: string[]; tokenIds?: number[]; type?: number; }
+export interface LogQuery { range?: RangeQuery; days: number; page: number; pageSize: number; models?: string[]; tokenIds?: number[]; type?: number; }
 export interface LogPage { items: UsageLog[]; total: number; page: number; pageSize: number; }
 export interface QuotaPoint { created_at: number; model_name: string; quota: number; token_used: number; count: number; token_name?: string; token_id?: number; cacheInputTokens?:number; cacheReadTokens?:number; outputTokens?:number; durationSeconds?:number; speedSamples?:number; netOutputTokens?:number; subsequentDurationSeconds?:number; netSpeedSamples?:number; }
 export interface UsageQuality {
@@ -196,13 +196,13 @@ export interface BackupInfo { id: string; tool: Tool; createdAt: number; paths: 
 export interface Bootstrap {
   preferences: Preferences; desktop: boolean; version: string;
   platform?: 'win32' | 'darwin' | 'linux' | 'browser';
-  configs: ToolConfigState[]; secureStorage: boolean;
+  secureStorage: boolean;
 }
 export interface CreateTokenInput {
   name: string; tool?: Tool; group: string; unlimited: boolean; quota: number;
   models?: string; expiredTime?:number; allowIps?:string; crossGroupRetry?:boolean;
 }
-export interface UpdateTokenInput extends Omit<CreateTokenInput,'tool'> { id:number; }
+export interface UpdateTokenInput extends Partial<Omit<CreateTokenInput,'tool'>> { id:number; enabled?:boolean; }
 export interface LumiBridge {
   syncSurfaceTheme(input:import('./surface-theme').SurfaceTheme):Promise<void>;
   extensionInventory():Promise<ExtensionInventory>;
@@ -270,7 +270,7 @@ export interface LumiBridge {
   updateToken(input:UpdateTokenInput):Promise<void>;
   getTokenKey(id: number): Promise<string>;
   copyTokenKey(id: number): Promise<void>;
-  exportLogs(query: LogQuery): Promise<{ path?: string; count: number }>;
+  exportLogs(query: LogQuery): Promise<{ path?: string; count: number; cancelled: boolean }>;
   openExternal(url: string): Promise<void>;
   windowControl(action: 'minimize' | 'maximize' | 'close'): Promise<void>;
   onExtensionEvent(listener:(event:ExtensionEventMessage)=>void):()=>void;

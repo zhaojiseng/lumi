@@ -51,7 +51,7 @@ function PluginSettingsNode({item,onOpen}:{item:PluginSettingsItem;onOpen(id:str
     {item.status.error && <p className="plugin-node-error warning-banner error-banner" role="alert">{item.status.error}</p>}
   </li>;
 }
-const capabilityLabels:Record<string,string>={'catalog.read':'模型目录','account.session':'账户连接','online.usage':'在线用量','tokens.manage':'令牌管理','toolCredential.provision':'工具配钥','desktopUsage.read':'桌面用量','subscriptionUsage.read':'订阅限额','toolConfig.build':'CLI 配置适配','widget.project':'浮窗数据','tray.project':'托盘数据','surface.control':'桌面面板'};
+const capabilityLabels:Record<string,string>={'catalog.read':'模型目录','account.session':'账户连接','online.usage':'在线用量','tokens.manage':'令牌管理','toolCredential.provision':'工具配钥','desktopUsage.read':'桌面用量','subscriptionUsage.read':'订阅限额','toolConfig.build':'CLI 配置适配','surface.control':'桌面面板'};
 const permissionLabels:Record<string,string>={'workbench.read':'工作台数据','usage.read':'用量数据','codex.usage.read':'Codex 限额','storage':'插件存储','network.read':'网络读取','secrets':'加密凭据'};
 function PluginSettingsDetails({item,active,onClose,returnFocus}:{item:PluginSettingsItem;active:boolean;onClose():void;returnFocus:HTMLButtonElement|null}){
   const {extensions,busyId,setView}=usePluginSettings(),enabled=item.status.state==='active' || item.status.state==='activating',running=item.status.state==='active';

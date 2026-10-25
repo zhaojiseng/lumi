@@ -44,9 +44,9 @@ export function ConfigFeedback({pending,error}:{pending?:ConfigOperation|null;er
 }
 
 function ToolForm({definition,tool,onPreview,runtime,chatgpt,onInstall,onDetect,config,locked,pending,error}:{definition:ToolConfigView;tool:Tool;onPreview(req:ConfigRequest):Promise<void>;runtime?:ToolRuntimeState;chatgpt?:ToolRuntimeState;onInstall(tool:Tool):void;onDetect():void;config?:ToolConfigState;locked:boolean;pending?:ConfigOperation;error?:string}) {
-  const {bootstrap,preferences,dashboard:d,openLogin}=useApp();
+  const {bootstrap,configs,preferences,dashboard:d,openLogin}=useApp();
   const provider=usePluginStatus('provider.newapi'),providerEnabled=!provider || provider.state==='active';
-  const b=preferences.bindings.find(x=>x.tool===tool && x.siteId===preferences.activeSiteId),state=config || bootstrap.configs.find(x=>x.tool===tool);
+  const b=preferences.bindings.find(x=>x.tool===tool && x.siteId===preferences.activeSiteId),state=config || configs.find(x=>x.tool===tool);
   const [model,setModel]=useSavedSelection(tool+'.model',b?.model || state?.model || ''),[group,setGroup]=useSavedSelection(tool+'.group',b?.group || '');
   const [keyInfo,setKeyInfo]=useState(false),[prices,setPrices]=useState(false);
   const site=preferences.sites.find(s=>s.id===preferences.activeSiteId)!,catalog=d?.catalog,models=sortModels(catalog?.models || [],preferences.favoriteModels),selected=models.find(m=>m.model_name===model),groups=selected && catalog ? availableGroups(selected,catalog) : [];

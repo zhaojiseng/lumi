@@ -39,7 +39,7 @@ export default function OnlineUsage({view:tab}:{view:'billing'|'logs'}) {
   const refreshScope=JSON.stringify([preferences.activeSiteId,d.user?.id]);
   const motion={animation:preferences.dataRefreshAnimation,resetKey:refreshScope};
   const bindingList = preferences.bindings.filter(b => b.siteId === preferences.activeSiteId);
-  async function doExport() { setExporting(true); try { const r = await bridge.exportLogs({ ...logQuery, page: 1, pageSize: 100 }); if (r.count) toast(`已导出 ${r.count} 条记录`, 'success'); } catch (e: any) { toast(e.message, 'error'); } finally { setExporting(false); } }
+  async function doExport() { setExporting(true); try { const r = await bridge.exportLogs({ ...logQuery, page: 1, pageSize: 100 }); if (r.cancelled) return; if (r.count) toast(`已导出 ${r.count} 条记录`, 'success'); else toast('当前筛选没有可导出的记录。', 'info'); } catch (e: any) { toast(e.message, 'error'); } finally { setExporting(false); } }
   return <><StatisticsFilter/>
     <MotionSwap identity={tab} className="usage-tab-content">{tab === 'billing' && <>
       <UsageQuality dashboard={d}/>

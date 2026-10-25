@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
-import type { Bootstrap, Dashboard, RangeQuery, StatisticsQuery, Page, Preferences, PreferencePatch } from '../shared/types';
+import type { Bootstrap, Dashboard, RangeQuery, StatisticsQuery, Page, Preferences, PreferencePatch, ToolConfigState } from '../shared/types';
 export interface AppState {
-  openLogin():void; bootstrap: Bootstrap; preferences: Preferences; dashboard: Dashboard | null;
+  openLogin():void; bootstrap: Bootstrap; configs: ToolConfigState[]; preferences: Preferences; dashboard: Dashboard | null;
   page: Page; setPage(page: Page): void; days: number; setDays(n: number): void;
   overviewQuery: RangeQuery; setOverviewQuery(query: RangeQuery): void; statisticsQuery: StatisticsQuery;
   loading: boolean; error: string; refresh(force?: boolean): Promise<void>;

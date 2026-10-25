@@ -5,9 +5,9 @@ import {selectionValue} from '../../shared/selections';
 
 /** Adapters own their options; this host only places them in the plugin detail page. */
 export function ToolPluginSettings({definition}:{definition:ToolConfigView}){
-  const {preferences,bootstrap,dashboard,setPage}=useApp();
+  const {preferences,configs,dashboard,setPage}=useApp();
   const binding=preferences.bindings.find(value=>value.tool===definition.tool && value.siteId===preferences.activeSiteId);
-  const state=bootstrap.configs.find(value=>value.tool===definition.tool);
+  const state=configs.find(value=>value.tool===definition.tool);
   const modelName=selectionValue(preferences,definition.tool+'.model',binding?.model || state?.model || '');
   const model=dashboard?.catalog.models.find(value=>value.model_name===modelName);
   const options=definition.useOptions(binding,state,false,model);

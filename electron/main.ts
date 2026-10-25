@@ -1,7 +1,9 @@
 import {createCodexBridgeFactory} from './services/codex-bridge-factory';
 import {createExtensionCodexBridge} from './extensions/codex-bridge';
+import {extensionRead} from './extensions/read';
+import {LowBalanceNotice} from './services/low-balance';
 import {LOG_COLUMN_IDS,MENU_BAR_SECTION_IDS} from '../shared/types';
-import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Notification, Menu, nativeImage, clipboard,screen,nativeTheme,protocol,systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, safeStorage, shell, dialog, Menu, nativeImage, clipboard,screen,nativeTheme,protocol,systemPreferences } from 'electron';
 import path from 'node:path';
 import { writeFile,readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
@@ -40,7 +42,7 @@ import {WindowCloseAnimation} from './services/window-close';
 import {DATA_REFRESH_ANIMATIONS} from '../shared/motion';
 import {validFontSize,validFontFamily,type FontFamily} from '../shared/typography';
 import {startupHtml} from './startup';
-import { currency, logsToCsv } from '../shared/utils';
+import { logsToCsv } from '../shared/utils';
 import {validServiceTier} from '../shared/pricing';
 import type { ConfigRequest, LogQuery, SiteInput, CreateTokenInput, UpdateTokenInput,Page } from '../shared/types';
 const root = path.resolve(__dirname, '..');
@@ -61,7 +63,7 @@ const modelsSchema=z.array(z.string().min(1).max(200)).max(500);
 const tokenIdsSchema=z.array(z.number().int().positive()).max(500);
 const rangeQuerySchema=z.union([daySchema,z.literal('24h'),dateRangeSchema]);
 const statisticsSchema=z.union([rangeQuerySchema,z.object({range:rangeQuerySchema,models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional()}).strict()]);
-const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), model: z.string().max(200).optional(), tokenName: z.string().max(100).optional(), models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional(),type: z.number().int().min(0).max(10).optional() }).strict();
+const logSchema = z.object({ range:rangeQuerySchema.optional(), days: daySchema, page: z.number().int().min(1).max(10000), pageSize: z.number().int().min(1).max(100), models:modelsSchema.optional(),tokenIds:tokenIdsSchema.optional(),type: z.number().int().min(0).max(10).optional() }).strict();
 const siteSchema = z.object({ id: z.string().max(100).optional(), name: z.string().trim().min(1).max(80), url: z.string().min(1).max(2000), userId: z.number().int().positive().optional(), allowHttp: z.boolean(), accessToken: z.string().max(10000).optional(), apiKey: z.string().max(10000).optional(), clearAccessToken: z.boolean().optional(), clearApiKey: z.boolean().optional() });
 const selectionSchema = z.object({siteId:z.string().min(1).max(100),values:z.record(z.string().min(1).max(600),z.union([z.string().max(4000),z.number().finite(),z.boolean(),dateRangeSchema,z.array(z.string().max(200)).max(500).refine(v=>new Set(v).size===v.length)])).refine(v=>Object.keys(v).length<=5000)}).strict();
 const barRangeSchema=z.union([z.literal('follow'),z.literal('24h'),z.literal(1),z.literal(7),z.literal(30)]);
@@ -149,6 +151,12 @@ async function start() {
   }});
   const accountApi=plugins.port('provider.newapi','account.session'),onlineApi=plugins.port('provider.newapi','online.usage'),tokensApi=plugins.port('provider.newapi','tokens.manage');
   const usage=plugins.require('source.local-sessions','localSessions.read');
+  const codexUsageRead=(input:{force?:boolean})=>plugins.require('provider.codex','subscriptionUsage.read').read(input);
+  const extensionReadHandlers={
+    codexUsage:codexUsageRead,
+    usage:async()=>{const widgetUsage=await plugins.require('feature.usage','usage.present').loadWidget();return formattedWidget('ready',widgetUsage,{enabled:true,viewKey:'extension',theme:resolvedTheme()});},
+    workbench:async(input:{force?:boolean})=>{const menuUsage=await plugins.require('feature.workbench','workbench.present').loadMenu(input.force);return nativeMenuBarState({phase:'ready',usage:menuUsage},menuBarSelection(store.preferences.viewSelections[store.preferences.activeSiteId]),store.preferences.menuBarContents);},
+  };
   const configs = new ConfigService(store, data, undefined, req => plugins.require('provider.newapi','toolCredential.provision').provision(req),tool=>plugins.require('adapter.tool.'+tool,'toolConfig.build'));
   const codexBridgeFactory=createCodexBridgeFactory({resolve:process.env.LUMI_SMOKE==='1' ? async()=>undefined : ()=>runtimes.resolveCodexAppServerCommand(),chooseDirectory:async()=>{const picked=await dialog.showOpenDialog(win,{title:'选择 Codex 工作目录',properties:['openDirectory','createDirectory']});return picked.canceled || !picked.filePaths[0] ? null : picked.filePaths[0];}});
   const codexBridge=createExtensionCodexBridge(()=>codexBridgeFactory,event=>{if(!win.isDestroyed())win.webContents.send('lumi:extensionEvent',event);});
@@ -194,11 +202,7 @@ async function start() {
     interfacePreferences:()=>({candidates:[{id:DEFAULT_INTERFACE_ID,enabled:store.preferences.defaultInterfaceEnabled,priority:0},{id:BACKGROUND_INTERFACE_ID,enabled:pluginEnabled(backgroundInterfaceManifest,store.preferences),priority:200}],priorities:store.preferences.interfacePriorities}),
     context:()=>{const site=store.activeSite();return {theme:resolvedTheme(),locale:'zh-CN',site:{id:site.id,name:site.name,url:site.url}};},
     scope:()=>{const site=store.activeSite(),secret=store.credentials(site.id);return JSON.stringify([site.id,site.url,secret.sessionId,secret.userId,secret.accessToken,secret.cookies,plugins.generation('provider.newapi'),plugins.isEnabled('provider.newapi')]);},
-    read:async(method,input)=>{
-      if(method==='codex.usage.read')return plugins.require('provider.codex','subscriptionUsage.read').read(input as {force?:boolean});
-      if(method==='usage.read'){const usage=await plugins.require('feature.usage','usage.present').loadWidget();return formattedWidget('ready',usage,{enabled:true,viewKey:'extension',theme:resolvedTheme()});}
-      const usage=await plugins.require('feature.workbench','workbench.present').loadMenu((input as {force?:boolean}).force);return nativeMenuBarState({phase:'ready',usage},menuBarSelection(store.preferences.viewSelections[store.preferences.activeSiteId]),store.preferences.menuBarContents);
-    },
+    read:(method,input)=>extensionRead(method,input as {force?:boolean},extensionReadHandlers),
     codexBridge:codexBridge.call,gateway:gatewayManagement,hostVersion:app.getVersion(),
   });
   await extensions.start();
@@ -236,9 +240,9 @@ async function start() {
   const initialCacheCleanup=updateEnabled && !macMounted ? cleanInstalledPackages() : Promise.resolve();
   const updatePanels=()=>{void plugins.notifySurfaces();};
   if(process.platform==='darwin')Menu.setApplicationMenu(Menu.buildFromTemplate([...macMenu({navigate,show:showWindow,quit,refresh:()=>{void plugins.refreshSurfaces(true);win.webContents.send('lumi:refresh');},checkUpdate:()=>{navigate('settings');win.webContents.send('lumi:reviewUpdate');}}),gatewayRecoveryMenu()]));
-  let lastNotice = 0;
+  const lowBalance=new LowBalanceNotice();
   const noPayload = z.undefined();
-  handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), configs: [], secureStorage: store.cipher.available() }));
+  handle('bootstrap', noPayload, () => ({ preferences: structuredClone(store.preferences), desktop: true, platform:process.platform,version: app.getVersion(), secureStorage: store.cipher.available() }));
   handle('listPlugins',noPayload,allPluginStatuses);
   handle('syncSurfaceTheme',z.unknown().transform(parseSurfaceTheme),input=>{if(surfaceTheme.update(input))notifySurfaceTheme();});
   handle('extensionInventory',noPayload,()=>extensions.inventory());
@@ -248,7 +252,7 @@ async function start() {
   handle('reloadExtensions',noPayload,async()=>{dropAllBridgeSubscribers();const previous=extensions.inventory().interfaceStyle,inventory=await extensions.reload();updateSurfaceInterface(previous);return inventory;});
   handle('openExtensionsDirectory',noPayload,async()=>{const error=await shell.openPath(extensions.inventory().directory);if(error)throw new Error('扩展目录暂未能打开。');});
   handle('extensionRequest',z.object({id:z.string().regex(/^extension\.[a-z][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$/),generation:z.number().int().positive(),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),method:z.enum(EXTENSION_METHODS),input:z.unknown().optional()}).strict(),input=>extensions.request(input));
-  handle('readCodexUsage',z.object({force:z.boolean().optional()}).strict(),input=>plugins.require('provider.codex','subscriptionUsage.read').read(input));
+  handle('readCodexUsage',z.object({force:z.boolean().optional()}).strict(),codexUsageRead);
   handle('setPluginEnabled',z.object({id:z.string().min(1).max(100),enabled:z.boolean()}).strict(),async input=>{const previous=extensions.inventory().interfaceStyle;if(extensions.has(input.id))await extensions.setEnabled(input.id,input.enabled);else await plugins.setEnabled(input.id,input.enabled);if(!input.enabled && extensions.has(input.id))dropBridgeSubscriber(input.id);updateSurfaceInterface(previous);if(input.id==='surface.widget')win.webContents.send('lumi:widgetVisibility',input.enabled);return allPluginStatuses();});
   handle('setPluginView',z.object({id:z.string().min(1).max(100),view:z.string().regex(/^[a-z][a-z0-9.-]{0,79}$/),enabled:z.boolean()}).strict(),async input=>{if(extensions.has(input.id))await extensions.setView(input.id,input.view,input.enabled);else await plugins.setView(input.id,input.view,input.enabled);return allPluginStatuses();});
   handle('readCatalog',z.object({siteId:z.string().min(1).max(100),siteUrl:z.string().min(1).max(2000),force:z.boolean().optional()}).strict(),input=>plugins.readCatalog(input));
@@ -271,9 +275,7 @@ async function start() {
   handle('dashboard', z.object({query:statisticsSchema,force:z.boolean().optional()}).strict(), async input => {
     const d = await onlineApi.dashboard(input.query,input.force);
     void plugins.refreshSurfaces();
-    if (d.user && currency(d.status).value(d.user.quota) <= store.preferences.lowBalanceThreshold && Date.now() - lastNotice > 3600000) {
-      lastNotice = Date.now(); if (Notification.isSupported()) new Notification({ title: 'Lumi · 余额提醒', body: `${store.activeSite().name} 的余额低于提醒阈值，请查看账户。` }).show();
-    }
+    lowBalance.observe(d,store.activeSite().id,store.activeSite().name,store.preferences.lowBalanceThreshold);
     return d;
   });
   handle('logs', logSchema, q => onlineApi.logs(q as LogQuery));
@@ -286,9 +288,9 @@ async function start() {
   handle('showUpdateFile',noPayload,async()=>shell.showItemInFolder(await updates.readyFile()));
   handle('openUpdateFile',noPayload,()=>updates.openMacInstaller(file=>shell.openPath(file),()=>{setImmediate(()=>app.quit());}));
   handle('restartUpdate',noPayload,()=>updates.restart());
-  handle('localUsage', z.union([statisticsSchema,z.object({query:statisticsSchema,requestId:z.string().uuid()}).strict()]), input => {
-    const identified=typeof input==='object' && 'query' in input;
-    return usage.scan(identified ? input.query : input,identified ? progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localUsageProgress',{...progress,requestId:input.requestId});} : undefined);
+  handle('localUsage', z.object({query:statisticsSchema,requestId:z.string().uuid().optional()}).strict(), input => {
+    const requestId=input.requestId;
+    return usage.scan(input.query,requestId ? progress=>{if(!win.isDestroyed())win.webContents.send('lumi:localUsageProgress',{...progress,requestId});} : undefined);
   });
   handle('localSessionDetails',z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),query:statisticsSchema,cursor:z.string().uuid().optional()}).strict(),input=>usage.localSessionDetails(input));
   const snapshotPageSchema=z.object({snapshotId:z.string().uuid(),page:z.number().int().min(1).max(100000000),pageSize:z.number().int().min(1).max(50)}).strict();
@@ -303,15 +305,15 @@ async function start() {
   handle('restoreBackup', z.string().uuid(), id => plugins.runFeature('feature.tool-config',()=>configs.restore(id)));
   handle('createToken', tokenSchema, input => plugins.runView('provider.newapi','tokens',()=>tokensApi.createToken(input as CreateTokenInput)));
   handle('toggleToken', z.object({ id: z.number().int().positive(), enabled: z.boolean() }).strict(), p => plugins.runView('provider.newapi','tokens',async()=>{configs.invalidateTokenPreviews(p.id);await tokensApi.toggleToken(p.id,p.enabled);}));
-  handle('updateToken',tokenSchema.omit({tool:true}).extend({id:z.number().int().positive()}),input=>plugins.runView('provider.newapi','tokens',async()=>{configs.invalidateTokenPreviews(input.id);await tokensApi.updateToken(input as UpdateTokenInput);}));
+  handle('updateToken',tokenSchema.omit({tool:true}).partial().extend({id:z.number().int().positive(),enabled:z.boolean().optional()}),input=>plugins.runView('provider.newapi','tokens',async()=>{configs.invalidateTokenPreviews(input.id);await tokensApi.updateToken(input as UpdateTokenInput);}));
   handle('getTokenKey', z.number().int().positive(), id => plugins.runView('provider.newapi','tokens',()=>tokensApi.getTokenKey(id)));
   handle('copyTokenKey', z.number().int().positive(), id => plugins.runView('provider.newapi','tokens',async()=>{clipboard.writeText(await tokensApi.getTokenKey(id));}));
   handle('exportLogs', logSchema, async q => {
     const status = await onlineApi.status();
     const rows = await onlineApi.allLogs(q as LogQuery);
     const target = await dialog.showSaveDialog(win, { title: '导出使用记录', defaultPath: `Lumi-usage-${new Date().toLocaleDateString('sv-SE')}.csv`, filters: [{ name: 'CSV', extensions: ['csv'] }] });
-    if (target.canceled || !target.filePath) return { count: 0 };
-    await writeFile(target.filePath, logsToCsv(rows, status), 'utf8'); return { count: rows.length, path: target.filePath };
+    if (target.canceled || !target.filePath) return { count: 0, cancelled: true };
+    await writeFile(target.filePath, logsToCsv(rows, status), 'utf8'); return { count: rows.length, path: target.filePath, cancelled: false };
   });
   handle('openExternal', z.string().max(4000), async raw => { const url = new URL(raw); if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error('不支持此链接。'); await shell.openExternal(url.href); });
   handle('window', z.enum(['minimize', 'maximize', 'close']), action => { if (action === 'minimize') win.minimize(); else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize(); else win.close(); });

@@ -51,7 +51,7 @@ async function harness() {
   preferences.sites[0]={...preferences.sites[0],url:'https://fixture.invalid',accessTokenConfigured:true,userId:1};
   preferences.bindings=preferences.bindings.map(b=>({...b,model:request(b.tool).model,group:'standard'}));
   const app:AppState={
-    preferences,bootstrap:{preferences,desktop:true,version:'0.4.28',secureStorage:true,configs:[configFor('codex','original-model')]},
+    preferences,configs:[configFor('codex','original-model')],bootstrap:{preferences,desktop:true,version:'0.4.28',secureStorage:true},
     dashboard:{status:{system_name:'Fixture',quota_per_unit:500000},user:{id:1,username:'fixture',display_name:'Fixture',quota:0,used_quota:0,request_count:0,group:'standard'},
       logs:{items:[],total:0,page:1,pageSize:100},series:[],stat:null,tokens:[],warnings:[],fetchedAt:1,days:7,
       catalog:{models:(['codex','claude'] as const).map(tool=>({model_name:request(tool).model,quota_type:0,model_ratio:1,model_price:0,completion_ratio:1,enable_groups:['standard'],supported_endpoint_types:[]})),groupRatio:{standard:1},usableGroups:{standard:'标准'},autoGroups:[],vendors:[]}},
